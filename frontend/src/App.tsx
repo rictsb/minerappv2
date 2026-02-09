@@ -1,0 +1,27 @@
+import { Routes, Route, Navigate } from 'react-router-dom';
+import Layout from './components/Layout';
+import Dashboard from './pages/Dashboard';
+import Projects from './pages/Projects';
+import Factors from './pages/Factors';
+import DataQuality from './pages/DataQuality';
+import MapView from './pages/MapView';
+import Settings from './pages/Settings';
+
+function App() {
+  return (
+    <Layout>
+      <Routes>
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/projects" element={<Projects />} />
+        <Route path="/projects/:ticker" element={<Projects />} />
+        <Route path="/factors" element={<Factors />} />
+        <Route path="/data-quality" element={<DataQuality />} />
+        <Route path="/map" element={<MapView />} />
+        <Route path="/settings" element={<Settings />} />
+      </Routes>
+    </Layout>
+  );
+}
+
+export default App;
