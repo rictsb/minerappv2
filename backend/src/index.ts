@@ -9,9 +9,6 @@ import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import importRouter from './routes/import.js';
 import stockPricesRouter from './routes/stockPrices.js';
-import sitesRouter from './routes/projects.js';
-import phasesRouter from './routes/phases.js';
-import tenanciesRouter from './routes/tenancies.js';
 
 // Load environment variables
 dotenv.config();
@@ -41,8 +38,8 @@ app.use(express.json());
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 100,
 });
 app.use('/api/', limiter);
 
@@ -51,7 +48,11 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-// API Routes placeholder - will be expanded
+// ===========================================
+// COMPANIES API
+// ===========================================
+
+// GET all companies with full hierarchy
 app.get('/api/v1/companies', async (req, res) => {
   try {
     const companies = await prisma.company.findMany({
@@ -59,13 +60,20 @@ app.get('/api/v1/companies', async (req, res) => {
       include: {
         sites: {
           include: {
-            phases: {
+            campuses: {
               include: {
-                tenancies: true,
+                buildings: {
+                  include: {
+                    usePeriods: {
+                      where: { isCurrent: true },
+                    },
+                  },
+                },
               },
             },
           },
         },
+        debts: true,
       },
     });
     res.json(companies);
@@ -75,6 +83,7 @@ app.get('/api/v1/companies', async (req, res) => {
   }
 });
 
+// GET single company
 app.get('/api/v1/companies/:ticker', async (req, res) => {
   try {
     const company = await prisma.company.findUnique({
@@ -82,15 +91,20 @@ app.get('/api/v1/companies/:ticker', async (req, res) => {
       include: {
         sites: {
           include: {
-            phases: {
+            campuses: {
               include: {
-                tenancies: true,
+                buildings: {
+                  include: {
+                    usePeriods: true,
+                  },
+                },
               },
             },
             factors: true,
           },
         },
         factors: true,
+        debts: true,
       },
     });
     if (!company) {
@@ -103,6 +117,210 @@ app.get('/api/v1/companies/:ticker', async (req, res) => {
   }
 });
 
+// ===========================================
+// SITES API
+// ===========================================
+
+app.get('/api/v1/sites', async (req, res) => {
+  try {
+    const sites = await prisma.site.findMany({
+      include: {
+        campuses: {
+          include: {
+            buildings: {
+              include: {
+                usePeriods: { where: { isCurrent: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+    res.json(sites);
+  } catch (error) {
+    console.error('Error fetching sites:', error);
+    res.status(500).json({ error: 'Failed to fetch sites' });
+  }
+});
+
+app.patch('/api/v1/sites/:id', async (req, res) => {
+  try {
+    const site = await prisma.site.update({
+      where: { id: req.params.id },
+      data: req.body,
+    });
+    res.json(site);
+  } catch (error) {
+    console.error('Error updating site:', error);
+    res.status(500).json({ error: 'Failed to update site' });
+  }
+});
+
+app.delete('/api/v1/sites/:id', async (req, res) => {
+  try {
+    await prisma.site.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting site:', error);
+    res.status(500).json({ error: 'Failed to delete site' });
+  }
+});
+
+// ===========================================
+// CAMPUSES API
+// ===========================================
+
+app.get('/api/v1/campuses', async (req, res) => {
+  try {
+    const campuses = await prisma.campus.findMany({
+      include: {
+        site: true,
+        buildings: {
+          include: {
+            usePeriods: { where: { isCurrent: true } },
+          },
+        },
+      },
+    });
+    res.json(campuses);
+  } catch (error) {
+    console.error('Error fetching campuses:', error);
+    res.status(500).json({ error: 'Failed to fetch campuses' });
+  }
+});
+
+app.patch('/api/v1/campuses/:id', async (req, res) => {
+  try {
+    const campus = await prisma.campus.update({
+      where: { id: req.params.id },
+      data: req.body,
+    });
+    res.json(campus);
+  } catch (error) {
+    console.error('Error updating campus:', error);
+    res.status(500).json({ error: 'Failed to update campus' });
+  }
+});
+
+app.delete('/api/v1/campuses/:id', async (req, res) => {
+  try {
+    await prisma.campus.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting campus:', error);
+    res.status(500).json({ error: 'Failed to delete campus' });
+  }
+});
+
+// ===========================================
+// BUILDINGS API
+// ===========================================
+
+app.get('/api/v1/buildings', async (req, res) => {
+  try {
+    const buildings = await prisma.building.findMany({
+      include: {
+        campus: {
+          include: { site: true },
+        },
+        usePeriods: true,
+      },
+    });
+    res.json(buildings);
+  } catch (error) {
+    console.error('Error fetching buildings:', error);
+    res.status(500).json({ error: 'Failed to fetch buildings' });
+  }
+});
+
+app.patch('/api/v1/buildings/:id', async (req, res) => {
+  try {
+    const building = await prisma.building.update({
+      where: { id: req.params.id },
+      data: req.body,
+      include: {
+        usePeriods: { where: { isCurrent: true } },
+      },
+    });
+    res.json(building);
+  } catch (error) {
+    console.error('Error updating building:', error);
+    res.status(500).json({ error: 'Failed to update building' });
+  }
+});
+
+app.delete('/api/v1/buildings/:id', async (req, res) => {
+  try {
+    await prisma.building.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting building:', error);
+    res.status(500).json({ error: 'Failed to delete building' });
+  }
+});
+
+// ===========================================
+// USE PERIODS API
+// ===========================================
+
+app.get('/api/v1/use-periods', async (req, res) => {
+  try {
+    const usePeriods = await prisma.usePeriod.findMany({
+      include: { building: true },
+    });
+    res.json(usePeriods);
+  } catch (error) {
+    console.error('Error fetching use periods:', error);
+    res.status(500).json({ error: 'Failed to fetch use periods' });
+  }
+});
+
+app.post('/api/v1/use-periods', async (req, res) => {
+  try {
+    // If creating a new current use period, mark old ones as not current
+    if (req.body.isCurrent && req.body.buildingId) {
+      await prisma.usePeriod.updateMany({
+        where: { buildingId: req.body.buildingId, isCurrent: true },
+        data: { isCurrent: false, endDate: new Date() },
+      });
+    }
+    const usePeriod = await prisma.usePeriod.create({
+      data: req.body,
+    });
+    res.json(usePeriod);
+  } catch (error) {
+    console.error('Error creating use period:', error);
+    res.status(500).json({ error: 'Failed to create use period' });
+  }
+});
+
+app.patch('/api/v1/use-periods/:id', async (req, res) => {
+  try {
+    const usePeriod = await prisma.usePeriod.update({
+      where: { id: req.params.id },
+      data: req.body,
+    });
+    res.json(usePeriod);
+  } catch (error) {
+    console.error('Error updating use period:', error);
+    res.status(500).json({ error: 'Failed to update use period' });
+  }
+});
+
+app.delete('/api/v1/use-periods/:id', async (req, res) => {
+  try {
+    await prisma.usePeriod.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting use period:', error);
+    res.status(500).json({ error: 'Failed to delete use period' });
+  }
+});
+
+// ===========================================
+// GLOBAL FACTORS API
+// ===========================================
+
 app.get('/api/v1/global-factors', async (req, res) => {
   try {
     const factors = await prisma.globalFactor.findMany();
@@ -113,42 +331,229 @@ app.get('/api/v1/global-factors', async (req, res) => {
   }
 });
 
-app.get('/api/v1/data-quality', async (req, res) => {
+app.post('/api/v1/global-factors', async (req, res) => {
   try {
-    const issues = await prisma.dataQualityIssue.findMany({
-      where: { ignored: false },
-      orderBy: [
-        { severity: 'asc' },
-        { createdAt: 'desc' },
-      ],
+    const factor = await prisma.globalFactor.upsert({
+      where: {
+        category_key: {
+          category: req.body.category,
+          key: req.body.key,
+        },
+      },
+      update: { value: req.body.value, description: req.body.description },
+      create: req.body,
     });
-    res.json(issues);
+    res.json(factor);
   } catch (error) {
-    console.error('Error fetching data quality issues:', error);
-    res.status(500).json({ error: 'Failed to fetch data quality issues' });
+    console.error('Error creating global factor:', error);
+    res.status(500).json({ error: 'Failed to create global factor' });
   }
 });
 
-// Import routes
+// ===========================================
+// SETTINGS API
+// ===========================================
+
+app.get('/api/v1/settings', async (req, res) => {
+  try {
+    const settings = await prisma.settings.findMany();
+    const settingsMap: Record<string, any> = {};
+    for (const s of settings) {
+      settingsMap[s.key] = s.value;
+    }
+    res.json(settingsMap);
+  } catch (error) {
+    console.error('Error fetching settings:', error);
+    res.status(500).json({ error: 'Failed to fetch settings' });
+  }
+});
+
+app.post('/api/v1/settings', async (req, res) => {
+  try {
+    const { key, value } = req.body;
+    const setting = await prisma.settings.upsert({
+      where: { key },
+      update: { value },
+      create: { key, value },
+    });
+    res.json(setting);
+  } catch (error) {
+    console.error('Error saving setting:', error);
+    res.status(500).json({ error: 'Failed to save setting' });
+  }
+});
+
+// ===========================================
+// VALUATION API
+// ===========================================
+
+// Default valuation factors
+const DEFAULT_FACTORS = {
+  btcPrice: 97000,
+  ethPrice: 2500,
+  mwValueHpcContracted: 25, // $M per MW for contracted HPC
+  mwValueHpcUncontracted: 8, // $M per MW for pipeline/uncontracted
+  mwValueBtcMining: 0.3, // $M per MW for BTC mining
+  noiMultiple: 10, // NOI multiple for valuation
+  ebitdaMultiple: 6, // EBITDA multiple for mining
+  dailyRevPerEh: 29400, // Daily revenue per EH/s
+  poolFeePct: 0.02,
+  phaseProbabilities: {
+    OPERATIONAL: 1.0,
+    CONSTRUCTION: 0.9,
+    DEVELOPMENT: 0.7,
+    EXCLUSIVITY: 0.5,
+    DILIGENCE: 0.3,
+  },
+};
+
+app.get('/api/v1/valuation', async (req, res) => {
+  try {
+    // Get settings or use defaults
+    const settingsRows = await prisma.settings.findMany();
+    const settings: Record<string, any> = {};
+    for (const s of settingsRows) {
+      settings[s.key] = s.value;
+    }
+    const factors = { ...DEFAULT_FACTORS, ...settings };
+
+    // Get all companies with full data
+    const companies = await prisma.company.findMany({
+      where: { archived: false },
+      include: {
+        sites: {
+          include: {
+            campuses: {
+              include: {
+                buildings: {
+                  include: {
+                    usePeriods: { where: { isCurrent: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+        debts: true,
+      },
+    });
+
+    const valuations = companies.map((company) => {
+      // Net Liquid = Cash + BTC Value + ETH Value - Debt
+      const btcValue = (Number(company.btcCount) || 0) * (factors.btcPrice / 1000000);
+      const ethValue = (Number(company.ethHoldings) || 0);
+      const netLiquid = (Number(company.cashM) || 0) + btcValue + ethValue - (Number(company.debtM) || 0);
+
+      // Calculate MW by category and enterprise value
+      let mwMiningOperational = 0;
+      let mwHpcOperational = 0;
+      let mwHpcContracted = 0;
+      let mwHpcPipeline = 0;
+      let evMining = 0;
+      let evHpcContracted = 0;
+      let evHpcPipeline = 0;
+
+      for (const site of company.sites) {
+        for (const campus of site.campuses) {
+          for (const building of campus.buildings) {
+            const mw = Number(building.grossMw) || 0;
+            const phase = building.developmentPhase;
+            const prob = building.probabilityOverride
+              ? Number(building.probabilityOverride)
+              : (factors.phaseProbabilities as any)[phase] || 0.5;
+
+            const currentUse = building.usePeriods[0];
+            const useType = currentUse?.useType || 'UNCONTRACTED';
+            const hasLease = currentUse?.tenant && currentUse?.leaseValueM;
+            const noiAnnual = Number(currentUse?.noiAnnualM) || 0;
+
+            // Categorize and value
+            if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
+              if (phase === 'OPERATIONAL') {
+                mwMiningOperational += mw;
+              }
+              // Mining value based on EBITDA (calculated at company level)
+            } else if (useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') {
+              if (phase === 'OPERATIONAL') {
+                mwHpcOperational += mw;
+              }
+              if (hasLease) {
+                mwHpcContracted += mw;
+                // Value from NOI if available, otherwise from lease value
+                if (noiAnnual > 0) {
+                  evHpcContracted += noiAnnual * factors.noiMultiple * prob;
+                } else {
+                  evHpcContracted += Number(currentUse?.leaseValueM) || 0;
+                }
+              } else {
+                mwHpcPipeline += mw * prob;
+                evHpcPipeline += mw * factors.mwValueHpcUncontracted * prob;
+              }
+            } else if (useType === 'HPC_AI_PLANNED' || useType === 'UNCONTRACTED' || useType === 'UNCONTRACTED_ROFR') {
+              // Pipeline - uncontracted capacity
+              mwHpcPipeline += mw * prob;
+              evHpcPipeline += mw * factors.mwValueHpcUncontracted * prob;
+            }
+          }
+        }
+      }
+
+      // Calculate mining value from company-level hashrate
+      const hashrate = Number(company.hashrateEh) || 0;
+      const efficiency = Number(company.efficiencyJth) || 20;
+      const powerCost = Number(company.powerCostKwh) || 0.04;
+
+      if (hashrate > 0) {
+        const annualRevenue = hashrate * factors.dailyRevPerEh * 365 / 1000000;
+        const annualPowerCost = hashrate * efficiency * powerCost * 8760 / 1000000;
+        const poolFees = annualRevenue * factors.poolFeePct;
+        const ebitda = annualRevenue - annualPowerCost - poolFees;
+        evMining = Math.max(0, ebitda * factors.ebitdaMultiple);
+      }
+
+      const totalEv = evMining + evHpcContracted + evHpcPipeline;
+      const fairValue = netLiquid + totalEv;
+
+      return {
+        ticker: company.ticker,
+        name: company.name,
+        stockPrice: Number(company.stockPrice) || null,
+        netLiquid: Math.round(netLiquid * 10) / 10,
+        mwMining: Math.round(mwMiningOperational),
+        mwHpc: Math.round(mwHpcOperational + mwHpcContracted),
+        evMining: Math.round(evMining),
+        evHpcContracted: Math.round(evHpcContracted),
+        evHpcPipeline: Math.round(evHpcPipeline),
+        evGpu: 0, // Placeholder for GPU cloud revenue-based valuation
+        totalEv: Math.round(totalEv),
+        fairValue: Math.round(fairValue),
+      };
+    });
+
+    res.json({ factors, valuations });
+  } catch (error) {
+    console.error('Error calculating valuations:', error);
+    res.status(500).json({ error: 'Failed to calculate valuations' });
+  }
+});
+
+// ===========================================
+// ROUTES
+// ===========================================
+
 app.use('/api/v1/import', importRouter);
 app.use('/api/v1/stock-prices', stockPricesRouter);
-app.use('/api/v1/sites', sitesRouter);
-app.use('/api/v1/phases', phasesRouter);
-app.use('/api/v1/tenancies', tenanciesRouter);
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
-
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
   });
 });
 
-// Export io for use in other modules
 export { io };
 
-// Broadcast function for real-time updates
 export const broadcast = (event: string, data: any) => {
   io.emit(event, data);
 };

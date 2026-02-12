@@ -8,14 +8,12 @@ import {
   Edit2,
   Save,
   X,
-  Zap,
-  Calendar,
-  GitBranch,
-  Building2,
+  Layers,
+  Box,
   Trash2,
+  MapPin,
 } from 'lucide-react';
 
-// Helper to get API URL
 function getApiUrl(): string {
   let apiUrl = import.meta.env.VITE_API_URL || '';
   if (apiUrl && !apiUrl.startsWith('http')) {
@@ -24,34 +22,68 @@ function getApiUrl(): string {
   return apiUrl;
 }
 
-// Status badge colors (dark theme)
-const statusColors: Record<string, string> = {
-  OPERATIONAL: 'bg-green-900/50 text-green-400 border border-green-700',
-  PARTIALLY_ONLINE: 'bg-yellow-900/50 text-yellow-400 border border-yellow-700',
-  UNDER_CONSTRUCTION: 'bg-blue-900/50 text-blue-400 border border-blue-700',
-  CONTRACTED: 'bg-purple-900/50 text-purple-400 border border-purple-700',
-  PIPELINE: 'bg-gray-700/50 text-gray-400 border border-gray-600',
-  OPTION: 'bg-orange-900/50 text-orange-400 border border-orange-700',
-  DISCUSSION: 'bg-red-900/50 text-red-400 border border-red-700',
+// Development phase colors and labels
+const phaseConfig: Record<string, { label: string; color: string; prob: number }> = {
+  OPERATIONAL: { label: 'Operational', color: 'bg-green-900/50 text-green-400 border-green-700', prob: 1.0 },
+  CONSTRUCTION: { label: 'Construction', color: 'bg-blue-900/50 text-blue-400 border-blue-700', prob: 0.9 },
+  DEVELOPMENT: { label: 'Development', color: 'bg-yellow-900/50 text-yellow-400 border-yellow-700', prob: 0.7 },
+  EXCLUSIVITY: { label: 'Exclusivity', color: 'bg-purple-900/50 text-purple-400 border-purple-700', prob: 0.5 },
+  DILIGENCE: { label: 'Diligence', color: 'bg-gray-700/50 text-gray-400 border-gray-600', prob: 0.3 },
 };
 
-const useTypeLabels: Record<string, string> = {
-  BTC_MINING: 'BTC Mining',
-  HPC_LEASE: 'HPC Lease',
-  GPU_CLOUD: 'GPU Cloud',
-  COLOCATION: 'Colocation',
-  MIXED: 'Mixed',
-  DEVELOPMENT: 'Development',
+const useTypeConfig: Record<string, { label: string; color: string }> = {
+  BTC_MINING: { label: 'BTC Mining', color: 'bg-orange-900/50 text-orange-400 border-orange-700' },
+  BTC_MINING_HOSTING: { label: 'BTC Hosting', color: 'bg-orange-900/50 text-orange-400 border-orange-700' },
+  HPC_AI_HOSTING: { label: 'HPC/AI', color: 'bg-purple-900/50 text-purple-400 border-purple-700' },
+  HPC_AI_PLANNED: { label: 'HPC Planned', color: 'bg-purple-800/30 text-purple-300 border-purple-600' },
+  GPU_CLOUD: { label: 'GPU Cloud', color: 'bg-blue-900/50 text-blue-400 border-blue-700' },
+  COLOCATION: { label: 'Colocation', color: 'bg-cyan-900/50 text-cyan-400 border-cyan-700' },
+  MIXED: { label: 'Mixed', color: 'bg-gray-700/50 text-gray-400 border-gray-600' },
+  UNCONTRACTED: { label: 'Uncontracted', color: 'bg-gray-800/50 text-gray-500 border-gray-700' },
+  UNCONTRACTED_ROFR: { label: 'ROFR', color: 'bg-gray-800/50 text-gray-500 border-gray-700' },
 };
 
-const useTypeColors: Record<string, string> = {
-  BTC_MINING: 'bg-orange-900/50 text-orange-400 border border-orange-700',
-  HPC_LEASE: 'bg-purple-900/50 text-purple-400 border border-purple-700',
-  GPU_CLOUD: 'bg-blue-900/50 text-blue-400 border border-blue-700',
-  COLOCATION: 'bg-cyan-900/50 text-cyan-400 border border-cyan-700',
-  MIXED: 'bg-gray-700/50 text-gray-400 border border-gray-600',
-  DEVELOPMENT: 'bg-yellow-900/50 text-yellow-400 border border-yellow-700',
-};
+interface UsePeriod {
+  id: string;
+  useType: string;
+  tenant: string | null;
+  leaseValueM: string | null;
+  annualRevM: string | null;
+  noiAnnualM: string | null;
+  noiPct: string | null;
+  leaseYears: string | null;
+}
+
+interface Building {
+  id: string;
+  name: string;
+  grossMw: string | null;
+  itMw: string | null;
+  pue: string | null;
+  developmentPhase: string;
+  energizationDate: string | null;
+  confidence: string;
+  probabilityOverride: string | null;
+  ownershipStatus: string | null;
+  notes: string | null;
+  usePeriods: UsePeriod[];
+}
+
+interface Campus {
+  id: string;
+  name: string;
+  buildings: Building[];
+}
+
+interface Site {
+  id: string;
+  name: string;
+  country: string;
+  state: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  campuses: Campus[];
+}
 
 interface Company {
   ticker: string;
@@ -59,85 +91,18 @@ interface Company {
   sites: Site[];
 }
 
-interface Site {
-  id: string;
-  ticker: string;
-  name: string;
-  country: string;
-  state: string | null;
-  ownershipStatus: string;
-  confidence: string;
-  includeInValuation: boolean;
-  parentSiteId: string | null;
-  phases: Phase[];
-  childSites?: Site[];
-}
-
-interface Phase {
-  id: string;
-  siteId: string;
-  name: string;
-  status: string;
-  grossMw: string | null;
-  itMw: string | null;
-  pue: string | null;
-  currentUse: string;
-  energizationDate: string | null;
-  tenancies: Tenancy[];
-}
-
-interface Tenancy {
-  id: string;
-  tenant: string;
-  useType: string;
-  leaseValueM: string | null;
-  annualRevenueM: string | null;
-}
-
-// Flattened row for display
-interface FlatRow {
-  rowNum: number;
-  type: 'site' | 'phase' | 'tenancy';
-  depth: number;
-  ticker: string;
-  companyName: string;
-  siteId: string;
-  siteName: string;
-  phaseId?: string;
-  phaseName?: string;
-  tenancyId?: string;
-  tenantName?: string;
-  status?: string;
-  useType?: string;
-  grossMw?: number;
-  itMw?: number;
-  pue?: number;
-  energizationDate?: string;
-  valueM?: number;
-  annualRevenueM?: number;
-  country: string;
-  state?: string;
-  confidence?: string;
-  isParentSite: boolean;
-  hasChildren: boolean;
-}
-
 export default function Projects() {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterTicker, setFilterTicker] = useState<string>('');
-  const [filterStatus, setFilterStatus] = useState<string>('');
-  const [filterUseType, setFilterUseType] = useState<string>('');
+  const [filterTicker, setFilterTicker] = useState('');
+  const [filterPhase, setFilterPhase] = useState('');
+  const [filterUseType, setFilterUseType] = useState('');
   const [expandedSites, setExpandedSites] = useState<Set<string>>(new Set());
-  const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set());
-  const [editingRow, setEditingRow] = useState<string | null>(null);
-  const [editingType, setEditingType] = useState<'site' | 'phase' | 'tenancy' | null>(null);
-  const [editFormData, setEditFormData] = useState<any>({});
-  const [showSplitModal, setShowSplitModal] = useState(false);
-  const [splitSiteId, setSplitSiteId] = useState<string | null>(null);
+  const [expandedCampuses, setExpandedCampuses] = useState<Set<string>>(new Set());
+  const [editingBuilding, setEditingBuilding] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState<Record<string, any>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: string; id: string; name: string } | null>(null);
 
-  // Fetch all companies with sites
   const { data: companies, isLoading } = useQuery({
     queryKey: ['companies'],
     queryFn: async () => {
@@ -148,49 +113,54 @@ export default function Projects() {
     },
   });
 
-  // Update site mutation
-  const updateSiteMutation = useMutation({
-    mutationFn: async ({ siteId, data }: { siteId: string; data: any }) => {
+  const updateBuildingMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Record<string, any> }) => {
       const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/sites/${siteId}`, {
+      const res = await fetch(`${apiUrl}/api/v1/buildings/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error('Failed to update site');
+      if (!res.ok) throw new Error('Failed to update building');
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['companies'] });
-      cancelEdit();
+      setEditingBuilding(null);
+      setEditFormData({});
     },
   });
 
-  // Update phase mutation
-  const updatePhaseMutation = useMutation({
-    mutationFn: async ({ phaseId, data }: { phaseId: string; data: any }) => {
+  const deleteBuildingMutation = useMutation({
+    mutationFn: async (id: string) => {
       const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/phases/${phaseId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error('Failed to update phase');
+      const res = await fetch(`${apiUrl}/api/v1/buildings/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete building');
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['companies'] });
-      cancelEdit();
+      setDeleteConfirm(null);
     },
   });
 
-  // Delete site mutation
+  const deleteCampusMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/campuses/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete campus');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      setDeleteConfirm(null);
+    },
+  });
+
   const deleteSiteMutation = useMutation({
-    mutationFn: async (siteId: string) => {
+    mutationFn: async (id: string) => {
       const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/sites/${siteId}`, {
-        method: 'DELETE',
-      });
+      const res = await fetch(`${apiUrl}/api/v1/sites/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete site');
       return res.json();
     },
@@ -200,226 +170,154 @@ export default function Projects() {
     },
   });
 
-  // Delete phase mutation
-  const deletePhaseMutation = useMutation({
-    mutationFn: async (phaseId: string) => {
-      const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/phases/${phaseId}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) throw new Error('Failed to delete phase');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['companies'] });
-      setDeleteConfirm(null);
-    },
-  });
+  // Flatten data for display
+  interface FlatRow {
+    rowNum: number;
+    type: 'site' | 'campus' | 'building';
+    depth: number;
+    ticker: string;
+    id: string;
+    name: string;
+    location?: string;
+    phase?: string;
+    useType?: string;
+    tenant?: string;
+    grossMw?: number;
+    itMw?: number;
+    pue?: number;
+    probability?: number;
+    probabilityOverride?: number | null;
+    leaseValueM?: number;
+    noiAnnualM?: number;
+    energizationDate?: string;
+    hasChildren: boolean;
+    siteId?: string;
+    campusId?: string;
+    building?: Building;
+  }
 
-  // Delete tenancy mutation
-  const deleteTenancyMutation = useMutation({
-    mutationFn: async (tenancyId: string) => {
-      const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/tenancies/${tenancyId}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) throw new Error('Failed to delete tenancy');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['companies'] });
-      setDeleteConfirm(null);
-    },
-  });
-
-  // Flatten the hierarchy for display
   const flattenedRows = useMemo(() => {
     if (!companies) return [];
-
     const rows: FlatRow[] = [];
     let rowNum = 0;
 
-    // Sort companies by ticker
     const sortedCompanies = [...companies].sort((a, b) => a.ticker.localeCompare(b.ticker));
 
     for (const company of sortedCompanies) {
       if (!company.sites) continue;
+      if (filterTicker && company.ticker !== filterTicker) continue;
 
-      // Build a map of parent sites and their children
-      const siteMap = new Map<string, Site>();
-      const rootSites: Site[] = [];
+      const sortedSites = [...company.sites].sort((a, b) => a.name.localeCompare(b.name));
 
-      for (const site of company.sites) {
-        siteMap.set(site.id, { ...site, childSites: [] });
-      }
-
-      // Link children to parents
-      for (const site of company.sites) {
-        const siteWithChildren = siteMap.get(site.id)!;
-        if (site.parentSiteId && siteMap.has(site.parentSiteId)) {
-          siteMap.get(site.parentSiteId)!.childSites!.push(siteWithChildren);
-        } else {
-          rootSites.push(siteWithChildren);
-        }
-      }
-
-      // Sort root sites by name
-      rootSites.sort((a, b) => a.name.localeCompare(b.name));
-
-      // Recursive function to add sites and their children
-      const addSite = (site: Site, depth: number) => {
+      for (const site of sortedSites) {
         rowNum++;
-        const hasChildren = (site.childSites && site.childSites.length > 0) || (site.phases && site.phases.length > 0);
+        const siteHasChildren = site.campuses && site.campuses.length > 0;
 
-        // Calculate total value for the site
-        let totalValueM = 0;
-        let totalAnnualRevenueM = 0;
-        site.phases?.forEach(phase => {
-          phase.tenancies?.forEach(tenancy => {
-            if (tenancy.leaseValueM) totalValueM += parseFloat(tenancy.leaseValueM);
-            if (tenancy.annualRevenueM) totalAnnualRevenueM += parseFloat(tenancy.annualRevenueM);
+        // Calculate total MW for site
+        let siteTotalMw = 0;
+        site.campuses?.forEach(campus => {
+          campus.buildings?.forEach(building => {
+            siteTotalMw += parseFloat(building.grossMw || '0');
           });
-        });
-
-        // Calculate total MW for the site
-        let totalGrossMw = 0;
-        site.phases?.forEach(phase => {
-          if (phase.grossMw) totalGrossMw += parseFloat(phase.grossMw);
         });
 
         rows.push({
           rowNum,
           type: 'site',
-          depth,
+          depth: 0,
           ticker: company.ticker,
-          companyName: company.name,
-          siteId: site.id,
-          siteName: site.name,
-          country: site.country,
-          state: site.state || undefined,
-          confidence: site.confidence,
-          isParentSite: !site.parentSiteId,
-          hasChildren,
-          grossMw: totalGrossMw || undefined,
-          valueM: totalValueM || undefined,
-          annualRevenueM: totalAnnualRevenueM || undefined,
+          id: site.id,
+          name: site.name,
+          location: `${site.country}${site.state ? `, ${site.state}` : ''}`,
+          grossMw: siteTotalMw || undefined,
+          hasChildren: siteHasChildren,
         });
 
-        // If site is expanded, show child sites first, then phases
         if (expandedSites.has(site.id)) {
-          // Child sites
-          if (site.childSites && site.childSites.length > 0) {
-            site.childSites.sort((a, b) => a.name.localeCompare(b.name));
-            for (const childSite of site.childSites) {
-              addSite(childSite, depth + 1);
-            }
-          }
+          const sortedCampuses = [...(site.campuses || [])].sort((a, b) => a.name.localeCompare(b.name));
 
-          // Phases
-          if (site.phases && site.phases.length > 0) {
-            const sortedPhases = [...site.phases].sort((a, b) => a.name.localeCompare(b.name));
-            for (const phase of sortedPhases) {
-              rowNum++;
+          for (const campus of sortedCampuses) {
+            rowNum++;
+            const campusHasChildren = campus.buildings && campus.buildings.length > 0;
 
-              // Calculate phase value
-              let phaseValueM = 0;
-              let phaseAnnualRevenueM = 0;
-              phase.tenancies?.forEach(tenancy => {
-                if (tenancy.leaseValueM) phaseValueM += parseFloat(tenancy.leaseValueM);
-                if (tenancy.annualRevenueM) phaseAnnualRevenueM += parseFloat(tenancy.annualRevenueM);
-              });
+            // Calculate total MW for campus
+            let campusTotalMw = 0;
+            campus.buildings?.forEach(building => {
+              campusTotalMw += parseFloat(building.grossMw || '0');
+            });
 
-              rows.push({
-                rowNum,
-                type: 'phase',
-                depth: depth + 1,
-                ticker: company.ticker,
-                companyName: company.name,
-                siteId: site.id,
-                siteName: site.name,
-                phaseId: phase.id,
-                phaseName: phase.name,
-                status: phase.status,
-                useType: phase.currentUse,
-                grossMw: phase.grossMw ? parseFloat(phase.grossMw) : undefined,
-                itMw: phase.itMw ? parseFloat(phase.itMw) : undefined,
-                pue: phase.pue ? parseFloat(phase.pue) : undefined,
-                energizationDate: phase.energizationDate || undefined,
-                valueM: phaseValueM || undefined,
-                annualRevenueM: phaseAnnualRevenueM || undefined,
-                country: site.country,
-                state: site.state || undefined,
-                isParentSite: false,
-                hasChildren: phase.tenancies && phase.tenancies.length > 0,
-              });
+            rows.push({
+              rowNum,
+              type: 'campus',
+              depth: 1,
+              ticker: company.ticker,
+              id: campus.id,
+              name: campus.name,
+              grossMw: campusTotalMw || undefined,
+              hasChildren: campusHasChildren,
+              siteId: site.id,
+            });
 
-              // If phase is expanded, show tenancies
-              if (expandedPhases.has(phase.id) && phase.tenancies && phase.tenancies.length > 0) {
-                for (const tenancy of phase.tenancies) {
-                  rowNum++;
-                  rows.push({
-                    rowNum,
-                    type: 'tenancy',
-                    depth: depth + 2,
-                    ticker: company.ticker,
-                    companyName: company.name,
-                    siteId: site.id,
-                    siteName: site.name,
-                    phaseId: phase.id,
-                    phaseName: phase.name,
-                    tenancyId: tenancy.id,
-                    tenantName: tenancy.tenant,
-                    useType: tenancy.useType,
-                    valueM: tenancy.leaseValueM ? parseFloat(tenancy.leaseValueM) : undefined,
-                    annualRevenueM: tenancy.annualRevenueM ? parseFloat(tenancy.annualRevenueM) : undefined,
-                    country: site.country,
-                    isParentSite: false,
-                    hasChildren: false,
-                  });
-                }
+            if (expandedCampuses.has(campus.id)) {
+              const sortedBuildings = [...(campus.buildings || [])].sort((a, b) => a.name.localeCompare(b.name));
+
+              for (const building of sortedBuildings) {
+                // Apply filters
+                if (filterPhase && building.developmentPhase !== filterPhase) continue;
+
+                const currentUse = building.usePeriods?.[0];
+                if (filterUseType && currentUse?.useType !== filterUseType) continue;
+
+                rowNum++;
+                const phase = building.developmentPhase || 'DILIGENCE';
+                const defaultProb = phaseConfig[phase]?.prob || 0.5;
+                const probOverride = building.probabilityOverride ? parseFloat(building.probabilityOverride) : null;
+
+                rows.push({
+                  rowNum,
+                  type: 'building',
+                  depth: 2,
+                  ticker: company.ticker,
+                  id: building.id,
+                  name: building.name,
+                  phase,
+                  useType: currentUse?.useType || 'UNCONTRACTED',
+                  tenant: currentUse?.tenant || undefined,
+                  grossMw: building.grossMw ? parseFloat(building.grossMw) : undefined,
+                  itMw: building.itMw ? parseFloat(building.itMw) : undefined,
+                  pue: building.pue ? parseFloat(building.pue) : undefined,
+                  probability: probOverride ?? defaultProb,
+                  probabilityOverride: probOverride,
+                  leaseValueM: currentUse?.leaseValueM ? parseFloat(currentUse.leaseValueM) : undefined,
+                  noiAnnualM: currentUse?.noiAnnualM ? parseFloat(currentUse.noiAnnualM) : undefined,
+                  energizationDate: building.energizationDate || undefined,
+                  hasChildren: false,
+                  siteId: site.id,
+                  campusId: campus.id,
+                  building,
+                });
               }
             }
           }
         }
-      };
-
-      // Add all root sites
-      for (const site of rootSites) {
-        addSite(site, 0);
       }
     }
 
     return rows;
-  }, [companies, expandedSites, expandedPhases]);
+  }, [companies, expandedSites, expandedCampuses, filterTicker, filterPhase, filterUseType]);
 
-  // Filter rows
+  // Filter by search term
   const filteredRows = useMemo(() => {
+    if (!searchTerm) return flattenedRows;
+    const search = searchTerm.toLowerCase();
     return flattenedRows.filter(row => {
-      // Ticker filter
-      if (filterTicker && row.ticker !== filterTicker) return false;
-
-      // Status filter (only applies to phases)
-      if (filterStatus && row.type === 'phase' && row.status !== filterStatus) return false;
-
-      // Use type filter
-      if (filterUseType && row.useType !== filterUseType) return false;
-
-      // Search term
-      if (searchTerm) {
-        const search = searchTerm.toLowerCase();
-        const matchesSite = row.siteName.toLowerCase().includes(search);
-        const matchesPhase = row.phaseName?.toLowerCase().includes(search);
-        const matchesTenant = row.tenantName?.toLowerCase().includes(search);
-        const matchesTicker = row.ticker.toLowerCase().includes(search);
-        const matchesCompany = row.companyName.toLowerCase().includes(search);
-        if (!matchesSite && !matchesPhase && !matchesTenant && !matchesTicker && !matchesCompany) return false;
-      }
-
-      return true;
+      return row.name.toLowerCase().includes(search) ||
+        row.ticker.toLowerCase().includes(search) ||
+        row.tenant?.toLowerCase().includes(search) ||
+        row.location?.toLowerCase().includes(search);
     });
-  }, [flattenedRows, filterTicker, filterStatus, filterUseType, searchTerm]);
+  }, [flattenedRows, searchTerm]);
 
-  // Get unique values for filters
   const uniqueTickers = useMemo(() => {
     return [...new Set(companies?.map(c => c.ticker) || [])].sort();
   }, [companies]);
@@ -427,137 +325,86 @@ export default function Projects() {
   const toggleSite = (siteId: string) => {
     setExpandedSites(prev => {
       const next = new Set(prev);
-      if (next.has(siteId)) {
-        next.delete(siteId);
-      } else {
-        next.add(siteId);
-      }
+      if (next.has(siteId)) next.delete(siteId);
+      else next.add(siteId);
       return next;
     });
   };
 
-  const togglePhase = (phaseId: string) => {
-    setExpandedPhases(prev => {
+  const toggleCampus = (campusId: string) => {
+    setExpandedCampuses(prev => {
       const next = new Set(prev);
-      if (next.has(phaseId)) {
-        next.delete(phaseId);
-      } else {
-        next.add(phaseId);
-      }
+      if (next.has(campusId)) next.delete(campusId);
+      else next.add(campusId);
       return next;
     });
   };
 
   const expandAll = () => {
     const allSiteIds = new Set<string>();
-    const allPhaseIds = new Set<string>();
+    const allCampusIds = new Set<string>();
     companies?.forEach(company => {
       company.sites?.forEach(site => {
         allSiteIds.add(site.id);
-        site.phases?.forEach(phase => {
-          allPhaseIds.add(phase.id);
+        site.campuses?.forEach(campus => {
+          allCampusIds.add(campus.id);
         });
       });
     });
     setExpandedSites(allSiteIds);
-    setExpandedPhases(allPhaseIds);
+    setExpandedCampuses(allCampusIds);
   };
 
   const collapseAll = () => {
     setExpandedSites(new Set());
-    setExpandedPhases(new Set());
+    setExpandedCampuses(new Set());
   };
 
-  const cancelEdit = () => {
-    setEditingRow(null);
-    setEditingType(null);
-    setEditFormData({});
-  };
-
-  const startEditSite = (row: FlatRow) => {
-    if (row.type !== 'site') return;
-    setEditingRow(row.siteId);
-    setEditingType('site');
+  const startEditBuilding = (row: FlatRow) => {
+    if (row.type !== 'building' || !row.building) return;
+    setEditingBuilding(row.id);
     setEditFormData({
-      name: row.siteName,
-      country: row.country,
-      state: row.state || '',
+      developmentPhase: row.phase,
+      probabilityOverride: row.probabilityOverride !== null ? (row.probabilityOverride * 100).toString() : '',
+      grossMw: row.grossMw?.toString() || '',
+      itMw: row.itMw?.toString() || '',
+      pue: row.pue?.toString() || '',
     });
   };
 
-  const startEditPhase = (row: FlatRow) => {
-    if (row.type !== 'phase' || !row.phaseId) return;
-    setEditingRow(row.phaseId);
-    setEditingType('phase');
-    setEditFormData({
-      name: row.phaseName,
-      status: row.status,
-      grossMw: row.grossMw || '',
-      itMw: row.itMw || '',
-      pue: row.pue || '',
-      currentUse: row.useType,
-      energizationDate: row.energizationDate ? row.energizationDate.split('T')[0] : '',
+  const saveBuilding = () => {
+    if (!editingBuilding) return;
+    const probOverride = editFormData.probabilityOverride
+      ? parseFloat(editFormData.probabilityOverride) / 100
+      : null;
+
+    updateBuildingMutation.mutate({
+      id: editingBuilding,
+      data: {
+        developmentPhase: editFormData.developmentPhase,
+        probabilityOverride: probOverride,
+        grossMw: editFormData.grossMw ? parseFloat(editFormData.grossMw) : null,
+        itMw: editFormData.itMw ? parseFloat(editFormData.itMw) : null,
+        pue: editFormData.pue ? parseFloat(editFormData.pue) : null,
+      },
     });
-  };
-
-  const startEditTenancy = (row: FlatRow) => {
-    if (row.type !== 'tenancy' || !row.tenancyId) return;
-    setEditingRow(row.tenancyId);
-    setEditingType('tenancy');
-    setEditFormData({
-      tenant: row.tenantName,
-      useType: row.useType,
-      leaseValueM: row.valueM || '',
-      annualRevenueM: row.annualRevenueM || '',
-    });
-  };
-
-  const saveEdit = () => {
-    if (!editingRow || !editingType) return;
-
-    if (editingType === 'site') {
-      updateSiteMutation.mutate({
-        siteId: editingRow,
-        data: editFormData,
-      });
-    } else if (editingType === 'phase') {
-      updatePhaseMutation.mutate({
-        phaseId: editingRow,
-        data: {
-          ...editFormData,
-          grossMw: editFormData.grossMw ? parseFloat(editFormData.grossMw) : null,
-          itMw: editFormData.itMw ? parseFloat(editFormData.itMw) : null,
-          pue: editFormData.pue ? parseFloat(editFormData.pue) : null,
-          energizationDate: editFormData.energizationDate || null,
-        },
-      });
-    } else if (editingType === 'tenancy') {
-      // TODO: Add tenancy update mutation
-      alert('Tenancy update coming soon!');
-      cancelEdit();
-    }
   };
 
   const handleDelete = () => {
     if (!deleteConfirm) return;
-
-    if (deleteConfirm.type === 'site') {
+    if (deleteConfirm.type === 'building') {
+      deleteBuildingMutation.mutate(deleteConfirm.id);
+    } else if (deleteConfirm.type === 'campus') {
+      deleteCampusMutation.mutate(deleteConfirm.id);
+    } else if (deleteConfirm.type === 'site') {
       deleteSiteMutation.mutate(deleteConfirm.id);
-    } else if (deleteConfirm.type === 'phase') {
-      deletePhaseMutation.mutate(deleteConfirm.id);
-    } else if (deleteConfirm.type === 'tenancy') {
-      deleteTenancyMutation.mutate(deleteConfirm.id);
     }
   };
 
   const formatDate = (dateStr: string | undefined) => {
     if (!dateStr) return '-';
     try {
-      return new Date(dateStr).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      });
+      return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
     } catch {
       return dateStr;
     }
@@ -565,13 +412,13 @@ export default function Projects() {
 
   const formatMoney = (value: number | undefined) => {
     if (!value) return '-';
-    return `$${value.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`;
+    return `$${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}M`;
   };
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500" />
       </div>
     );
   }
@@ -583,20 +430,14 @@ export default function Projects() {
         <div>
           <h1 className="text-xl font-semibold text-gray-300">Projects</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {filteredRows.length} items • {companies?.length || 0} companies
+            Site → Campus → Building hierarchy
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={expandAll}
-            className="px-3 py-1.5 text-sm text-orange-500 hover:text-orange-400"
-          >
+          <button onClick={expandAll} className="px-3 py-1.5 text-sm text-orange-500 hover:text-orange-400">
             Expand All
           </button>
-          <button
-            onClick={collapseAll}
-            className="px-3 py-1.5 text-sm text-gray-400 hover:text-gray-300"
-          >
+          <button onClick={collapseAll} className="px-3 py-1.5 text-sm text-gray-400 hover:text-gray-300">
             Collapse All
           </button>
         </div>
@@ -605,62 +446,49 @@ export default function Projects() {
       {/* Filters */}
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-4">
         <div className="flex flex-wrap items-center gap-4">
-          {/* Search */}
           <div className="flex-1 min-w-[200px] max-w-md relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
             <input
               type="text"
-              placeholder="Search sites, phases, tenants..."
+              placeholder="Search sites, campuses, buildings..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
             />
           </div>
 
-          {/* Ticker Filter */}
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-gray-500" />
             <select
               value={filterTicker}
               onChange={(e) => setFilterTicker(e.target.value)}
-              className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500"
+              className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm"
             >
               <option value="">All Companies</option>
-              {uniqueTickers.map(ticker => (
-                <option key={ticker} value={ticker}>{ticker}</option>
-              ))}
+              {uniqueTickers.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
 
-          {/* Status Filter */}
           <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500"
+            value={filterPhase}
+            onChange={(e) => setFilterPhase(e.target.value)}
+            className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm"
           >
-            <option value="">All Statuses</option>
-            <option value="OPERATIONAL">Operational</option>
-            <option value="PARTIALLY_ONLINE">Partially Online</option>
-            <option value="UNDER_CONSTRUCTION">Under Construction</option>
-            <option value="CONTRACTED">Contracted</option>
-            <option value="PIPELINE">Pipeline</option>
-            <option value="OPTION">Option</option>
-            <option value="DISCUSSION">Discussion</option>
+            <option value="">All Phases</option>
+            {Object.entries(phaseConfig).map(([k, v]) => (
+              <option key={k} value={k}>{v.label}</option>
+            ))}
           </select>
 
-          {/* Use Type Filter */}
           <select
             value={filterUseType}
             onChange={(e) => setFilterUseType(e.target.value)}
-            className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500"
+            className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm"
           >
             <option value="">All Use Types</option>
-            <option value="BTC_MINING">BTC Mining</option>
-            <option value="HPC_LEASE">HPC Lease</option>
-            <option value="GPU_CLOUD">GPU Cloud</option>
-            <option value="COLOCATION">Colocation</option>
-            <option value="MIXED">Mixed</option>
-            <option value="DEVELOPMENT">Development</option>
+            {Object.entries(useTypeConfig).map(([k, v]) => (
+              <option key={k} value={k}>{v.label}</option>
+            ))}
           </select>
         </div>
       </div>
@@ -671,189 +499,97 @@ export default function Projects() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-700 bg-gray-800/80">
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-12">#</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-16">Ticker</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Site / Phase / Tenant</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-28">Status</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider w-24">Use Type</th>
-                <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider w-20">MW</th>
-                <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider w-16">PUE</th>
-                <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider w-28">Energization</th>
-                <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider w-24">Value</th>
-                <th className="px-3 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider w-20">Actions</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase w-12">#</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase w-16">Ticker</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase">Name</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase w-28">Phase</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase w-24">Use</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase w-32">Tenant</th>
+                <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase w-16">MW</th>
+                <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase w-16">Prob</th>
+                <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase w-20">NOI/Yr</th>
+                <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase w-24">Energized</th>
+                <th className="px-3 py-3 text-center text-xs font-medium text-gray-400 uppercase w-20">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-700/50">
               {filteredRows.map((row) => {
-                const isEditing = (
-                  (row.type === 'site' && editingRow === row.siteId && editingType === 'site') ||
-                  (row.type === 'phase' && editingRow === row.phaseId && editingType === 'phase') ||
-                  (row.type === 'tenancy' && editingRow === row.tenancyId && editingType === 'tenancy')
-                );
+                const isEditing = row.type === 'building' && editingBuilding === row.id;
                 const indentPx = row.depth * 24;
 
                 return (
                   <tr
-                    key={`${row.type}-${row.siteId}-${row.phaseId || ''}-${row.tenancyId || ''}`}
+                    key={`${row.type}-${row.id}`}
                     className={`hover:bg-gray-700/30 transition ${
                       row.type === 'site' ? 'bg-gray-800/50' :
-                      row.type === 'phase' ? '' :
-                      'bg-gray-900/30'
+                      row.type === 'campus' ? 'bg-gray-800/30' : ''
                     }`}
                   >
-                    {/* Row Number */}
                     <td className="px-3 py-2 text-gray-500 text-xs">{row.rowNum}</td>
-
-                    {/* Ticker */}
                     <td className="px-3 py-2">
                       <span className="text-orange-500 font-medium text-xs">{row.ticker}</span>
                     </td>
-
-                    {/* Name with hierarchy */}
                     <td className="px-3 py-2">
                       <div className="flex items-center" style={{ paddingLeft: `${indentPx}px` }}>
-                        {/* Expand/Collapse */}
-                        {row.type === 'site' && row.hasChildren && (
+                        {row.hasChildren && (
                           <button
-                            onClick={() => toggleSite(row.siteId)}
+                            onClick={() => row.type === 'site' ? toggleSite(row.id) : toggleCampus(row.id)}
                             className="mr-2 p-0.5 hover:bg-gray-600 rounded"
                           >
-                            {expandedSites.has(row.siteId) ? (
+                            {(row.type === 'site' ? expandedSites.has(row.id) : expandedCampuses.has(row.id)) ? (
                               <ChevronDown className="h-4 w-4 text-gray-400" />
                             ) : (
                               <ChevronRight className="h-4 w-4 text-gray-400" />
                             )}
                           </button>
                         )}
-                        {row.type === 'phase' && row.hasChildren && (
-                          <button
-                            onClick={() => togglePhase(row.phaseId!)}
-                            className="mr-2 p-0.5 hover:bg-gray-600 rounded"
-                          >
-                            {expandedPhases.has(row.phaseId!) ? (
-                              <ChevronDown className="h-4 w-4 text-gray-400" />
-                            ) : (
-                              <ChevronRight className="h-4 w-4 text-gray-400" />
-                            )}
-                          </button>
-                        )}
-                        {!row.hasChildren && row.type !== 'tenancy' && (
-                          <span className="w-5 mr-2" />
-                        )}
+                        {!row.hasChildren && <span className="w-5 mr-2" />}
 
-                        {/* Icon */}
-                        {row.type === 'site' && (
-                          <Building2 className={`h-4 w-4 mr-2 ${row.isParentSite ? 'text-orange-500' : 'text-gray-500'}`} />
-                        )}
-                        {row.type === 'phase' && (
-                          <Zap className="h-4 w-4 mr-2 text-yellow-500" />
-                        )}
-                        {row.type === 'tenancy' && (
-                          <span className="w-4 h-4 mr-2 rounded-full bg-purple-900/50 border border-purple-700 flex items-center justify-center text-[10px] text-purple-400">T</span>
-                        )}
+                        {row.type === 'site' && <MapPin className="h-4 w-4 mr-2 text-orange-500" />}
+                        {row.type === 'campus' && <Layers className="h-4 w-4 mr-2 text-blue-400" />}
+                        {row.type === 'building' && <Box className="h-4 w-4 mr-2 text-gray-400" />}
 
-                        {/* Name */}
-                        {isEditing ? (
-                          <div className="flex flex-col gap-1">
-                            <input
-                              type="text"
-                              value={row.type === 'tenancy' ? (editFormData.tenant || '') : (editFormData.name || '')}
-                              onChange={(e) => setEditFormData({
-                                ...editFormData,
-                                [row.type === 'tenancy' ? 'tenant' : 'name']: e.target.value
-                              })}
-                              className="bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-sm max-w-xs"
-                              placeholder={row.type === 'site' ? 'Site name' : row.type === 'phase' ? 'Phase name' : 'Tenant name'}
-                            />
-                            {row.type === 'site' && (
-                              <div className="flex gap-1">
-                                <input
-                                  type="text"
-                                  value={editFormData.country || ''}
-                                  onChange={(e) => setEditFormData({ ...editFormData, country: e.target.value })}
-                                  className="w-20 bg-gray-700 border border-gray-600 text-white rounded px-2 py-0.5 text-xs"
-                                  placeholder="Country"
-                                />
-                                <input
-                                  type="text"
-                                  value={editFormData.state || ''}
-                                  onChange={(e) => setEditFormData({ ...editFormData, state: e.target.value })}
-                                  className="w-16 bg-gray-700 border border-gray-600 text-white rounded px-2 py-0.5 text-xs"
-                                  placeholder="State"
-                                />
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="flex flex-col">
-                            <span className={`${row.type === 'site' ? 'text-gray-200 font-medium' : row.type === 'phase' ? 'text-gray-300' : 'text-gray-400'}`}>
-                              {row.type === 'site' ? row.siteName : row.type === 'phase' ? row.phaseName : row.tenantName}
-                            </span>
-                            {row.type === 'site' && (
-                              <span className="text-xs text-gray-500">
-                                {row.country}{row.state ? `, ${row.state}` : ''}
-                              </span>
-                            )}
-                          </div>
-                        )}
+                        <div className="flex flex-col">
+                          <span className={`${row.type === 'site' ? 'text-gray-200 font-medium' : row.type === 'campus' ? 'text-gray-300' : 'text-gray-400'}`}>
+                            {row.name}
+                          </span>
+                          {row.type === 'site' && row.location && (
+                            <span className="text-xs text-gray-500">{row.location}</span>
+                          )}
+                        </div>
                       </div>
                     </td>
-
-                    {/* Status */}
                     <td className="px-3 py-2">
-                      {row.type === 'phase' && row.status && (
+                      {row.type === 'building' && row.phase && (
                         isEditing ? (
                           <select
-                            value={editFormData.status || ''}
-                            onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value })}
+                            value={editFormData.developmentPhase || ''}
+                            onChange={(e) => setEditFormData({ ...editFormData, developmentPhase: e.target.value })}
                             className="bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs"
                           >
-                            <option value="OPERATIONAL">Operational</option>
-                            <option value="PARTIALLY_ONLINE">Partially Online</option>
-                            <option value="UNDER_CONSTRUCTION">Under Construction</option>
-                            <option value="CONTRACTED">Contracted</option>
-                            <option value="PIPELINE">Pipeline</option>
-                            <option value="OPTION">Option</option>
-                            <option value="DISCUSSION">Discussion</option>
+                            {Object.entries(phaseConfig).map(([k, v]) => (
+                              <option key={k} value={k}>{v.label}</option>
+                            ))}
                           </select>
                         ) : (
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${statusColors[row.status] || 'bg-gray-700 text-gray-400'}`}>
-                            {row.status.replace(/_/g, ' ')}
+                          <span className={`text-xs px-2 py-0.5 rounded-full border ${phaseConfig[row.phase]?.color || 'bg-gray-700 text-gray-400'}`}>
+                            {phaseConfig[row.phase]?.label || row.phase}
                           </span>
                         )
                       )}
                     </td>
-
-                    {/* Use Type */}
                     <td className="px-3 py-2">
-                      {row.useType && (
-                        isEditing && (row.type === 'phase' || row.type === 'tenancy') ? (
-                          <select
-                            value={row.type === 'phase' ? (editFormData.currentUse || '') : (editFormData.useType || '')}
-                            onChange={(e) => setEditFormData({
-                              ...editFormData,
-                              [row.type === 'phase' ? 'currentUse' : 'useType']: e.target.value
-                            })}
-                            className="bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs"
-                          >
-                            <option value="BTC_MINING">BTC Mining</option>
-                            <option value="HPC_LEASE">HPC Lease</option>
-                            <option value="GPU_CLOUD">GPU Cloud</option>
-                            <option value="COLOCATION">Colocation</option>
-                            <option value="MIXED">Mixed</option>
-                            <option value="DEVELOPMENT">Development</option>
-                          </select>
-                        ) : (
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${useTypeColors[row.useType] || 'bg-gray-700 text-gray-400'}`}>
-                            {useTypeLabels[row.useType] || row.useType}
-                          </span>
-                        )
+                      {row.type === 'building' && row.useType && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full border ${useTypeConfig[row.useType]?.color || 'bg-gray-700 text-gray-400'}`}>
+                          {useTypeConfig[row.useType]?.label || row.useType}
+                        </span>
                       )}
                     </td>
-
-                    {/* MW */}
+                    <td className="px-3 py-2 text-gray-400 text-xs truncate max-w-[120px]" title={row.tenant}>
+                      {row.tenant || '-'}
+                    </td>
                     <td className="px-3 py-2 text-right font-mono">
-                      {row.type === 'phase' && isEditing ? (
+                      {isEditing ? (
                         <input
                           type="number"
                           value={editFormData.grossMw || ''}
@@ -861,125 +597,74 @@ export default function Projects() {
                           className="w-16 bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs text-right"
                         />
                       ) : row.grossMw ? (
-                        <span className="text-gray-300">{row.grossMw.toFixed(0)}</span>
+                        <span className="text-gray-300">{Math.round(row.grossMw)}</span>
                       ) : (
                         <span className="text-gray-600">-</span>
                       )}
                     </td>
-
-                    {/* PUE */}
                     <td className="px-3 py-2 text-right font-mono">
-                      {row.type === 'phase' && isEditing ? (
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={editFormData.pue || ''}
-                          onChange={(e) => setEditFormData({ ...editFormData, pue: e.target.value })}
-                          className="w-14 bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs text-right"
-                        />
-                      ) : row.pue ? (
-                        <span className="text-gray-400">{row.pue.toFixed(2)}</span>
-                      ) : (
-                        <span className="text-gray-600">-</span>
+                      {row.type === 'building' && (
+                        isEditing ? (
+                          <input
+                            type="number"
+                            placeholder={`${Math.round((phaseConfig[editFormData.developmentPhase]?.prob || 0.5) * 100)}%`}
+                            value={editFormData.probabilityOverride || ''}
+                            onChange={(e) => setEditFormData({ ...editFormData, probabilityOverride: e.target.value })}
+                            className="w-16 bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs text-right"
+                          />
+                        ) : (
+                          <span className={row.probabilityOverride !== null ? 'text-orange-400' : 'text-gray-400'}>
+                            {Math.round((row.probability || 0) * 100)}%
+                          </span>
+                        )
                       )}
                     </td>
-
-                    {/* Energization Date */}
-                    <td className="px-3 py-2 text-right">
-                      {row.type === 'phase' && isEditing ? (
-                        <input
-                          type="date"
-                          value={editFormData.energizationDate || ''}
-                          onChange={(e) => setEditFormData({ ...editFormData, energizationDate: e.target.value })}
-                          className="bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs"
-                        />
-                      ) : row.type === 'phase' && row.energizationDate ? (
-                        <span className="text-gray-400 text-xs">
-                          <Calendar className="h-3 w-3 inline mr-1" />
-                          {formatDate(row.energizationDate)}
-                        </span>
-                      ) : (
-                        <span className="text-gray-600">-</span>
-                      )}
-                    </td>
-
-                    {/* Value */}
                     <td className="px-3 py-2 text-right font-mono">
-                      {row.type === 'tenancy' && isEditing ? (
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={editFormData.leaseValueM || ''}
-                          onChange={(e) => setEditFormData({ ...editFormData, leaseValueM: e.target.value })}
-                          className="w-20 bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs text-right"
-                          placeholder="$M"
-                        />
-                      ) : row.valueM ? (
-                        <span className="text-green-400">{formatMoney(row.valueM)}</span>
+                      {row.type === 'building' && row.noiAnnualM ? (
+                        <span className="text-green-400">{formatMoney(row.noiAnnualM)}</span>
                       ) : (
                         <span className="text-gray-600">-</span>
                       )}
                     </td>
-
-                    {/* Actions */}
+                    <td className="px-3 py-2 text-right text-xs text-gray-400">
+                      {row.type === 'building' ? formatDate(row.energizationDate) : '-'}
+                    </td>
                     <td className="px-3 py-2 text-center">
                       <div className="flex items-center justify-center gap-1">
                         {isEditing ? (
                           <>
                             <button
-                              onClick={saveEdit}
-                              disabled={updatePhaseMutation.isPending || updateSiteMutation.isPending}
+                              onClick={saveBuilding}
+                              disabled={updateBuildingMutation.isPending}
                               className="p-1 bg-green-600 text-white rounded hover:bg-green-700"
-                              title="Save"
                             >
                               <Save className="h-3 w-3" />
                             </button>
                             <button
-                              onClick={cancelEdit}
+                              onClick={() => { setEditingBuilding(null); setEditFormData({}); }}
                               className="p-1 bg-gray-600 text-white rounded hover:bg-gray-500"
-                              title="Cancel"
                             >
                               <X className="h-3 w-3" />
                             </button>
                           </>
                         ) : (
                           <>
-                            {/* Edit button for all types */}
+                            {row.type === 'building' && (
+                              <button
+                                onClick={() => startEditBuilding(row)}
+                                className="p-1 hover:bg-gray-600 rounded"
+                                title="Edit"
+                              >
+                                <Edit2 className="h-3 w-3 text-gray-500" />
+                              </button>
+                            )}
                             <button
-                              onClick={() => {
-                                if (row.type === 'site') startEditSite(row);
-                                else if (row.type === 'phase') startEditPhase(row);
-                                else if (row.type === 'tenancy') startEditTenancy(row);
-                              }}
-                              className="p-1 hover:bg-gray-600 rounded"
-                              title="Edit"
-                            >
-                              <Edit2 className="h-3 w-3 text-gray-500" />
-                            </button>
-
-                            {/* Delete button for all types */}
-                            <button
-                              onClick={() => setDeleteConfirm({
-                                type: row.type,
-                                id: row.type === 'site' ? row.siteId : row.type === 'phase' ? row.phaseId! : row.tenancyId!,
-                                name: row.type === 'site' ? row.siteName : row.type === 'phase' ? row.phaseName! : row.tenantName!,
-                              })}
+                              onClick={() => setDeleteConfirm({ type: row.type, id: row.id, name: row.name })}
                               className="p-1 hover:bg-red-900/50 rounded"
                               title="Delete"
                             >
                               <Trash2 className="h-3 w-3 text-red-500/70 hover:text-red-400" />
                             </button>
-
-                            {/* Split button for parent sites only */}
-                            {row.type === 'site' && row.isParentSite && (
-                              <button
-                                onClick={() => { setSplitSiteId(row.siteId); setShowSplitModal(true); }}
-                                className="p-1 hover:bg-gray-600 rounded"
-                                title="Split Site"
-                              >
-                                <GitBranch className="h-3 w-3 text-gray-500" />
-                              </button>
-                            )}
                           </>
                         )}
                       </div>
@@ -990,8 +675,8 @@ export default function Projects() {
 
               {filteredRows.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-gray-500">
-                    No projects found. {searchTerm || filterTicker || filterStatus || filterUseType ? 'Try adjusting your filters.' : 'Import data to get started.'}
+                  <td colSpan={11} className="px-4 py-8 text-center text-gray-500">
+                    No projects found. Import data to get started.
                   </td>
                 </tr>
               )}
@@ -999,58 +684,6 @@ export default function Projects() {
           </table>
         </div>
       </div>
-
-      {/* Split/Merge Modal */}
-      {showSplitModal && splitSiteId && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4">
-            <div className="flex items-center gap-3 mb-4">
-              <GitBranch className="h-6 w-6 text-orange-500" />
-              <h2 className="text-lg font-semibold text-gray-200">Split Site</h2>
-            </div>
-            <p className="text-sm text-gray-400 mb-4">
-              Split this site into multiple child sites. This creates a parent-child relationship
-              and tracks the lineage for audit purposes.
-            </p>
-            <div className="space-y-3 mb-6">
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">New Child Site Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g., Building 1"
-                  className="w-full bg-gray-700 border border-gray-600 text-white rounded px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Allocation (%)</label>
-                <input
-                  type="number"
-                  placeholder="50"
-                  className="w-full bg-gray-700 border border-gray-600 text-white rounded px-3 py-2 text-sm"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowSplitModal(false)}
-                className="px-4 py-2 text-sm text-gray-400 hover:text-gray-300"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  // TODO: Implement split functionality
-                  alert('Split functionality coming soon!');
-                  setShowSplitModal(false);
-                }}
-                className="px-4 py-2 text-sm bg-orange-600 text-white rounded hover:bg-orange-700"
-              >
-                Create Split
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
@@ -1068,12 +701,12 @@ export default function Projects() {
             </p>
             {deleteConfirm.type === 'site' && (
               <p className="text-sm text-yellow-400 mb-4">
-                ⚠️ This will also delete all phases and tenancies within this site.
+                This will also delete all campuses and buildings within this site.
               </p>
             )}
-            {deleteConfirm.type === 'phase' && (
+            {deleteConfirm.type === 'campus' && (
               <p className="text-sm text-yellow-400 mb-4">
-                ⚠️ This will also delete all tenancies within this phase.
+                This will also delete all buildings within this campus.
               </p>
             )}
             <div className="flex justify-end gap-3">
@@ -1085,13 +718,10 @@ export default function Projects() {
               </button>
               <button
                 onClick={handleDelete}
-                disabled={deleteSiteMutation.isPending || deletePhaseMutation.isPending || deleteTenancyMutation.isPending}
+                disabled={deleteBuildingMutation.isPending || deleteCampusMutation.isPending || deleteSiteMutation.isPending}
                 className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
               >
-                {(deleteSiteMutation.isPending || deletePhaseMutation.isPending || deleteTenancyMutation.isPending)
-                  ? 'Deleting...'
-                  : 'Delete'
-                }
+                Delete
               </button>
             </div>
           </div>

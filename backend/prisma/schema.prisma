@@ -1,5 +1,5 @@
 // BTC Miner Valuation Terminal - Database Schema
-// Based on PRD Section 4: Data Model
+// Site → Campus → Building → UsePeriod hierarchy
 
 generator client {
   provider = "prisma-client-js"
@@ -21,6 +21,7 @@ model Company {
 
   // Balance Sheet
   btcHoldings     Decimal? @db.Decimal(18, 8)
+  btcCount        Decimal? @db.Decimal(18, 8)
   ethHoldings     Decimal? @db.Decimal(18, 8)
   cashM           Decimal? @db.Decimal(12, 2)
   debtM           Decimal? @db.Decimal(12, 2)
@@ -29,14 +30,15 @@ model Company {
   // Market Data
   stockPrice      Decimal? @db.Decimal(10, 4)
 
-  // Hashrate
+  // Mining Data
   hashrateEh      Decimal? @db.Decimal(10, 2)
-  hashrateType    HashrateType @default(SELF)
-  hashrateAsOf    DateTime?
+  efficiencyJth   Decimal? @db.Decimal(6, 2)
+  powerCostKwh    Decimal? @db.Decimal(6, 4)
 
   // Monitoring
   irPageUrl       String?
   twitterAccounts String[]
+  sourceDate      DateTime?
 
   // Timestamps
   createdAt       DateTime @default(now())
@@ -45,40 +47,22 @@ model Company {
   // Relations
   sites           Site[]
   factors         CompanyFactor[]
+  debts           Debt[]
 
   @@map("companies")
 }
 
+// Site = Physical location (e.g., "Ellendale, ND" or "Lake Mariner, NY")
 model Site {
   id              String   @id @default(uuid())
   ticker          String   @db.VarChar(10)
-  parentSiteId    String?  @map("parent_site_id")
 
-  // Basic Info
-  name            String   @db.VarChar(255)
+  // Location Info
+  name            String   @db.VarChar(255)  // e.g., "Ellendale", "Lake Mariner"
   country         String   @db.VarChar(100)
   state           String?  @db.VarChar(100)
-
-  // Location
   latitude        Decimal? @db.Decimal(9, 6)
   longitude       Decimal? @db.Decimal(9, 6)
-  googleMapsLink  String?
-
-  // Power & Grid
-  powerAuthority  String?  @db.VarChar(100)
-  grid            String?  @db.VarChar(50)
-
-  // Classification
-  ownershipStatus OwnershipStatus @default(OWNED)
-  datacenterTier  DatacenterTier?
-
-  // Valuation Control
-  includeInValuation Boolean @default(true)
-  confidence      Confidence @default(MEDIUM)
-
-  // Notes & Source
-  notes           String?
-  sourceUrl       String?
 
   // Timestamps
   createdAt       DateTime @default(now())
@@ -86,108 +70,159 @@ model Site {
 
   // Relations
   company         Company  @relation(fields: [ticker], references: [ticker], onDelete: Cascade)
-  parentSite      Site?    @relation("SiteHierarchy", fields: [parentSiteId], references: [id])
-  childSites      Site[]   @relation("SiteHierarchy")
-  phases          Phase[]
+  campuses        Campus[]
   factors         SiteFactor[]
 
-  // Lineage (for split/merge tracking)
-  splitFrom       SiteLineage[] @relation("LineageChild")
-  splitInto       SiteLineage[] @relation("LineageParent")
-
+  @@unique([ticker, name])
   @@map("sites")
 }
 
-model Phase {
+// Campus = Named development within a site (e.g., "Polaris Forge 1", "Ellendale Legacy")
+model Campus {
+  id              String   @id @default(uuid())
+  siteId          String   @map("site_id")
+
+  // Basic Info
+  name            String   @db.VarChar(255)  // e.g., "Polaris Forge 1"
+
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  site            Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  buildings       Building[]
+
+  @@unique([siteId, name])
+  @@map("campuses")
+}
+
+// Building = Specific facility within a campus (e.g., "Building 1 - Phase 1", "CB-2")
+model Building {
   id                  String   @id @default(uuid())
-  siteId              String   @map("site_id")
+  campusId            String   @map("campus_id")
+  externalId          String?  @db.VarChar(50)  // Site_ID from spreadsheet
 
   // Basic Info
   name                String   @db.VarChar(255)
-  status              PhaseStatus @default(PIPELINE)
 
   // Capacity
   grossMw             Decimal? @db.Decimal(10, 2)
   itMw                Decimal? @db.Decimal(10, 2)
+  petaflops           Decimal? @db.Decimal(10, 2)
   pue                 Decimal? @db.Decimal(4, 2)
-  pueSource           String?  @db.VarChar(100)
+  grid                String?  @db.VarChar(100)
 
-  // Timeline
+  // Ownership & Status
+  ownershipStatus     String?  @db.VarChar(100)
+  developmentPhase    DevelopmentPhase @default(DILIGENCE)
   energizationDate    DateTime?
-  energizationActual  Boolean  @default(false)
 
-  // Classification
-  currentUse          UseType  @default(BTC_MINING)
-  changeType          String?  @db.VarChar(50)
-  suggestDelete       Boolean  @default(false)
+  // Valuation Control
+  confidence          Confidence @default(MEDIUM)
+  probabilityOverride Decimal?   @db.Decimal(3, 2)  // Manual override (0.00-1.00)
+  includeInValuation  Boolean    @default(true)
+
+  // Notes & Source
+  notes               String?
+  sourceUrl           String?
+  sourceDate          DateTime?
 
   // Timestamps
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
   // Relations
-  site                Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  tenancies           Tenancy[]
+  campus              Campus   @relation(fields: [campusId], references: [id], onDelete: Cascade)
+  usePeriods          UsePeriod[]
 
-  @@map("phases")
+  @@map("buildings")
 }
 
-model Tenancy {
+// UsePeriod = Tracks use over time (BTC Mining → HPC/AI transitions)
+model UsePeriod {
   id                  String   @id @default(uuid())
-  phaseId             String   @map("phase_id")
+  buildingId          String   @map("building_id")
 
-  // Tenant Info
-  tenant              String   @db.VarChar(255)
+  // Use Info
   useType             UseType  @default(BTC_MINING)
-  leaseStructure      LeaseStructure?
+  startDate           DateTime?
+  endDate             DateTime?  // null = current/active
+  isCurrent           Boolean  @default(true)
 
-  // Lease Terms
+  // Lease/Tenant Details (if applicable)
+  tenant              String?  @db.VarChar(255)
   leaseValueM         Decimal? @db.Decimal(12, 2)
   leaseYears          Decimal? @db.Decimal(5, 2)
-  annualRevenueM      Decimal? @db.Decimal(12, 2)
-  noiPct              Decimal? @db.Decimal(5, 2)
+  annualRevM          Decimal? @db.Decimal(12, 2)
+  noiPct              Decimal? @db.Decimal(5, 4)
   noiAnnualM          Decimal? @db.Decimal(12, 2)
   leaseStart          DateTime?
   leaseNotes          String?
 
-  // Probability & Adjustments
-  hpcConvProb         Decimal? @db.Decimal(3, 2)
-  hpcConvProbUsed     Decimal? @db.Decimal(3, 2)
-  fidoodle            Decimal  @default(1.0) @db.Decimal(4, 2)
+  // Mining-specific (for self-mining use)
+  miningHashrateEh    Decimal? @db.Decimal(10, 2)
+  miningEfficiencyJth Decimal? @db.Decimal(6, 2)
+  miningPowerCostKwh  Decimal? @db.Decimal(6, 4)
 
-  // BTC Mining Fields
-  miningPowerCostKwh      Decimal? @db.Decimal(6, 4)
-  miningCurtailmentPct    Decimal? @db.Decimal(5, 2)
-  miningNonpowerOpexMwMo  Decimal? @db.Decimal(10, 2)
-  miningEfficiencyJth     Decimal? @db.Decimal(6, 2)
-  miningRevenueAnnualM    Decimal? @db.Decimal(12, 2)
-  miningPowerCostAnnualM  Decimal? @db.Decimal(12, 2)
-  miningNonpowerOpexAnnualM Decimal? @db.Decimal(12, 2)
-  miningEbitdaAnnualM     Decimal? @db.Decimal(12, 2)
-
-  // GPU Cloud Fields (self-operated only)
-  gpuFlopsTotal           Decimal? @db.Decimal(20, 2)
-  gpuPricePerFlop         Decimal? @db.Decimal(12, 8)
-  gpuUtilizationPct       Decimal? @db.Decimal(5, 2)
-  gpuMarginPct            Decimal? @db.Decimal(5, 2)
-
-  // HPC Potential (for BTC sites with conversion potential)
-  hpcPotentialNoiAnnualM  Decimal? @db.Decimal(12, 2)
-  hpcPotentialAnnualRevM  Decimal? @db.Decimal(12, 2)
-  hpcPotentialValueM      Decimal? @db.Decimal(12, 2)
+  // Allocation tracking
+  allocationMethod    String?  @db.VarChar(50)  // Disclosed, Pro-rata, Estimated
 
   // Timestamps
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
   // Relations
-  phase               Phase    @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  building            Building @relation(fields: [buildingId], references: [id], onDelete: Cascade)
 
-  @@map("tenancies")
+  @@map("use_periods")
+}
+
+// Debt tracking (from Debt worksheet)
+model Debt {
+  id              String   @id @default(uuid())
+  ticker          String   @db.VarChar(10)
+
+  // Instrument Info
+  instrument      String   @db.VarChar(255)
+  debtType        String?  @db.VarChar(100)
+  issuer          String?  @db.VarChar(255)
+
+  // Terms
+  principalM      Decimal? @db.Decimal(12, 2)
+  originalM       Decimal? @db.Decimal(12, 2)
+  maturity        DateTime?
+  couponPct       Decimal? @db.Decimal(5, 4)
+  annualInterestM Decimal? @db.Decimal(12, 2)
+
+  // Security
+  secured         Boolean  @default(false)
+  collateral      String?
+  level           String?  @db.VarChar(50)  // Corporate, Project, Asset
+  linkedSite      String?  @db.VarChar(255)
+
+  // Convertible
+  convertible     Boolean  @default(false)
+  conversionPrice Decimal? @db.Decimal(10, 4)
+
+  // Status
+  status          String?  @db.VarChar(100)
+  confidence      Confidence @default(MEDIUM)
+  source          String?
+  sourceDate      DateTime?
+
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  company         Company  @relation(fields: [ticker], references: [ticker], onDelete: Cascade)
+
+  @@map("debts")
 }
 
 // ===========================================
-// FACTORS (Hierarchical)
+// FACTORS (Valuation Inputs)
 // ===========================================
 
 model GlobalFactor {
@@ -237,7 +272,7 @@ model SiteFactor {
 }
 
 // ===========================================
-// AUDIT & MONITORING
+// AUDIT & SETTINGS
 // ===========================================
 
 model AuditLog {
@@ -261,66 +296,6 @@ model AuditLog {
   @@map("audit_log")
 }
 
-model SiteLineage {
-  id              String   @id @default(uuid())
-  operationType   LineageOperation
-  operationDate   DateTime @default(now())
-  parentSiteId    String   @map("parent_site_id")
-  childSiteId     String   @map("child_site_id")
-  allocationRatios Json?
-  notes           String?
-  userId          String?  @db.VarChar(100)
-
-  parentSite      Site     @relation("LineageParent", fields: [parentSiteId], references: [id])
-  childSite       Site     @relation("LineageChild", fields: [childSiteId], references: [id])
-
-  @@map("site_lineage")
-}
-
-model MonitoringAlert {
-  id              String   @id @default(uuid())
-  entityType      String   @db.VarChar(50)
-  entityId        String?  @db.VarChar(100)
-  alertType       String   @db.VarChar(50)
-  sourceUrl       String?
-  suggestedChange Json?
-  status          AlertStatus @default(PENDING)
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@index([status])
-  @@map("monitoring_alerts")
-}
-
-model DataQualityIssue {
-  id              String   @id @default(uuid())
-  testId          String   @db.VarChar(20)
-  severity        Severity
-  entityType      String   @db.VarChar(50)
-  entityId        String   @db.VarChar(100)
-  ticker          String?  @db.VarChar(10)
-  siteName        String?
-  phaseName       String?
-  field           String   @db.VarChar(100)
-  currentValue    String?
-  issue           String
-  recommendation  String?
-  ignored         Boolean  @default(false)
-  correctedAt     DateTime?
-  correctedValue  String?
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@index([ignored, severity])
-  @@map("data_quality_issues")
-}
-
-// ===========================================
-// SETTINGS
-// ===========================================
-
 model Settings {
   id              String   @id @default(uuid())
   key             String   @unique @db.VarChar(100)
@@ -336,22 +311,24 @@ model Settings {
 // ENUMS
 // ===========================================
 
-enum HashrateType {
-  SELF
-  HUM // Hosted/Unverified/Mixed
+enum DevelopmentPhase {
+  OPERATIONAL      // 100% probability (default)
+  CONSTRUCTION     // 90% probability
+  DEVELOPMENT      // 70% probability
+  EXCLUSIVITY      // 50% probability
+  DILIGENCE        // 30% probability
 }
 
-enum OwnershipStatus {
-  OWNED
-  LONG_TERM_LEASE
-  SHORT_TERM_LEASE
-}
-
-enum DatacenterTier {
-  TIER_I
-  TIER_II
-  TIER_III
-  TIER_IV
+enum UseType {
+  BTC_MINING
+  BTC_MINING_HOSTING
+  HPC_AI_HOSTING
+  HPC_AI_PLANNED
+  GPU_CLOUD
+  COLOCATION
+  MIXED
+  UNCONTRACTED
+  UNCONTRACTED_ROFR
 }
 
 enum Confidence {
@@ -361,52 +338,8 @@ enum Confidence {
   LOW
 }
 
-enum PhaseStatus {
-  OPERATIONAL
-  PARTIALLY_ONLINE
-  UNDER_CONSTRUCTION
-  CONTRACTED
-  PIPELINE
-  OPTION
-  DISCUSSION
-}
-
-enum UseType {
-  BTC_MINING
-  HPC_LEASE
-  GPU_CLOUD
-  COLOCATION
-  MIXED
-  DEVELOPMENT
-}
-
-enum LeaseStructure {
-  NNN
-  MODIFIED_GROSS
-  GROSS
-}
-
 enum AuditAction {
   CREATE
   UPDATE
   DELETE
-  SPLIT
-  MERGE
-}
-
-enum LineageOperation {
-  SPLIT
-  MERGE
-}
-
-enum AlertStatus {
-  PENDING
-  APPLIED
-  DISMISSED
-}
-
-enum Severity {
-  P0
-  P1
-  P2
 }

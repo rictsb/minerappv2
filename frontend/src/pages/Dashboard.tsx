@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw, BarChart3 } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-// Helper to get API URL
 function getApiUrl(): string {
   let apiUrl = import.meta.env.VITE_API_URL || '';
   if (apiUrl && !apiUrl.startsWith('http')) {
@@ -12,56 +11,43 @@ function getApiUrl(): string {
   return apiUrl;
 }
 
-// Placeholder BTC price - will be from factors later
-const BTC_PRICE = 97000;
-
-interface Company {
+interface Valuation {
   ticker: string;
   name: string;
-  stockPrice: string | null;
-  btcHoldings: string | null;
-  cashM: string | null;
-  debtM: string | null;
-  fdSharesM: string | null;
-  hashrateEh: string | null;
-  sites: Site[];
+  stockPrice: number | null;
+  netLiquid: number;
+  mwMining: number;
+  mwHpc: number;
+  evMining: number;
+  evHpcContracted: number;
+  evHpcPipeline: number;
+  evGpu: number;
+  totalEv: number;
+  fairValue: number;
 }
 
-interface Site {
-  id: string;
-  name: string;
-  phases: Phase[];
-}
-
-interface Phase {
-  id: string;
-  name: string;
-  status: string;
-  grossMw: string | null;
-  currentUse: string;
-  tenancies: Tenancy[];
-}
-
-interface Tenancy {
-  id: string;
-  useType: string;
-  leaseValueM: string | null;
-  miningEbitdaAnnualM: string | null;
+interface ValuationResponse {
+  factors: {
+    btcPrice: number;
+    mwValueHpcContracted: number;
+    mwValueHpcUncontracted: number;
+    noiMultiple: number;
+  };
+  valuations: Valuation[];
 }
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
-  const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
 
-  const { data: companies, isLoading, error } = useQuery({
-    queryKey: ['companies'],
+  const { data: valData, isLoading, error } = useQuery({
+    queryKey: ['valuation'],
     queryFn: async () => {
       const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/companies`);
-      if (!res.ok) throw new Error('Failed to fetch companies');
-      return res.json() as Promise<Company[]>;
+      const res = await fetch(`${apiUrl}/api/v1/valuation`);
+      if (!res.ok) throw new Error('Failed to fetch valuation');
+      return res.json() as Promise<ValuationResponse>;
     },
   });
 
@@ -76,6 +62,7 @@ export default function Dashboard() {
     },
     onSuccess: (data) => {
       setRefreshMessage(`Updated ${data.updated} prices`);
+      queryClient.invalidateQueries({ queryKey: ['valuation'] });
       queryClient.invalidateQueries({ queryKey: ['companies'] });
       setTimeout(() => setRefreshMessage(null), 3000);
     },
@@ -85,95 +72,20 @@ export default function Dashboard() {
     },
   });
 
-  // Calculate company metrics
-  const calculateMetrics = (company: Company) => {
-    const stockPrice = company.stockPrice ? parseFloat(company.stockPrice) : 0;
-    const btcHoldings = company.btcHoldings ? parseFloat(company.btcHoldings) : 0;
-    const cashM = company.cashM ? parseFloat(company.cashM) : 0;
-    const debtM = company.debtM ? parseFloat(company.debtM) : 0;
-    const fdSharesM = company.fdSharesM ? parseFloat(company.fdSharesM) : 0;
-
-    // Net Liquid = Cash + BTC Value - Debt
-    const btcValueM = (btcHoldings * BTC_PRICE) / 1_000_000;
-    const netLiquidM = cashM + btcValueM - debtM;
-
-    // MW Capacity by type
-    let miningMw = 0;
-    let hpcMw = 0;
-    let miningEvM = 0;
-    let contractedEvM = 0;
-    let pipelineEvM = 0;
-    let gpuEvM = 0;
-
-    company.sites?.forEach((site) => {
-      site.phases?.forEach((phase) => {
-        const grossMw = phase.grossMw ? parseFloat(phase.grossMw) : 0;
-        const isOperational = phase.status === 'OPERATIONAL' || phase.status === 'PARTIALLY_ONLINE';
-        const isContracted = phase.status === 'CONTRACTED' || phase.status === 'UNDER_CONSTRUCTION';
-        const isPipeline = phase.status === 'PIPELINE' || phase.status === 'OPTION' || phase.status === 'DISCUSSION';
-
-        // Categorize MW by use type
-        if (phase.currentUse === 'BTC_MINING') {
-          miningMw += grossMw;
-          // Simple EV estimate: $1M per MW for mining (placeholder)
-          if (isOperational) miningEvM += grossMw * 1;
-          else if (isContracted) contractedEvM += grossMw * 0.8;
-          else if (isPipeline) pipelineEvM += grossMw * 0.5;
-        } else if (phase.currentUse === 'HPC_LEASE' || phase.currentUse === 'COLOCATION') {
-          hpcMw += grossMw;
-          // HPC valued higher: $3M per MW (placeholder)
-          if (isOperational) contractedEvM += grossMw * 3;
-          else if (isContracted) contractedEvM += grossMw * 2.5;
-          else if (isPipeline) pipelineEvM += grossMw * 1.5;
-        } else if (phase.currentUse === 'GPU_CLOUD') {
-          hpcMw += grossMw;
-          // GPU Cloud: $4M per MW (placeholder)
-          if (isOperational) gpuEvM += grossMw * 4;
-          else if (isContracted) gpuEvM += grossMw * 3;
-          else if (isPipeline) pipelineEvM += grossMw * 2;
-        } else {
-          // Mixed/Development
-          if (isOperational) miningEvM += grossMw * 0.5;
-          else if (isPipeline) pipelineEvM += grossMw * 0.3;
-        }
-      });
-    });
-
-    // Total EV and Fair Value
-    const totalEvM = miningEvM + contractedEvM + pipelineEvM + gpuEvM + netLiquidM;
-    const fairValue = fdSharesM > 0 ? totalEvM / fdSharesM : 0;
-    const upside = stockPrice > 0 ? ((fairValue - stockPrice) / stockPrice) * 100 : 0;
-
-    return {
-      stockPrice,
-      btcHoldings,
-      netLiquidM,
-      miningMw,
-      hpcMw,
-      miningEvM,
-      contractedEvM,
-      pipelineEvM,
-      gpuEvM,
-      totalEvM,
-      fairValue,
-      upside,
-    };
-  };
+  const valuations = valData?.valuations || [];
+  const factors = valData?.factors;
 
   // Calculate totals
-  const totals = companies?.reduce(
-    (acc, company) => {
-      const metrics = calculateMetrics(company);
-      return {
-        btcHoldings: acc.btcHoldings + metrics.btcHoldings,
-        miningEvM: acc.miningEvM + metrics.miningEvM,
-        contractedEvM: acc.contractedEvM + metrics.contractedEvM,
-        pipelineEvM: acc.pipelineEvM + metrics.pipelineEvM,
-        gpuEvM: acc.gpuEvM + metrics.gpuEvM,
-      };
-    },
-    { btcHoldings: 0, miningEvM: 0, contractedEvM: 0, pipelineEvM: 0, gpuEvM: 0 }
-  ) || { btcHoldings: 0, miningEvM: 0, contractedEvM: 0, pipelineEvM: 0, gpuEvM: 0 };
+  const totals = valuations.reduce(
+    (acc, v) => ({
+      evMining: acc.evMining + v.evMining,
+      evHpcContracted: acc.evHpcContracted + v.evHpcContracted,
+      evHpcPipeline: acc.evHpcPipeline + v.evHpcPipeline,
+      evGpu: acc.evGpu + v.evGpu,
+      totalEv: acc.totalEv + v.totalEv,
+    }),
+    { evMining: 0, evHpcContracted: 0, evHpcPipeline: 0, evGpu: 0, totalEv: 0 }
+  );
 
   if (isLoading) {
     return (
@@ -203,7 +115,14 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-900 text-white p-6">
       {/* Header with Refresh */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-gray-300">BTC Miner Valuation Terminal</h1>
+        <div>
+          <h1 className="text-xl font-semibold text-gray-300">BTC Miner Valuation Terminal</h1>
+          {factors && (
+            <p className="text-xs text-gray-500 mt-1">
+              BTC ${formatNumber(factors.btcPrice)} • HPC Contracted ${factors.mwValueHpcContracted}M/MW • Pipeline ${factors.mwValueHpcUncontracted}M/MW
+            </p>
+          )}
+        </div>
         <div className="flex items-center gap-3">
           {refreshMessage && (
             <span className={`text-sm ${refreshMessage.includes('Error') ? 'text-red-400' : 'text-green-400'}`}>
@@ -224,20 +143,20 @@ export default function Dashboard() {
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
-          <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Total BTC Holdings</p>
-          <p className="text-2xl font-bold text-orange-500">{formatNumber(totals.btcHoldings)}</p>
-        </div>
-        <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
           <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Mining EV</p>
-          <p className="text-2xl font-bold text-orange-500">${formatNumber(totals.miningEvM)}M</p>
+          <p className="text-2xl font-bold text-orange-500">${formatNumber(totals.evMining)}M</p>
         </div>
         <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
           <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">HPC Contracted EV</p>
-          <p className="text-2xl font-bold text-orange-500">${formatNumber(totals.contractedEvM)}M</p>
+          <p className="text-2xl font-bold text-purple-400">${formatNumber(totals.evHpcContracted)}M</p>
         </div>
         <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
-          <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Pipeline EV</p>
-          <p className="text-2xl font-bold text-orange-500">${formatNumber(totals.pipelineEvM)}M</p>
+          <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">HPC Pipeline EV</p>
+          <p className="text-2xl font-bold text-purple-300">${formatNumber(totals.evHpcPipeline)}M</p>
+        </div>
+        <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
+          <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Total EV</p>
+          <p className="text-2xl font-bold text-orange-500">${formatNumber(totals.totalEv)}M</p>
         </div>
       </div>
 
@@ -266,68 +185,75 @@ export default function Dashboard() {
                 <th className="px-4 py-2 text-right text-xs font-normal text-gray-500">Mining</th>
                 <th className="px-4 py-2 text-right text-xs font-normal text-gray-500">HPC</th>
                 <th className="px-4 py-2 text-right text-xs font-normal text-orange-400/70">Mining</th>
-                <th className="px-4 py-2 text-right text-xs font-normal text-orange-400/70">Contracted</th>
-                <th className="px-4 py-2 text-right text-xs font-normal text-orange-400/70">Pipeline</th>
-                <th className="px-4 py-2 text-right text-xs font-normal text-orange-400/70">GPU</th>
+                <th className="px-4 py-2 text-right text-xs font-normal text-purple-400/70">Contracted</th>
+                <th className="px-4 py-2 text-right text-xs font-normal text-purple-300/70">Pipeline</th>
+                <th className="px-4 py-2 text-right text-xs font-normal text-blue-400/70">GPU</th>
                 <th className="px-4 py-2"></th>
                 <th className="px-4 py-2"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-700">
-              {companies?.map((company) => {
-                const metrics = calculateMetrics(company);
+              {valuations.map((v) => {
+                const upside = v.stockPrice && v.stockPrice > 0
+                  ? ((v.fairValue / v.stockPrice) - 1) * 100
+                  : null;
 
                 return (
                   <tr
-                    key={company.ticker}
-                    className={`hover:bg-gray-700/50 cursor-pointer transition ${selectedTicker === company.ticker ? 'bg-gray-700/30' : ''}`}
-                    onClick={() => setSelectedTicker(company.ticker === selectedTicker ? null : company.ticker)}
+                    key={v.ticker}
+                    className="hover:bg-gray-700/50 cursor-pointer transition"
+                    onClick={() => navigate('/projects')}
                   >
                     <td className="px-4 py-3">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/projects/${company.ticker}`);
-                        }}
-                        className="font-medium text-orange-500 hover:text-orange-400 hover:underline"
-                      >
-                        {company.ticker}
-                      </button>
+                      <span className="font-medium text-orange-500">{v.ticker}</span>
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-green-400">
-                      {metrics.stockPrice > 0 ? formatMoney(metrics.stockPrice) : '-'}
+                      {v.stockPrice ? formatMoney(v.stockPrice) : '-'}
                     </td>
-                    <td className={`px-4 py-3 text-right font-mono ${metrics.netLiquidM >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {formatNumber(metrics.netLiquidM, 0)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-gray-300">
-                      {metrics.miningMw > 0 ? formatNumber(metrics.miningMw, 0) : '0'}
+                    <td className={`px-4 py-3 text-right font-mono ${v.netLiquid >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {formatNumber(v.netLiquid, 0)}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-gray-300">
-                      {metrics.hpcMw > 0 ? formatNumber(metrics.hpcMw, 0) : '0'}
+                      {v.mwMining > 0 ? formatNumber(v.mwMining, 0) : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-gray-300">
+                      {v.mwHpc > 0 ? formatNumber(v.mwHpc, 0) : '-'}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-orange-400">
-                      {metrics.miningEvM > 0 ? formatNumber(metrics.miningEvM, 0) : '0'}
+                      {v.evMining > 0 ? formatNumber(v.evMining, 0) : '-'}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-orange-400">
-                      {metrics.contractedEvM > 0 ? formatNumber(metrics.contractedEvM, 0) : '0'}
+                    <td className="px-4 py-3 text-right font-mono text-purple-400">
+                      {v.evHpcContracted > 0 ? formatNumber(v.evHpcContracted, 0) : '-'}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-orange-400">
-                      {metrics.pipelineEvM > 0 ? formatNumber(metrics.pipelineEvM, 0) : '0'}
+                    <td className="px-4 py-3 text-right font-mono text-purple-300">
+                      {v.evHpcPipeline > 0 ? formatNumber(v.evHpcPipeline, 0) : '-'}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-orange-400">
-                      {metrics.gpuEvM > 0 ? formatNumber(metrics.gpuEvM, 0) : '0'}
+                    <td className="px-4 py-3 text-right font-mono text-blue-400">
+                      {v.evGpu > 0 ? formatNumber(v.evGpu, 0) : '-'}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-orange-500 font-semibold">
-                      {metrics.fairValue > 0 ? formatMoney(metrics.fairValue) : '-'}
+                      {v.fairValue > 0 ? `$${formatNumber(v.fairValue, 0)}M` : '-'}
                     </td>
-                    <td className={`px-4 py-3 text-right font-mono font-semibold ${metrics.upside >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {metrics.stockPrice > 0 ? `${metrics.upside >= 0 ? '+' : ''}${formatNumber(metrics.upside, 0)}%` : '-'}
+                    <td className="px-4 py-3 text-right">
+                      {upside !== null ? (
+                        <div className="flex items-center justify-end gap-1">
+                          {upside >= 0 ? (
+                            <TrendingUp className="w-4 h-4 text-green-400" />
+                          ) : (
+                            <TrendingDown className="w-4 h-4 text-red-400" />
+                          )}
+                          <span className={`font-mono font-semibold ${upside >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {upside >= 0 ? '+' : ''}{formatNumber(upside, 0)}%
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-gray-600">-</span>
+                      )}
                     </td>
                   </tr>
                 );
               })}
-              {(!companies || companies.length === 0) && (
+              {valuations.length === 0 && (
                 <tr>
                   <td colSpan={11} className="text-center py-8 text-gray-500">
                     No companies found. Import data to get started.
@@ -339,20 +265,25 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Company Detail Panel */}
-      {selectedTicker && (
-        <div className="mt-6 bg-gray-800 border border-gray-700 rounded-lg p-6">
-          <div className="flex items-center gap-4 mb-4">
-            <BarChart3 className="text-orange-500" size={24} />
-            <h2 className="text-lg font-semibold text-gray-200">
-              {companies?.find(c => c.ticker === selectedTicker)?.name || selectedTicker}
-            </h2>
-          </div>
-          <p className="text-gray-400 text-sm">
-            Click a ticker to view company details in the Projects page.
-          </p>
+      {/* Legend */}
+      <div className="mt-4 flex items-center gap-6 text-xs text-gray-500">
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded bg-orange-500" />
+          <span>Mining Operations</span>
         </div>
-      )}
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded bg-purple-400" />
+          <span>HPC/AI Contracted</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded bg-purple-300" />
+          <span>HPC/AI Pipeline</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded bg-blue-400" />
+          <span>GPU Cloud</span>
+        </div>
+      </div>
     </div>
   );
 }

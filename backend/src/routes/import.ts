@@ -1,20 +1,20 @@
 /**
  * Excel Import Route
- * Handles uploading and parsing Excel files to populate the database
+ * Handles uploading and parsing Excel files with Site → Campus → Building → UsePeriod hierarchy
  */
 
 import { Router, Request, Response } from 'express';
 import multer, { FileFilterCallback } from 'multer';
 import * as XLSX from 'xlsx';
-import { PrismaClient, OwnershipStatus, PhaseStatus, UseType } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 
 const router = Router();
 const prisma = new PrismaClient();
 
-// Configure multer for file uploads (memory storage)
+// Configure multer for file uploads
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
     if (file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
         file.originalname.endsWith('.xlsx')) {
@@ -25,72 +25,95 @@ const upload = multer({
   },
 });
 
-// Helper: Parse date from various formats
-function parseDate(value: unknown): Date | null {
-  if (!value) return null;
-  if (value instanceof Date) return value;
-  if (typeof value === 'number') {
-    // Excel serial date
-    return new Date((value - 25569) * 86400 * 1000);
-  }
-  if (typeof value === 'string') {
-    const parsed = new Date(value);
-    return isNaN(parsed.getTime()) ? null : parsed;
-  }
-  return null;
+// Map spreadsheet Current_Use to UseType enum
+function mapUseType(currentUse: string | null): string {
+  if (!currentUse) return 'UNCONTRACTED';
+  const use = currentUse.toLowerCase();
+
+  if (use.includes('hpc') && use.includes('hosting') && !use.includes('planned')) return 'HPC_AI_HOSTING';
+  if (use.includes('hpc') && use.includes('planned')) return 'HPC_AI_PLANNED';
+  if (use.includes('gpu') || use.includes('cloud/ai') || (use.includes('ai') && !use.includes('mining'))) return 'GPU_CLOUD';
+  if (use.includes('btc') && use.includes('hosting')) return 'BTC_MINING_HOSTING';
+  if (use.includes('btc') || use.includes('mining') || use.includes('self-mining')) return 'BTC_MINING';
+  if (use.includes('colocation') || use.includes('colo')) return 'COLOCATION';
+  if (use.includes('mixed')) return 'MIXED';
+  if (use.includes('rofr')) return 'UNCONTRACTED_ROFR';
+  if (use.includes('uncontracted')) return 'UNCONTRACTED';
+
+  return 'BTC_MINING';
 }
 
-// Helper: Parse number safely
-function parseNumber(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') return null;
-  const num = parseFloat(String(value));
+// Map spreadsheet Site_Phase to DevelopmentPhase enum
+function mapDevelopmentPhase(sitePhase: string | null): string {
+  if (!sitePhase) return 'DILIGENCE';
+  const phase = sitePhase.toLowerCase();
+
+  if (phase.includes('operational')) return 'OPERATIONAL';
+  if (phase.includes('construction')) return 'CONSTRUCTION';
+  if (phase.includes('development')) return 'DEVELOPMENT';
+  if (phase.includes('exclusivity')) return 'EXCLUSIVITY';
+  if (phase.includes('diligence')) return 'DILIGENCE';
+
+  return 'DILIGENCE';
+}
+
+// Map confidence
+function mapConfidence(conf: string | null): string {
+  if (!conf) return 'MEDIUM';
+  const c = conf.toLowerCase();
+  if (c === 'high') return 'HIGH';
+  if (c.includes('medium') && c.includes('high')) return 'MEDIUM_HIGH';
+  if (c === 'medium') return 'MEDIUM';
+  if (c === 'low') return 'LOW';
+  return 'MEDIUM';
+}
+
+// Parse date helper
+function parseDate(dateStr: unknown): Date | null {
+  if (!dateStr) return null;
+  if (dateStr instanceof Date) return dateStr;
+
+  // Handle Excel serial dates
+  if (typeof dateStr === 'number') {
+    const excelEpoch = new Date(1899, 11, 30);
+    return new Date(excelEpoch.getTime() + dateStr * 24 * 60 * 60 * 1000);
+  }
+
+  // Handle string dates like "Jan-2022", "Oct-2025"
+  const str = String(dateStr).trim();
+  const monthYearMatch = str.match(/^([A-Za-z]+)-(\d{4})$/);
+  if (monthYearMatch) {
+    const months: Record<string, number> = {
+      jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+      jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+    };
+    const month = months[monthYearMatch[1].toLowerCase()];
+    const year = parseInt(monthYearMatch[2]);
+    if (month !== undefined && year) {
+      return new Date(year, month, 1);
+    }
+  }
+
+  // Try standard date parsing
+  const parsed = new Date(str);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+// Parse number helper
+function parseNum(val: unknown): number | null {
+  if (val === null || val === undefined || val === '' || val === 'NaN') return null;
+  const num = typeof val === 'number' ? val : parseFloat(String(val).replace(/[,$]/g, ''));
   return isNaN(num) ? null : num;
 }
 
-// Helper: Map status string to enum
-function mapStatus(status: string | null): PhaseStatus {
-  if (!status) return PhaseStatus.PIPELINE;
-  const normalized = status.toUpperCase().replace(/[\s-]/g, '_');
-  const statusMap: Record<string, PhaseStatus> = {
-    'OPERATIONAL': PhaseStatus.OPERATIONAL,
-    'OPERATING': PhaseStatus.OPERATIONAL,
-    'ONLINE': PhaseStatus.OPERATIONAL,
-    'PARTIALLY_ONLINE': PhaseStatus.PARTIALLY_ONLINE,
-    'PARTIAL': PhaseStatus.PARTIALLY_ONLINE,
-    'UNDER_CONSTRUCTION': PhaseStatus.UNDER_CONSTRUCTION,
-    'CONSTRUCTION': PhaseStatus.UNDER_CONSTRUCTION,
-    'CONTRACTED': PhaseStatus.CONTRACTED,
-    'PIPELINE': PhaseStatus.PIPELINE,
-    'OPTION': PhaseStatus.OPTION,
-    'DISCUSSION': PhaseStatus.DISCUSSION,
-  };
-  return statusMap[normalized] || PhaseStatus.PIPELINE;
-}
-
-// Helper: Map use type
-function mapUseType(use: string | null): UseType {
-  if (!use) return UseType.BTC_MINING;
-  const normalized = use.toUpperCase().replace(/[\s-]/g, '_');
-  if (normalized.includes('HPC') || normalized.includes('AI') || normalized.includes('GPU')) {
-    return UseType.HPC_LEASE;
+// Clean column name (remove trailing spaces)
+function cleanCol(row: Record<string, unknown>, ...keys: string[]): unknown {
+  for (const key of keys) {
+    if (row[key] !== undefined) return row[key];
+    if (row[key + ' '] !== undefined) return row[key + ' '];
+    if (row[key.trim()] !== undefined) return row[key.trim()];
   }
-  if (normalized.includes('COLO')) {
-    return UseType.COLOCATION;
-  }
-  return UseType.BTC_MINING;
-}
-
-// Helper: Map ownership status
-function mapOwnershipStatus(status: string | null): OwnershipStatus {
-  if (!status) return OwnershipStatus.OWNED;
-  const normalized = status.toUpperCase();
-  if (normalized.includes('LONG') && normalized.includes('LEASE')) {
-    return OwnershipStatus.LONG_TERM_LEASE;
-  }
-  if (normalized.includes('LEASE') || normalized.includes('SHORT')) {
-    return OwnershipStatus.SHORT_TERM_LEASE;
-  }
-  return OwnershipStatus.OWNED;
+  return null;
 }
 
 // POST /api/v1/import/excel
@@ -100,212 +123,286 @@ router.post('/excel', upload.single('file'), async (req: Request, res: Response)
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    // Parse Excel file
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });
-
-    const results = {
-      companies: 0,
+    const results: Record<string, number | string[]> = {
       sites: 0,
-      phases: 0,
-      tenancies: 0,
-      factors: 0,
+      campuses: 0,
+      buildings: 0,
+      usePeriods: 0,
+      companies: 0,
+      debts: 0,
       errors: [] as string[],
     };
 
-    // Process "Project List V9" or similar sheet (main data)
-    const projectSheetName = workbook.SheetNames.find(name =>
-      name.toLowerCase().includes('project') || name.toLowerCase().includes('list')
-    );
+    // Process Sites sheet
+    if (workbook.SheetNames.includes('Sites')) {
+      const sitesSheet = workbook.Sheets['Sites'];
+      const sitesData: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sitesSheet, { defval: null });
 
-    if (projectSheetName) {
-      const sheet = workbook.Sheets[projectSheetName];
-      const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: null });
+      // Skip header row if it contains column descriptions
+      const rows = sitesData.filter((row) => {
+        const ticker = cleanCol(row, 'Ticker');
+        return ticker && !String(ticker).toLowerCase().includes('company ticker');
+      });
 
-      // Group rows by ticker to create companies
-      const companiesMap = new Map<string, Record<string, unknown>[]>();
-
+      // Group by ticker to create companies
+      const companiesByTicker = new Map<string, Record<string, unknown>[]>();
       for (const row of rows) {
-        const ticker = (row['Ticker'] || row['ticker'] || row['TICKER']) as string | undefined;
+        const ticker = String(cleanCol(row, 'Ticker') || '').trim();
         if (!ticker) continue;
 
-        if (!companiesMap.has(ticker)) {
-          companiesMap.set(ticker, []);
+        if (!companiesByTicker.has(ticker)) {
+          companiesByTicker.set(ticker, []);
         }
-        companiesMap.get(ticker)!.push(row);
+        companiesByTicker.get(ticker)!.push(row);
       }
 
       // Process each company
-      for (const [ticker, companyRows] of companiesMap) {
-        try {
-          // Upsert company
-          const firstRow = companyRows[0];
-          const company = await prisma.company.upsert({
-            where: { ticker },
+      for (const [ticker, companyRows] of companiesByTicker) {
+        // Upsert company
+        await prisma.company.upsert({
+          where: { ticker },
+          update: { updatedAt: new Date() },
+          create: { ticker, name: ticker },
+        });
+        (results.companies as number)++;
+
+        // Group rows by Site_Name
+        const siteGroups = new Map<string, Record<string, unknown>[]>();
+        for (const row of companyRows) {
+          const siteName = String(cleanCol(row, 'Site_Name') || '').trim();
+          if (!siteName) continue;
+          if (!siteGroups.has(siteName)) {
+            siteGroups.set(siteName, []);
+          }
+          siteGroups.get(siteName)!.push(row);
+        }
+
+        // Create sites and their campuses/buildings
+        for (const [siteName, siteRows] of siteGroups) {
+          const firstRow = siteRows[0];
+          const country = String(cleanCol(firstRow, 'Country') || 'USA').trim();
+          const state = cleanCol(firstRow, 'State');
+          const lat = parseNum(cleanCol(firstRow, 'Latitude'));
+          const lng = parseNum(cleanCol(firstRow, 'Longitude'));
+
+          // Upsert site
+          const site = await prisma.site.upsert({
+            where: { ticker_name: { ticker, name: siteName } },
             update: {
-              name: (firstRow['Company'] || firstRow['company_name'] || ticker) as string,
-              updatedAt: new Date(),
+              country,
+              state: state ? String(state).trim() : null,
+              latitude: lat,
+              longitude: lng,
             },
             create: {
               ticker,
-              name: (firstRow['Company'] || firstRow['company_name'] || ticker) as string,
+              name: siteName,
+              country,
+              state: state ? String(state).trim() : null,
+              latitude: lat,
+              longitude: lng,
             },
           });
-          results.companies++;
+          (results.sites as number)++;
 
-          // Group by site
-          const sitesMap = new Map<string, Record<string, unknown>[]>();
-          for (const row of companyRows) {
-            const siteName = (row['Site_Name'] || row['Site'] || row['site_name'] || 'Unknown Site') as string;
-            if (!sitesMap.has(siteName)) {
-              sitesMap.set(siteName, []);
+          // Group by Campus within this site
+          const campusGroups = new Map<string, Record<string, unknown>[]>();
+          for (const row of siteRows) {
+            const campusName = String(cleanCol(row, 'Campus_Name') || siteName).trim();
+            if (!campusGroups.has(campusName)) {
+              campusGroups.set(campusName, []);
             }
-            sitesMap.get(siteName)!.push(row);
+            campusGroups.get(campusName)!.push(row);
           }
 
-          // Process each site
-          for (const [siteName, siteRows] of sitesMap) {
-            const firstSiteRow = siteRows[0];
-
-            // Create or update site
-            let site = await prisma.site.findFirst({
-              where: { ticker, name: siteName },
+          // Create campuses and buildings
+          for (const [campusName, campusRows] of campusGroups) {
+            // Upsert campus
+            const campus = await prisma.campus.upsert({
+              where: { siteId_name: { siteId: site.id, name: campusName } },
+              update: {},
+              create: { siteId: site.id, name: campusName },
             });
+            (results.campuses as number)++;
 
-            if (!site) {
-              site = await prisma.site.create({
+            // Each row in campusRows is a building
+            for (const row of campusRows) {
+              const buildingName = String(cleanCol(row, 'Building_Name') || 'Main').trim();
+              const externalId = cleanCol(row, 'Site_ID');
+
+              // Check if building exists
+              let building = await prisma.building.findFirst({
+                where: { campusId: campus.id, name: buildingName },
+              });
+
+              const buildingData = {
+                name: buildingName,
+                externalId: externalId ? String(externalId) : null,
+                grossMw: parseNum(cleanCol(row, 'Gross_MW')),
+                itMw: parseNum(cleanCol(row, 'IT_MW')),
+                petaflops: parseNum(cleanCol(row, 'Petaflops')),
+                pue: parseNum(cleanCol(row, 'PUE')),
+                grid: cleanCol(row, 'Grid') ? String(cleanCol(row, 'Grid')) : null,
+                ownershipStatus: cleanCol(row, 'Ownership Status') ? String(cleanCol(row, 'Ownership Status')) : null,
+                developmentPhase: mapDevelopmentPhase(cleanCol(row, 'Site_Phase') as string | null) as any,
+                energizationDate: parseDate(cleanCol(row, 'Energization_Date')),
+                confidence: mapConfidence(cleanCol(row, 'Confidence') as string | null) as any,
+                notes: cleanCol(row, 'Notes') ? String(cleanCol(row, 'Notes')) : null,
+                sourceUrl: cleanCol(row, 'Source_URL') ? String(cleanCol(row, 'Source_URL')) : null,
+                sourceDate: parseDate(cleanCol(row, 'Source_Date')),
+              };
+
+              if (building) {
+                building = await prisma.building.update({
+                  where: { id: building.id },
+                  data: buildingData,
+                });
+              } else {
+                building = await prisma.building.create({
+                  data: { campusId: campus.id, ...buildingData },
+                });
+              }
+              (results.buildings as number)++;
+
+              // Create current use period
+              const currentUse = cleanCol(row, 'Current_Use') as string | null;
+              const useType = mapUseType(currentUse);
+              const tenant = cleanCol(row, 'Lessee');
+
+              // Delete existing current use periods for this building
+              await prisma.usePeriod.deleteMany({
+                where: { buildingId: building.id, isCurrent: true },
+              });
+
+              // Create new use period
+              await prisma.usePeriod.create({
                 data: {
-                  ticker,
-                  name: siteName,
-                  country: (firstSiteRow['Country'] as string) || 'USA',
-                  state: (firstSiteRow['State'] || firstSiteRow['Location']) as string | undefined,
-                  latitude: parseNumber(firstSiteRow['Latitude'] || firstSiteRow['lat']),
-                  longitude: parseNumber(firstSiteRow['Longitude'] || firstSiteRow['lng'] || firstSiteRow['long']),
-                  powerAuthority: (firstSiteRow['Power_Authority'] || firstSiteRow['Utility']) as string | undefined,
-                  grid: (firstSiteRow['Grid'] || firstSiteRow['ISO']) as string | undefined,
-                  ownershipStatus: mapOwnershipStatus(firstSiteRow['Ownership'] as string | null),
-                  includeInValuation: true,
-                  confidence: 'MEDIUM',
+                  buildingId: building.id,
+                  useType: useType as any,
+                  startDate: parseDate(cleanCol(row, 'Energization_Date')),
+                  isCurrent: true,
+                  tenant: tenant ? String(tenant).trim() : null,
+                  leaseValueM: parseNum(cleanCol(row, 'Lease_Value_M')),
+                  leaseYears: parseNum(cleanCol(row, 'Lease_Yrs')),
+                  annualRevM: parseNum(cleanCol(row, 'Annual_Rev_M')),
+                  noiPct: parseNum(cleanCol(row, 'NOI_Pct')),
+                  noiAnnualM: parseNum(cleanCol(row, 'NOI_Annual_M')),
+                  leaseStart: parseDate(cleanCol(row, 'Lease_Start')),
+                  leaseNotes: cleanCol(row, 'Lease_Notes') ? String(cleanCol(row, 'Lease_Notes')) : null,
+                  allocationMethod: cleanCol(row, 'Allocation_Method') ? String(cleanCol(row, 'Allocation_Method')) : null,
                 },
               });
-              results.sites++;
-            }
-
-            // Process phases (each row can be a phase)
-            for (const row of siteRows) {
-              const phaseName = (row['Site_Phase'] || row['Phase'] || row['phase_name'] || 'Phase 1') as string;
-
-              // Check if phase exists
-              let phase = await prisma.phase.findFirst({
-                where: { siteId: site.id, name: phaseName },
-              });
-
-              if (!phase) {
-                phase = await prisma.phase.create({
-                  data: {
-                    siteId: site.id,
-                    name: phaseName,
-                    status: mapStatus((row['Status'] || row['status']) as string | null),
-                    grossMw: parseNumber(row['Gross_MW'] || row['Phase_MW']),
-                    itMw: parseNumber(row['IT_MW'] || row['IT MW']),
-                    pue: parseNumber(row['PUE']) || 1.25,
-                    energizationDate: parseDate(row['Energization_Date'] || row['Energization'] || row['COD']),
-                    energizationActual: row['Energization_Actual'] === true || row['Energization_Actual'] === 'Yes',
-                    currentUse: mapUseType((row['Current_Use'] || row['Use']) as string | null),
-                  },
-                });
-                results.phases++;
-              }
-
-              // Create tenancy if mining or lease data present
-              const hasMiningData = row['Mining_Power_Cost'] || row['Power_Cost_kWh'] || row['Efficiency_JTH'];
-              const hasLeaseData = row['Lessee'] || row['Lease_Value_M'] || row['Annual_Revenue_M'];
-
-              if (hasMiningData || hasLeaseData) {
-                const useType = mapUseType((row['Current_Use'] || row['Use']) as string | null);
-
-                await prisma.tenancy.create({
-                  data: {
-                    phaseId: phase.id,
-                    tenant: (row['Lessee'] || row['Tenant'] || `${ticker} (self)`) as string,
-                    useType,
-                    // Mining fields
-                    miningPowerCostKwh: parseNumber(row['Mining_Power_Cost'] || row['Power_Cost_kWh']),
-                    miningCurtailmentPct: parseNumber(row['Curtailment_Pct'] || row['Curtailment']) ?
-                      parseNumber(row['Curtailment_Pct'] || row['Curtailment'])! / 100 : 0.05,
-                    miningNonpowerOpexMwMo: parseNumber(row['Nonpower_OpEx'] || row['OpEx_MW_Mo']),
-                    miningEfficiencyJth: parseNumber(row['Efficiency_JTH'] || row['J_TH']),
-                    // Lease fields
-                    leaseValueM: parseNumber(row['Lease_Value_M']),
-                    leaseYears: parseNumber(row['Lease_Years']),
-                    annualRevenueM: parseNumber(row['Annual_Revenue_M']),
-                    noiPct: parseNumber(row['NOI_Pct']) ? parseNumber(row['NOI_Pct'])! / 100 : null,
-                    hpcConvProb: parseNumber(row['HPC_Conv_Prob']) ? parseNumber(row['HPC_Conv_Prob'])! / 100 : 1.0,
-                    fidoodle: parseNumber(row['Fidoodle']) || 1.0,
-                  },
-                });
-                results.tenancies++;
-              }
+              (results.usePeriods as number)++;
             }
           }
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : 'Unknown error';
-          results.errors.push(`Error processing ${ticker}: ${message}`);
         }
       }
-    } else {
-      results.errors.push('No project list sheet found in Excel file');
     }
 
-    // Process "Factors" sheet if present
-    const factorsSheetName = workbook.SheetNames.find(name =>
-      name.toLowerCase().includes('factor')
-    );
+    // Process Net Liquid Assets sheet (company financials)
+    if (workbook.SheetNames.includes('Net Liquid Assets')) {
+      const sheet = workbook.Sheets['Net Liquid Assets'];
+      const data: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: null, range: 1 });
 
-    if (factorsSheetName) {
-      const sheet = workbook.Sheets[factorsSheetName];
-      const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: null });
+      for (const row of data) {
+        const ticker = row['Ticker'];
+        if (!ticker || String(ticker).toLowerCase().includes('company ticker')) continue;
 
-      for (const row of rows) {
-        const key = (row['Factor'] || row['Key'] || row['Name']) as string | undefined;
-        const value = parseNumber(row['Value']);
-        const category = (row['Category'] as string) || 'valuation';
+        try {
+          await prisma.company.update({
+            where: { ticker: String(ticker).trim() },
+            data: {
+              cashM: parseNum(row['Cash_$M']),
+              btcCount: parseNum(row['BTC_Count']),
+              btcHoldings: parseNum(row['BTC_Value_$M']),
+              ethHoldings: parseNum(row['ETH_Value_$M']),
+              debtM: parseNum(row['Total_Debt_$M']),
+              sourceDate: parseDate(row['Source_Date']),
+            },
+          });
+        } catch (e) {
+          // Company may not exist yet
+        }
+      }
+    }
 
-        if (key && value !== null) {
-          await prisma.globalFactor.upsert({
+    // Process Mining Valuation sheet
+    if (workbook.SheetNames.includes('Mining Valuation')) {
+      const sheet = workbook.Sheets['Mining Valuation'];
+      const data: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: null, range: 1 });
+
+      for (const row of data) {
+        const ticker = row['Ticker'];
+        if (!ticker || String(ticker).toLowerCase().includes('company ticker')) continue;
+
+        try {
+          await prisma.company.update({
+            where: { ticker: String(ticker).trim() },
+            data: {
+              hashrateEh: parseNum(row['EH/s']),
+              efficiencyJth: parseNum(row['Eff (J/TH)']),
+              powerCostKwh: parseNum(row['Power ($/kWh)']),
+            },
+          });
+        } catch (e) {
+          // Company may not exist
+        }
+      }
+    }
+
+    // Process Debt sheet
+    if (workbook.SheetNames.includes('Debt')) {
+      const sheet = workbook.Sheets['Debt'];
+      const data: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: null });
+
+      for (const row of data) {
+        const ticker = row['Ticker'];
+        const instrument = row['Instrument'];
+        if (!ticker || !instrument || String(ticker).toLowerCase().includes('company ticker')) continue;
+
+        try {
+          const existingDebt = await prisma.debt.findFirst({
             where: {
-              category_key: { category, key: key.toLowerCase().replace(/\s+/g, '_') }
-            },
-            update: { value },
-            create: {
-              category,
-              key: key.toLowerCase().replace(/\s+/g, '_'),
-              value,
-              description: (row['Description'] as string) || null,
+              ticker: String(ticker).trim(),
+              instrument: String(instrument).trim(),
             },
           });
-          results.factors++;
-        }
-      }
-    }
 
-    // Process "HODL Value" sheet if present (company BTC holdings)
-    const hodlSheetName = workbook.SheetNames.find(name =>
-      name.toLowerCase().includes('hodl')
-    );
+          const debtData = {
+            ticker: String(ticker).trim(),
+            instrument: String(instrument).trim(),
+            debtType: row['Type'] ? String(row['Type']) : null,
+            issuer: row['Issuer'] ? String(row['Issuer']) : null,
+            principalM: parseNum(row['Principal_$M']),
+            originalM: parseNum(row['Original_$M']),
+            maturity: parseDate(row['Maturity']),
+            couponPct: parseNum(row['Coupon_%']),
+            annualInterestM: parseNum(row['Ann_Interest_$M']),
+            secured: row['Secured'] === 'Y' || row['Secured'] === true,
+            collateral: row['Collateral'] ? String(row['Collateral']) : null,
+            level: row['Level'] ? String(row['Level']) : null,
+            linkedSite: row['Site_Name'] ? String(row['Site_Name']) : null,
+            convertible: row['Convertible'] === 'Y' || row['Convertible'] === true,
+            conversionPrice: parseNum(row['Conv_Price_$']),
+            status: row['Status'] ? String(row['Status']) : null,
+            confidence: mapConfidence(row['Confidence'] as string | null) as any,
+            source: row['Source'] ? String(row['Source']) : null,
+            sourceDate: parseDate(row['Source_Date']),
+          };
 
-    if (hodlSheetName) {
-      const sheet = workbook.Sheets[hodlSheetName];
-      const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: null });
-
-      for (const row of rows) {
-        const ticker = (row['Ticker'] || row['ticker']) as string | undefined;
-        const btcHoldings = parseNumber(row['BTC'] || row['BTC_Holdings'] || row['Bitcoin']);
-
-        if (ticker && btcHoldings !== null) {
-          await prisma.company.updateMany({
-            where: { ticker },
-            data: { btcHoldings },
-          });
+          if (existingDebt) {
+            await prisma.debt.update({
+              where: { id: existingDebt.id },
+              data: debtData,
+            });
+          } else {
+            await prisma.debt.create({ data: debtData });
+          }
+          (results.debts as number)++;
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : 'Unknown error';
+          (results.errors as string[]).push(`Debt row error: ${msg}`);
         }
       }
     }
@@ -315,32 +412,56 @@ router.post('/excel', upload.single('file'), async (req: Request, res: Response)
       message: 'Import completed',
       results,
     });
-
   } catch (error: unknown) {
     console.error('Import error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    res.status(500).json({
-      error: 'Import failed',
-      message
-    });
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: 'Import failed', details: msg });
+  }
+});
+
+// DELETE /api/v1/import/clear - Clear all data
+router.delete('/clear', async (req: Request, res: Response) => {
+  try {
+    // Delete in correct order due to foreign keys
+    await prisma.usePeriod.deleteMany();
+    await prisma.building.deleteMany();
+    await prisma.campus.deleteMany();
+    await prisma.siteFactor.deleteMany();
+    await prisma.site.deleteMany();
+    await prisma.debt.deleteMany();
+    await prisma.companyFactor.deleteMany();
+    await prisma.company.deleteMany();
+
+    res.json({ success: true, message: 'All data cleared' });
+  } catch (error: unknown) {
+    console.error('Clear error:', error);
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: 'Failed to clear data', details: msg });
   }
 });
 
 // GET /api/v1/import/template
-// Returns expected column names for import
 router.get('/template', (req: Request, res: Response) => {
   res.json({
-    projectListColumns: [
-      'Ticker', 'Company', 'Site_Name', 'Site_Phase', 'Status',
-      'Gross_MW', 'IT_MW', 'PUE', 'Energization_Date', 'Energization_Actual',
-      'Current_Use', 'Country', 'State', 'Latitude', 'Longitude',
-      'Power_Authority', 'Grid', 'Ownership',
-      'Mining_Power_Cost', 'Curtailment_Pct', 'Nonpower_OpEx', 'Efficiency_JTH',
-      'Lessee', 'Lease_Value_M', 'Lease_Years', 'Annual_Revenue_M', 'NOI_Pct',
-      'HPC_Conv_Prob', 'Fidoodle'
+    sitesColumns: [
+      'Site_ID', 'Ticker', 'Site_Name', 'Campus_Name', 'Building_Name',
+      'Site_Phase', 'Country', 'State', 'Gross_MW', 'IT_MW', 'Petaflops',
+      'PUE', 'Grid', 'Ownership Status', 'Current_Use', 'Energization_Date',
+      'Lessee', 'Lease_Value_M', 'Lease_Yrs', 'Annual_Rev_M', 'NOI_Pct',
+      'NOI_Annual_M', 'Lease_Start', 'Lease_Notes', 'Confidence', 'Notes',
+      'Source_URL', 'Latitude', 'Longitude', 'Allocation_Method', 'Source_Date'
     ],
-    factorsColumns: ['Category', 'Key', 'Value', 'Description'],
-    hodlColumns: ['Ticker', 'BTC_Holdings'],
+    debtColumns: [
+      'Ticker', 'Instrument', 'Type', 'Issuer', 'Principal_$M', 'Original_$M',
+      'Maturity', 'Coupon_%', 'Ann_Interest_$M', 'Secured', 'Collateral',
+      'Level', 'Site_Name', 'Convertible', 'Conv_Price_$', 'Status',
+      'Confidence', 'Source', 'Source_Date'
+    ],
+    netLiquidColumns: [
+      'Ticker', 'Cash_$M', 'BTC_Count', 'BTC_Value_$M', 'ETH_Count',
+      'ETH_Value_$M', 'Total_Liquid_$M', 'Total_Debt_$M', 'Net_Liquid_$M',
+      'Source_Date', 'Notes'
+    ],
   });
 });
 
