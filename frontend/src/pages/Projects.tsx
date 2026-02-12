@@ -41,6 +41,13 @@ const useTypeConfig: Record<string, { label: string; color: string }> = {
   UNCONTRACTED_ROFR: { label: 'ROFR', color: 'bg-gray-800/50 text-gray-500 border-gray-700' },
 };
 
+// Simplified options for editing - the 3 main use types
+const editableUseTypes = [
+  { value: 'BTC_MINING', label: 'BTC' },
+  { value: 'HPC_AI_HOSTING', label: 'HPC/AI' },
+  { value: 'GPU_CLOUD', label: 'GPU Cloud' },
+];
+
 interface UsePeriod {
   id: string;
   useType: string;
@@ -101,6 +108,7 @@ interface FlatBuilding {
   buildingName: string;
   phase: string;
   useType: string;
+  usePeriodId: string | null;
   tenant: string | null;
   grossMw: number | null;
   itMw: number | null;
@@ -203,6 +211,40 @@ export default function Projects() {
     },
   });
 
+  const updateUsePeriodMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Record<string, any> }) => {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/use-periods/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error('Failed to update use period');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['valuation'] });
+    },
+  });
+
+  const createUsePeriodMutation = useMutation({
+    mutationFn: async (data: Record<string, any>) => {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/use-periods`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error('Failed to create use period');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['valuation'] });
+    },
+  });
+
   // Flatten all buildings into a single list
   const flatBuildings = useMemo(() => {
     if (!companies) return [];
@@ -236,6 +278,7 @@ export default function Projects() {
               buildingName: building.name,
               phase,
               useType: currentUse?.useType || 'UNCONTRACTED',
+              usePeriodId: currentUse?.id || null,
               tenant: currentUse?.tenant || null,
               grossMw: building.grossMw ? parseFloat(building.grossMw) : null,
               itMw: building.itMw ? parseFloat(building.itMw) : null,
@@ -331,10 +374,13 @@ export default function Projects() {
       grossMw: row.grossMw?.toString() || '',
       itMw: row.itMw?.toString() || '',
       pue: row.pue?.toString() || '',
+      useType: row.useType,
+      usePeriodId: row.usePeriodId,
+      originalUseType: row.useType,
     });
   };
 
-  const saveBuilding = () => {
+  const saveBuilding = async () => {
     if (!editingBuilding) return;
     const probOverride = editFormData.probabilityOverride
       ? parseFloat(editFormData.probabilityOverride) / 100
@@ -343,6 +389,7 @@ export default function Projects() {
       ? parseFloat(editFormData.regulatoryRisk) / 100
       : 1.0;
 
+    // Update building data
     updateBuildingMutation.mutate({
       id: editingBuilding,
       data: {
@@ -354,6 +401,24 @@ export default function Projects() {
         pue: editFormData.pue ? parseFloat(editFormData.pue) : null,
       },
     });
+
+    // Update use type if changed
+    if (editFormData.useType !== editFormData.originalUseType) {
+      if (editFormData.usePeriodId) {
+        // Update existing use period
+        updateUsePeriodMutation.mutate({
+          id: editFormData.usePeriodId,
+          data: { useType: editFormData.useType },
+        });
+      } else {
+        // Create new use period
+        createUsePeriodMutation.mutate({
+          buildingId: editingBuilding,
+          useType: editFormData.useType,
+          isCurrent: true,
+        });
+      }
+    }
   };
 
   const handleDelete = () => {
@@ -543,9 +608,21 @@ export default function Projects() {
                         )}
                       </td>
                       <td className="px-2 py-1.5">
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full border ${useTypeConfig[row.useType]?.color || 'bg-gray-700 text-gray-400'}`}>
-                          {useTypeConfig[row.useType]?.label || row.useType}
-                        </span>
+                        {isEditing ? (
+                          <select
+                            value={editFormData.useType || ''}
+                            onChange={(e) => setEditFormData({ ...editFormData, useType: e.target.value })}
+                            className="bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs w-full"
+                          >
+                            {editableUseTypes.map(({ value, label }) => (
+                              <option key={value} value={value}>{label}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full border ${useTypeConfig[row.useType]?.color || 'bg-gray-700 text-gray-400'}`}>
+                            {useTypeConfig[row.useType]?.label || row.useType}
+                          </span>
+                        )}
                       </td>
                       <td className="px-2 py-1.5 text-gray-400 text-xs truncate" title={row.tenant || ''}>
                         {row.tenant || '-'}
