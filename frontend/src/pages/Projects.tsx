@@ -125,7 +125,7 @@ interface FlatBuilding {
   building: Building;
 }
 
-type SortKey = 'ticker' | 'siteName' | 'buildingName' | 'phase' | 'useType' | 'tenant' | 'grossMw' | 'probability' | 'regulatoryRisk' | 'noiAnnualM' | 'energizationDate';
+type SortKey = 'ticker' | 'siteName' | 'buildingName' | 'phase' | 'useType' | 'tenant' | 'itMw' | 'noiAnnualM' | 'energizationDate';
 type SortDir = 'asc' | 'desc';
 
 interface ColumnDef {
@@ -146,9 +146,7 @@ const columns: ColumnDef[] = [
   { key: 'phase', label: 'Phase', sortable: true, width: '100px', minWidth: '80px', align: 'left' },
   { key: 'useType', label: 'Use', sortable: true, width: '90px', minWidth: '70px', align: 'left' },
   { key: 'tenant', label: 'Tenant', sortable: true, width: '120px', minWidth: '80px', align: 'left' },
-  { key: 'grossMw', label: 'MW', sortable: true, width: '60px', minWidth: '50px', align: 'right' },
-  { key: 'probability', label: 'Prob', sortable: true, width: '60px', minWidth: '50px', align: 'right' },
-  { key: 'regulatoryRisk', label: 'RegR', sortable: true, width: '60px', minWidth: '50px', align: 'right', headerClass: 'text-red-400' },
+  { key: 'itMw', label: 'IT MW', sortable: true, width: '65px', minWidth: '55px', align: 'right' },
   { key: 'noiAnnualM', label: 'NOI/Yr', sortable: true, width: '70px', minWidth: '60px', align: 'right' },
   { key: 'energizationDate', label: 'Energized', sortable: true, width: '85px', minWidth: '70px', align: 'right' },
   { key: 'actions', label: 'Edit', sortable: false, width: '60px', minWidth: '60px', align: 'center' },
@@ -636,46 +634,14 @@ export default function Projects() {
                         {isEditing ? (
                           <input
                             type="number"
-                            value={editFormData.grossMw || ''}
-                            onChange={(e) => setEditFormData({ ...editFormData, grossMw: e.target.value })}
+                            value={editFormData.itMw || ''}
+                            onChange={(e) => setEditFormData({ ...editFormData, itMw: e.target.value })}
                             className="w-full bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs text-right"
                           />
-                        ) : row.grossMw !== null ? (
-                          <span className="text-gray-300 text-xs">{Math.round(row.grossMw)}</span>
+                        ) : row.itMw !== null ? (
+                          <span className="text-gray-300 text-xs">{Math.round(row.itMw)}</span>
                         ) : (
                           <span className="text-gray-600 text-xs">-</span>
-                        )}
-                      </td>
-                      <td className="px-2 py-1.5 text-right font-mono">
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            placeholder={`${Math.round((phaseConfig[editFormData.developmentPhase]?.prob || 0.5) * 100)}`}
-                            value={editFormData.probabilityOverride || ''}
-                            onChange={(e) => setEditFormData({ ...editFormData, probabilityOverride: e.target.value })}
-                            className="w-full bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs text-right"
-                          />
-                        ) : (
-                          <span className={`text-xs ${row.probabilityOverride !== null ? 'text-orange-400' : 'text-gray-400'}`}>
-                            {Math.round(row.probability * 100)}%
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-2 py-1.5 text-right font-mono">
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            placeholder="100"
-                            value={editFormData.regulatoryRisk || '100'}
-                            onChange={(e) => setEditFormData({ ...editFormData, regulatoryRisk: e.target.value })}
-                            className="w-full bg-gray-700 border border-red-600/50 text-white rounded px-1 py-0.5 text-xs text-right"
-                            min="0"
-                            max="100"
-                          />
-                        ) : (
-                          <span className={`text-xs ${row.regulatoryRisk < 1 ? 'text-red-400' : 'text-gray-500'}`}>
-                            {Math.round(row.regulatoryRisk * 100)}%
-                          </span>
                         )}
                       </td>
                       <td className="px-2 py-1.5 text-right font-mono">
@@ -732,7 +698,7 @@ export default function Projects() {
 
                 {filteredRows.length === 0 && (
                   <tr>
-                    <td colSpan={13} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={11} className="px-4 py-8 text-center text-gray-500">
                       No buildings found. Import data to get started.
                     </td>
                   </tr>
