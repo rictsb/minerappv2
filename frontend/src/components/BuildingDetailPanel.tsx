@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   X,
@@ -12,7 +12,60 @@ import {
   Save,
   RotateCcw,
   Info,
+  AlertTriangle,
 } from 'lucide-react';
+
+// Error Boundary to catch render errors
+interface ErrorBoundaryProps {
+  children: ReactNode;
+  onClose: () => void;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class PanelErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('BuildingDetailPanel error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-y-0 right-0 w-[500px] bg-gray-900 border-l border-gray-700 shadow-2xl z-50 p-4">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-red-400 flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              Render Error
+            </h2>
+            <button onClick={this.props.onClose} className="p-1 hover:bg-gray-700 rounded">
+              <X className="h-5 w-5 text-gray-400" />
+            </button>
+          </div>
+          <p className="text-gray-400 mb-2">Something went wrong rendering this panel.</p>
+          <pre className="text-red-400 text-xs bg-gray-800 p-2 rounded overflow-auto max-h-60">
+            {this.state.error?.message}
+            {'\n\n'}
+            {this.state.error?.stack}
+          </pre>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 function getApiUrl(): string {
   let apiUrl = import.meta.env.VITE_API_URL || '';
@@ -60,8 +113,10 @@ function FactorRow({
   const [inputValue, setInputValue] = useState('');
 
   const displayValue = (v: number) => {
-    if (asPercent) return `${(v * 100).toFixed(1)}%`;
-    return `${v.toFixed(3)}${suffix}`;
+    const num = Number(v);
+    if (isNaN(num) || !isFinite(num)) return asPercent ? '0%' : `0${suffix}`;
+    if (asPercent) return `${(num * 100).toFixed(1)}%`;
+    return `${num.toFixed(3)}${suffix}`;
   };
 
   const handleSave = () => {
@@ -129,7 +184,8 @@ function FactorRow({
             {editable && (
               <button
                 onClick={() => {
-                  setInputValue(asPercent ? (finalValue * 100).toFixed(1) : finalValue.toFixed(3));
+                  const fv = Number(finalValue) || 0;
+                  setInputValue(asPercent ? (fv * 100).toFixed(1) : fv.toFixed(3));
                   setEditing(true);
                 }}
                 className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-500 hover:text-gray-300"
@@ -145,7 +201,14 @@ function FactorRow({
   );
 }
 
-export default function BuildingDetailPanel({ buildingId, onClose }: BuildingDetailPanelProps) {
+// Safe number formatting helper
+const safeToFixed = (val: any, digits: number): string => {
+  const num = Number(val);
+  if (isNaN(num) || !isFinite(num)) return '0';
+  return num.toFixed(digits);
+};
+
+function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelProps) {
   const queryClient = useQueryClient();
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     lease: true,
@@ -411,7 +474,7 @@ export default function BuildingDetailPanel({ buildingId, onClose }: BuildingDet
               <Percent className="h-4 w-4 text-blue-500" />
               <span className="text-sm font-medium text-gray-200">Adjustment Factors</span>
             </div>
-            <span className="text-sm text-blue-400">{combinedFactor.toFixed(4)}x combined</span>
+            <span className="text-sm text-blue-400">{safeToFixed(combinedFactor, 4)}x combined</span>
           </button>
           {expandedSections.factors && (
             <div className="px-2 pb-3">
@@ -599,5 +662,14 @@ export default function BuildingDetailPanel({ buildingId, onClose }: BuildingDet
         </div>
       )}
     </div>
+  );
+}
+
+// Wrapper component with error boundary
+export default function BuildingDetailPanel({ buildingId, onClose }: BuildingDetailPanelProps) {
+  return (
+    <PanelErrorBoundary onClose={onClose}>
+      <BuildingDetailPanelInner buildingId={buildingId} onClose={onClose} />
+    </PanelErrorBoundary>
   );
 }
