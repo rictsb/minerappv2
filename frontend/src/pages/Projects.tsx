@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Filter,
@@ -7,6 +7,9 @@ import {
   Save,
   X,
   Trash2,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from 'lucide-react';
 
 function getApiUrl(): string {
@@ -113,6 +116,35 @@ interface FlatBuilding {
   building: Building;
 }
 
+type SortKey = 'ticker' | 'siteName' | 'buildingName' | 'phase' | 'useType' | 'tenant' | 'grossMw' | 'probability' | 'regulatoryRisk' | 'noiAnnualM' | 'energizationDate';
+type SortDir = 'asc' | 'desc';
+
+interface ColumnDef {
+  key: SortKey | 'rowNum' | 'actions';
+  label: string;
+  sortable: boolean;
+  width: string;
+  minWidth: string;
+  align: 'left' | 'right' | 'center';
+  headerClass?: string;
+}
+
+const columns: ColumnDef[] = [
+  { key: 'rowNum', label: '#', sortable: false, width: '40px', minWidth: '40px', align: 'left' },
+  { key: 'ticker', label: 'Ticker', sortable: true, width: '70px', minWidth: '50px', align: 'left', headerClass: 'text-orange-400' },
+  { key: 'siteName', label: 'Site', sortable: true, width: '140px', minWidth: '80px', align: 'left' },
+  { key: 'buildingName', label: 'Building', sortable: true, width: '140px', minWidth: '80px', align: 'left' },
+  { key: 'phase', label: 'Phase', sortable: true, width: '100px', minWidth: '80px', align: 'left' },
+  { key: 'useType', label: 'Use', sortable: true, width: '90px', minWidth: '70px', align: 'left' },
+  { key: 'tenant', label: 'Tenant', sortable: true, width: '120px', minWidth: '80px', align: 'left' },
+  { key: 'grossMw', label: 'MW', sortable: true, width: '60px', minWidth: '50px', align: 'right' },
+  { key: 'probability', label: 'Prob', sortable: true, width: '60px', minWidth: '50px', align: 'right' },
+  { key: 'regulatoryRisk', label: 'RegR', sortable: true, width: '60px', minWidth: '50px', align: 'right', headerClass: 'text-red-400' },
+  { key: 'noiAnnualM', label: 'NOI/Yr', sortable: true, width: '70px', minWidth: '60px', align: 'right' },
+  { key: 'energizationDate', label: 'Energized', sortable: true, width: '85px', minWidth: '70px', align: 'right' },
+  { key: 'actions', label: 'Edit', sortable: false, width: '60px', minWidth: '60px', align: 'center' },
+];
+
 export default function Projects() {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
@@ -122,6 +154,12 @@ export default function Projects() {
   const [editingBuilding, setEditingBuilding] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<Record<string, any>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>('ticker');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
+    const saved = localStorage.getItem('projects-column-widths');
+    return saved ? JSON.parse(saved) : {};
+  });
 
   const { data: companies, isLoading } = useQuery({
     queryKey: ['companies'],
@@ -171,19 +209,15 @@ export default function Projects() {
     const rows: FlatBuilding[] = [];
     let rowNum = 0;
 
-    const sortedCompanies = [...companies].sort((a, b) => a.ticker.localeCompare(b.ticker));
-
-    for (const company of sortedCompanies) {
+    for (const company of companies) {
       if (!company.sites) continue;
       if (filterTicker && company.ticker !== filterTicker) continue;
 
       for (const site of company.sites) {
         for (const campus of site.campuses || []) {
           for (const building of campus.buildings || []) {
-            // Apply phase filter
             if (filterPhase && building.developmentPhase !== filterPhase) continue;
 
-            // Apply use type filter
             const currentUse = building.usePeriods?.[0];
             if (filterUseType && currentUse?.useType !== filterUseType) continue;
 
@@ -226,21 +260,67 @@ export default function Projects() {
 
   // Filter by search term
   const filteredRows = useMemo(() => {
-    if (!searchTerm) return flatBuildings;
-    const search = searchTerm.toLowerCase();
-    return flatBuildings.filter(row => {
-      return row.buildingName.toLowerCase().includes(search) ||
-        row.ticker.toLowerCase().includes(search) ||
-        row.companyName.toLowerCase().includes(search) ||
-        row.siteName.toLowerCase().includes(search) ||
-        row.campusName.toLowerCase().includes(search) ||
-        row.tenant?.toLowerCase().includes(search);
+    let rows = flatBuildings;
+
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      rows = rows.filter(row => {
+        return row.buildingName.toLowerCase().includes(search) ||
+          row.ticker.toLowerCase().includes(search) ||
+          row.companyName.toLowerCase().includes(search) ||
+          row.siteName.toLowerCase().includes(search) ||
+          row.campusName.toLowerCase().includes(search) ||
+          row.tenant?.toLowerCase().includes(search);
+      });
+    }
+
+    // Sort
+    rows = [...rows].sort((a, b) => {
+      let aVal: any = a[sortKey];
+      let bVal: any = b[sortKey];
+
+      // Handle nulls
+      if (aVal === null || aVal === undefined) aVal = sortDir === 'asc' ? Infinity : -Infinity;
+      if (bVal === null || bVal === undefined) bVal = sortDir === 'asc' ? Infinity : -Infinity;
+
+      // Handle strings
+      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+
+      // Handle dates
+      if (sortKey === 'energizationDate') {
+        aVal = aVal === Infinity || aVal === -Infinity ? aVal : new Date(aVal).getTime();
+        bVal = bVal === Infinity || bVal === -Infinity ? bVal : new Date(bVal).getTime();
+      }
+
+      if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+      return 0;
     });
-  }, [flatBuildings, searchTerm]);
+
+    return rows;
+  }, [flatBuildings, searchTerm, sortKey, sortDir]);
 
   const uniqueTickers = useMemo(() => {
     return [...new Set(companies?.map(c => c.ticker) || [])].sort();
   }, [companies]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  const handleColumnResize = useCallback((key: string, width: number) => {
+    setColumnWidths(prev => {
+      const next = { ...prev, [key]: width };
+      localStorage.setItem('projects-column-widths', JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   const startEditBuilding = (row: FlatBuilding) => {
     setEditingBuilding(row.buildingId);
@@ -295,6 +375,10 @@ export default function Projects() {
     return `$${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}M`;
   };
 
+  const getColumnWidth = (col: ColumnDef) => {
+    return columnWidths[col.key] ? `${columnWidths[col.key]}px` : col.width;
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
@@ -304,243 +388,276 @@ export default function Projects() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4">
+    <div className="h-screen bg-gray-900 text-white flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between p-4 flex-shrink-0">
         <div>
           <h1 className="text-xl font-semibold text-gray-300">Projects</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-gray-500 mt-0.5">
             {filteredRows.length} buildings
           </p>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-gray-800 border border-gray-700 rounded-lg p-3 mb-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex-1 min-w-[200px] max-w-md relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
-            <input
-              type="text"
-              placeholder="Search ticker, site, building, tenant..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-            />
-          </div>
+      <div className="px-4 pb-3 flex-shrink-0">
+        <div className="bg-gray-800 border border-gray-700 rounded-lg p-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex-1 min-w-[200px] max-w-md relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+              <input
+                type="text"
+                placeholder="Search ticker, site, building, tenant..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+              />
+            </div>
 
-          <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4 text-gray-500" />
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-gray-500" />
+              <select
+                value={filterTicker}
+                onChange={(e) => setFilterTicker(e.target.value)}
+                className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">All Companies</option>
+                {uniqueTickers.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+
             <select
-              value={filterTicker}
-              onChange={(e) => setFilterTicker(e.target.value)}
+              value={filterPhase}
+              onChange={(e) => setFilterPhase(e.target.value)}
               className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm"
             >
-              <option value="">All Companies</option>
-              {uniqueTickers.map(t => <option key={t} value={t}>{t}</option>)}
+              <option value="">All Phases</option>
+              {Object.entries(phaseConfig).map(([k, v]) => (
+                <option key={k} value={k}>{v.label}</option>
+              ))}
+            </select>
+
+            <select
+              value={filterUseType}
+              onChange={(e) => setFilterUseType(e.target.value)}
+              className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="">All Use Types</option>
+              {Object.entries(useTypeConfig).map(([k, v]) => (
+                <option key={k} value={k}>{v.label}</option>
+              ))}
             </select>
           </div>
-
-          <select
-            value={filterPhase}
-            onChange={(e) => setFilterPhase(e.target.value)}
-            className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm"
-          >
-            <option value="">All Phases</option>
-            {Object.entries(phaseConfig).map(([k, v]) => (
-              <option key={k} value={k}>{v.label}</option>
-            ))}
-          </select>
-
-          <select
-            value={filterUseType}
-            onChange={(e) => setFilterUseType(e.target.value)}
-            className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm"
-          >
-            <option value="">All Use Types</option>
-            {Object.entries(useTypeConfig).map(([k, v]) => (
-              <option key={k} value={k}>{v.label}</option>
-            ))}
-          </select>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-700 bg-gray-800/80">
-                <th className="px-2 py-2 text-left text-xs font-medium text-gray-400 uppercase w-10">#</th>
-                <th className="px-2 py-2 text-left text-xs font-medium text-orange-400 uppercase w-14">Ticker</th>
-                <th className="px-2 py-2 text-left text-xs font-medium text-gray-400 uppercase w-36">Company</th>
-                <th className="px-2 py-2 text-left text-xs font-medium text-gray-400 uppercase">Site</th>
-                <th className="px-2 py-2 text-left text-xs font-medium text-gray-400 uppercase">Building</th>
-                <th className="px-2 py-2 text-left text-xs font-medium text-gray-400 uppercase w-24">Phase</th>
-                <th className="px-2 py-2 text-left text-xs font-medium text-gray-400 uppercase w-20">Use</th>
-                <th className="px-2 py-2 text-left text-xs font-medium text-gray-400 uppercase w-28">Tenant</th>
-                <th className="px-2 py-2 text-right text-xs font-medium text-gray-400 uppercase w-14">MW</th>
-                <th className="px-2 py-2 text-right text-xs font-medium text-gray-400 uppercase w-14">Prob</th>
-                <th className="px-2 py-2 text-right text-xs font-medium text-red-400 uppercase w-14" title="Regulatory Risk">RegR</th>
-                <th className="px-2 py-2 text-right text-xs font-medium text-gray-400 uppercase w-18">NOI/Yr</th>
-                <th className="px-2 py-2 text-right text-xs font-medium text-gray-400 uppercase w-20">Energized</th>
-                <th className="px-2 py-2 text-center text-xs font-medium text-gray-400 uppercase w-16">Edit</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-700/50">
-              {filteredRows.map((row) => {
-                const isEditing = editingBuilding === row.buildingId;
-
-                return (
-                  <tr
-                    key={row.buildingId}
-                    className="hover:bg-gray-700/30 transition"
-                  >
-                    <td className="px-2 py-1.5 text-gray-500 text-xs">{row.rowNum}</td>
-                    <td className="px-2 py-1.5">
-                      <span className="text-orange-500 font-medium text-xs">{row.ticker}</span>
-                    </td>
-                    <td className="px-2 py-1.5 text-gray-400 text-xs truncate max-w-[140px]" title={row.companyName}>
-                      {row.companyName}
-                    </td>
-                    <td className="px-2 py-1.5 text-gray-300 text-xs truncate" title={`${row.siteName} / ${row.campusName}`}>
-                      {row.siteName}
-                    </td>
-                    <td className="px-2 py-1.5 text-gray-200 text-xs">
-                      {row.buildingName}
-                    </td>
-                    <td className="px-2 py-1.5">
-                      {isEditing ? (
-                        <select
-                          value={editFormData.developmentPhase || ''}
-                          onChange={(e) => setEditFormData({ ...editFormData, developmentPhase: e.target.value })}
-                          className="bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs w-full"
-                        >
-                          {Object.entries(phaseConfig).map(([k, v]) => (
-                            <option key={k} value={k}>{v.label}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full border ${phaseConfig[row.phase]?.color || 'bg-gray-700 text-gray-400'}`}>
-                          {phaseConfig[row.phase]?.label || row.phase}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full border ${useTypeConfig[row.useType]?.color || 'bg-gray-700 text-gray-400'}`}>
-                        {useTypeConfig[row.useType]?.label || row.useType}
-                      </span>
-                    </td>
-                    <td className="px-2 py-1.5 text-gray-400 text-xs truncate max-w-[110px]" title={row.tenant || ''}>
-                      {row.tenant || '-'}
-                    </td>
-                    <td className="px-2 py-1.5 text-right font-mono">
-                      {isEditing ? (
-                        <input
-                          type="number"
-                          value={editFormData.grossMw || ''}
-                          onChange={(e) => setEditFormData({ ...editFormData, grossMw: e.target.value })}
-                          className="w-14 bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs text-right"
-                        />
-                      ) : row.grossMw !== null ? (
-                        <span className="text-gray-300 text-xs">{Math.round(row.grossMw)}</span>
-                      ) : (
-                        <span className="text-gray-600 text-xs">-</span>
-                      )}
-                    </td>
-                    <td className="px-2 py-1.5 text-right font-mono">
-                      {isEditing ? (
-                        <input
-                          type="number"
-                          placeholder={`${Math.round((phaseConfig[editFormData.developmentPhase]?.prob || 0.5) * 100)}`}
-                          value={editFormData.probabilityOverride || ''}
-                          onChange={(e) => setEditFormData({ ...editFormData, probabilityOverride: e.target.value })}
-                          className="w-14 bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs text-right"
-                        />
-                      ) : (
-                        <span className={`text-xs ${row.probabilityOverride !== null ? 'text-orange-400' : 'text-gray-400'}`}>
-                          {Math.round(row.probability * 100)}%
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-2 py-1.5 text-right font-mono">
-                      {isEditing ? (
-                        <input
-                          type="number"
-                          placeholder="100"
-                          value={editFormData.regulatoryRisk || '100'}
-                          onChange={(e) => setEditFormData({ ...editFormData, regulatoryRisk: e.target.value })}
-                          className="w-14 bg-gray-700 border border-red-600/50 text-white rounded px-1 py-0.5 text-xs text-right"
-                          min="0"
-                          max="100"
-                        />
-                      ) : (
-                        <span className={`text-xs ${row.regulatoryRisk < 1 ? 'text-red-400' : 'text-gray-500'}`}>
-                          {Math.round(row.regulatoryRisk * 100)}%
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-2 py-1.5 text-right font-mono">
-                      {row.noiAnnualM !== null ? (
-                        <span className="text-green-400 text-xs">{formatMoney(row.noiAnnualM)}</span>
-                      ) : (
-                        <span className="text-gray-600 text-xs">-</span>
-                      )}
-                    </td>
-                    <td className="px-2 py-1.5 text-right text-xs text-gray-400">
-                      {formatDate(row.energizationDate)}
-                    </td>
-                    <td className="px-2 py-1.5 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        {isEditing ? (
-                          <>
-                            <button
-                              onClick={saveBuilding}
-                              disabled={updateBuildingMutation.isPending}
-                              className="p-1 bg-green-600 text-white rounded hover:bg-green-700"
-                            >
-                              <Save className="h-3 w-3" />
-                            </button>
-                            <button
-                              onClick={() => { setEditingBuilding(null); setEditFormData({}); }}
-                              className="p-1 bg-gray-600 text-white rounded hover:bg-gray-500"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => startEditBuilding(row)}
-                              className="p-1 hover:bg-gray-600 rounded"
-                              title="Edit"
-                            >
-                              <Edit2 className="h-3 w-3 text-gray-500" />
-                            </button>
-                            <button
-                              onClick={() => setDeleteConfirm({ id: row.buildingId, name: row.buildingName })}
-                              className="p-1 hover:bg-red-900/50 rounded"
-                              title="Delete"
-                            >
-                              <Trash2 className="h-3 w-3 text-red-500/70 hover:text-red-400" />
-                            </button>
-                          </>
+      {/* Table with sticky header */}
+      <div className="flex-1 overflow-hidden px-4 pb-4">
+        <div className="h-full bg-gray-800 border border-gray-700 rounded-lg overflow-hidden flex flex-col">
+          <div className="overflow-auto flex-1">
+            <table className="w-full text-sm table-fixed">
+              <thead className="sticky top-0 z-10 bg-gray-800">
+                <tr className="border-b border-gray-700">
+                  {columns.map((col) => (
+                    <th
+                      key={col.key}
+                      style={{ width: getColumnWidth(col), minWidth: col.minWidth }}
+                      className={`px-2 py-2 text-xs font-medium uppercase ${col.headerClass || 'text-gray-400'} ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} ${col.sortable ? 'cursor-pointer hover:bg-gray-700/50 select-none' : ''} relative group`}
+                      onClick={() => col.sortable && handleSort(col.key as SortKey)}
+                    >
+                      <div className="flex items-center gap-1" style={{ justifyContent: col.align === 'right' ? 'flex-end' : col.align === 'center' ? 'center' : 'flex-start' }}>
+                        <span>{col.label}</span>
+                        {col.sortable && (
+                          <span className="text-gray-600">
+                            {sortKey === col.key ? (
+                              sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                            ) : (
+                              <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50" />
+                            )}
+                          </span>
                         )}
                       </div>
+                      {/* Resize handle */}
+                      {col.key !== 'actions' && (
+                        <div
+                          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-orange-500/50 opacity-0 group-hover:opacity-100"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            const startX = e.clientX;
+                            const startWidth = (e.target as HTMLElement).parentElement?.offsetWidth || 100;
+
+                            const onMouseMove = (moveEvent: MouseEvent) => {
+                              const diff = moveEvent.clientX - startX;
+                              const newWidth = Math.max(parseInt(col.minWidth), startWidth + diff);
+                              handleColumnResize(col.key, newWidth);
+                            };
+
+                            const onMouseUp = () => {
+                              document.removeEventListener('mousemove', onMouseMove);
+                              document.removeEventListener('mouseup', onMouseUp);
+                            };
+
+                            document.addEventListener('mousemove', onMouseMove);
+                            document.addEventListener('mouseup', onMouseUp);
+                          }}
+                        />
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-700/50">
+                {filteredRows.map((row, idx) => {
+                  const isEditing = editingBuilding === row.buildingId;
+
+                  return (
+                    <tr
+                      key={row.buildingId}
+                      className="hover:bg-gray-700/30 transition"
+                    >
+                      <td className="px-2 py-1.5 text-gray-500 text-xs">{idx + 1}</td>
+                      <td className="px-2 py-1.5">
+                        <span className="text-orange-500 font-medium text-xs">{row.ticker}</span>
+                      </td>
+                      <td className="px-2 py-1.5 text-gray-300 text-xs truncate" title={`${row.siteName} / ${row.campusName}`}>
+                        {row.siteName}
+                      </td>
+                      <td className="px-2 py-1.5 text-gray-200 text-xs truncate" title={row.buildingName}>
+                        {row.buildingName}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {isEditing ? (
+                          <select
+                            value={editFormData.developmentPhase || ''}
+                            onChange={(e) => setEditFormData({ ...editFormData, developmentPhase: e.target.value })}
+                            className="bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs w-full"
+                          >
+                            {Object.entries(phaseConfig).map(([k, v]) => (
+                              <option key={k} value={k}>{v.label}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full border ${phaseConfig[row.phase]?.color || 'bg-gray-700 text-gray-400'}`}>
+                            {phaseConfig[row.phase]?.label || row.phase}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full border ${useTypeConfig[row.useType]?.color || 'bg-gray-700 text-gray-400'}`}>
+                          {useTypeConfig[row.useType]?.label || row.useType}
+                        </span>
+                      </td>
+                      <td className="px-2 py-1.5 text-gray-400 text-xs truncate" title={row.tenant || ''}>
+                        {row.tenant || '-'}
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-mono">
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            value={editFormData.grossMw || ''}
+                            onChange={(e) => setEditFormData({ ...editFormData, grossMw: e.target.value })}
+                            className="w-full bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs text-right"
+                          />
+                        ) : row.grossMw !== null ? (
+                          <span className="text-gray-300 text-xs">{Math.round(row.grossMw)}</span>
+                        ) : (
+                          <span className="text-gray-600 text-xs">-</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-mono">
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            placeholder={`${Math.round((phaseConfig[editFormData.developmentPhase]?.prob || 0.5) * 100)}`}
+                            value={editFormData.probabilityOverride || ''}
+                            onChange={(e) => setEditFormData({ ...editFormData, probabilityOverride: e.target.value })}
+                            className="w-full bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs text-right"
+                          />
+                        ) : (
+                          <span className={`text-xs ${row.probabilityOverride !== null ? 'text-orange-400' : 'text-gray-400'}`}>
+                            {Math.round(row.probability * 100)}%
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-mono">
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            placeholder="100"
+                            value={editFormData.regulatoryRisk || '100'}
+                            onChange={(e) => setEditFormData({ ...editFormData, regulatoryRisk: e.target.value })}
+                            className="w-full bg-gray-700 border border-red-600/50 text-white rounded px-1 py-0.5 text-xs text-right"
+                            min="0"
+                            max="100"
+                          />
+                        ) : (
+                          <span className={`text-xs ${row.regulatoryRisk < 1 ? 'text-red-400' : 'text-gray-500'}`}>
+                            {Math.round(row.regulatoryRisk * 100)}%
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 text-right font-mono">
+                        {row.noiAnnualM !== null ? (
+                          <span className="text-green-400 text-xs">{formatMoney(row.noiAnnualM)}</span>
+                        ) : (
+                          <span className="text-gray-600 text-xs">-</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-xs text-gray-400">
+                        {formatDate(row.energizationDate)}
+                      </td>
+                      <td className="px-2 py-1.5 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          {isEditing ? (
+                            <>
+                              <button
+                                onClick={saveBuilding}
+                                disabled={updateBuildingMutation.isPending}
+                                className="p-1 bg-green-600 text-white rounded hover:bg-green-700"
+                              >
+                                <Save className="h-3 w-3" />
+                              </button>
+                              <button
+                                onClick={() => { setEditingBuilding(null); setEditFormData({}); }}
+                                className="p-1 bg-gray-600 text-white rounded hover:bg-gray-500"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => startEditBuilding(row)}
+                                className="p-1 hover:bg-gray-600 rounded"
+                                title="Edit"
+                              >
+                                <Edit2 className="h-3 w-3 text-gray-500" />
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirm({ id: row.buildingId, name: row.buildingName })}
+                                className="p-1 hover:bg-red-900/50 rounded"
+                                title="Delete"
+                              >
+                                <Trash2 className="h-3 w-3 text-red-500/70 hover:text-red-400" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {filteredRows.length === 0 && (
+                  <tr>
+                    <td colSpan={13} className="px-4 py-8 text-center text-gray-500">
+                      No buildings found. Import data to get started.
                     </td>
                   </tr>
-                );
-              })}
-
-              {filteredRows.length === 0 && (
-                <tr>
-                  <td colSpan={14} className="px-4 py-8 text-center text-gray-500">
-                    No buildings found. Import data to get started.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
