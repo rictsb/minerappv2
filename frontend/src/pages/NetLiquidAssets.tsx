@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, X, Trash2, Edit2, Wallet, Settings } from 'lucide-react';
+import { Save, X, Trash2, Edit2, Wallet, ExternalLink } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 function getApiUrl(): string {
   let apiUrl = import.meta.env.VITE_API_URL || '';
@@ -21,16 +22,6 @@ interface NetLiquidAsset {
   notes: string | null;
 }
 
-interface Assumptions {
-  btcPrice: number;
-  ethPrice: number;
-}
-
-const defaultAssumptions: Assumptions = {
-  btcPrice: 69000,
-  ethPrice: 2010,
-};
-
 const emptyRow: Partial<NetLiquidAsset> = {
   ticker: '',
   cashM: '',
@@ -46,8 +37,22 @@ export default function NetLiquidAssets() {
   const [editForm, setEditForm] = useState<Partial<NetLiquidAsset>>({});
   const [showAddForm, setShowAddForm] = useState(false);
   const [newRow, setNewRow] = useState<Partial<NetLiquidAsset>>(emptyRow);
-  const [showAssumptions, setShowAssumptions] = useState(false);
-  const [assumptions, setAssumptions] = useState<Assumptions>(defaultAssumptions);
+
+  // Fetch global factors from centralized settings
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/api/v1/settings`);
+      if (!res.ok) throw new Error('Failed to fetch settings');
+      return res.json();
+    },
+  });
+
+  // Get prices from global settings with defaults
+  const prices = useMemo(() => ({
+    btcPrice: settings?.btcPrice ?? 97000,
+    ethPrice: settings?.ethPrice ?? 2500,
+  }), [settings]);
 
   const { data: assets = [], isLoading } = useQuery({
     queryKey: ['net-liquid-assets'],
@@ -98,10 +103,10 @@ export default function NetLiquidAssets() {
       const totalDebt = parseFloat(row.totalDebtM || '0') || 0;
 
       // BTC Value = BTC_Count × BTC Price / 1M
-      const btcValueM = (btcCount * assumptions.btcPrice) / 1_000_000;
+      const btcValueM = (btcCount * prices.btcPrice) / 1_000_000;
 
       // ETH Value = ETH_Count × ETH Price / 1M
-      const ethValueM = (ethCount * assumptions.ethPrice) / 1_000_000;
+      const ethValueM = (ethCount * prices.ethPrice) / 1_000_000;
 
       // Total Liquid = Cash + BTC + ETH
       const totalLiquidM = cash + btcValueM + ethValueM;
@@ -117,7 +122,7 @@ export default function NetLiquidAssets() {
         netLiquidM,
       };
     });
-  }, [assets, assumptions]);
+  }, [assets, prices]);
 
   // Calculate totals
   const totals = useMemo(() => {
@@ -172,49 +177,25 @@ export default function NetLiquidAssets() {
             <h1 className="text-2xl font-bold">Net Liquid Assets</h1>
             <span className="text-sm text-gray-500">Cash + Crypto Holdings - Debt</span>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowAssumptions(!showAssumptions)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${showAssumptions ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-            >
-              <Settings className="h-4 w-4" />
-              Assumptions
-            </button>
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              Add Company
-            </button>
-          </div>
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            Add Company
+          </button>
         </div>
 
-        {/* Assumptions Panel */}
-        {showAssumptions && (
-          <div className="bg-gray-800 border border-blue-500/30 rounded-lg p-4 mb-4">
-            <h3 className="text-sm font-medium text-blue-400 mb-3">Price Assumptions</h3>
-            <div className="grid grid-cols-2 gap-4 max-w-md">
-              <div>
-                <label className="text-xs text-gray-400">BTC Price ($)</label>
-                <input
-                  type="number"
-                  value={assumptions.btcPrice}
-                  onChange={(e) => setAssumptions({ ...assumptions, btcPrice: parseFloat(e.target.value) || 0 })}
-                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm mt-1"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400">ETH Price ($)</label>
-                <input
-                  type="number"
-                  value={assumptions.ethPrice}
-                  onChange={(e) => setAssumptions({ ...assumptions, ethPrice: parseFloat(e.target.value) || 0 })}
-                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm mt-1"
-                />
-              </div>
-            </div>
+        {/* Price Banner - Link to Factors */}
+        <div className="bg-gray-800 border border-gray-700 rounded-lg p-3 mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-6 text-sm">
+            <span className="text-gray-400">Using global prices:</span>
+            <span className="text-orange-400">BTC: <span className="font-mono">${prices.btcPrice.toLocaleString()}</span></span>
+            <span className="text-purple-400">ETH: <span className="font-mono">${prices.ethPrice.toLocaleString()}</span></span>
           </div>
-        )}
+          <Link to="/factors" className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300">
+            Edit in Factors <ExternalLink className="h-3 w-3" />
+          </Link>
+        </div>
 
         {/* Table */}
         <div className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">

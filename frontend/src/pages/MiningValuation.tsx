@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, X, Trash2, Edit2, Pickaxe, Settings } from 'lucide-react';
+import { Save, X, Trash2, Edit2, Pickaxe, ExternalLink } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 function getApiUrl(): string {
   let apiUrl = import.meta.env.VITE_API_URL || '';
@@ -21,20 +22,6 @@ interface MiningValuation {
   notes: string | null;
 }
 
-interface Assumptions {
-  dailyRevPerEh: number;
-  ebitdaMultiple: number;
-  poolFeePct: number;
-  hostedMwRate: number;
-}
-
-const defaultAssumptions: Assumptions = {
-  dailyRevPerEh: 29400,
-  ebitdaMultiple: 6,
-  poolFeePct: 0.02,
-  hostedMwRate: 300,
-};
-
 const emptyRow: Partial<MiningValuation> = {
   ticker: '',
   hashrateEh: '',
@@ -50,8 +37,24 @@ export default function MiningValuation() {
   const [editForm, setEditForm] = useState<Partial<MiningValuation>>({});
   const [showAddForm, setShowAddForm] = useState(false);
   const [newRow, setNewRow] = useState<Partial<MiningValuation>>(emptyRow);
-  const [showAssumptions, setShowAssumptions] = useState(false);
-  const [assumptions, setAssumptions] = useState<Assumptions>(defaultAssumptions);
+
+  // Fetch global factors from centralized settings
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/api/v1/settings`);
+      if (!res.ok) throw new Error('Failed to fetch settings');
+      return res.json();
+    },
+  });
+
+  // Get assumptions from global settings with defaults
+  const assumptions = useMemo(() => ({
+    dailyRevPerEh: settings?.dailyRevPerEh ?? 29400,
+    ebitdaMultiple: settings?.ebitdaMultiple ?? 6,
+    poolFeePct: settings?.poolFeePct ?? 0.02,
+    hostedMwRate: (settings?.mwValueBtcMining ?? 0.3) * 1000, // Convert M to K
+  }), [settings]);
 
   const { data: valuations = [], isLoading } = useQuery({
     queryKey: ['mining-valuations'],
@@ -196,69 +199,27 @@ export default function MiningValuation() {
             <h1 className="text-2xl font-bold">Mining Valuation</h1>
             <span className="text-sm text-gray-500">Self-Mining Profitability Model</span>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowAssumptions(!showAssumptions)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${showAssumptions ? 'bg-orange-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-            >
-              <Settings className="h-4 w-4" />
-              Assumptions
-            </button>
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
-            >
-              Add Company
-            </button>
-          </div>
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+          >
+            Add Company
+          </button>
         </div>
 
-        {/* Assumptions Panel */}
-        {showAssumptions && (
-          <div className="bg-gray-800 border border-orange-500/30 rounded-lg p-4 mb-4">
-            <h3 className="text-sm font-medium text-orange-400 mb-3">Global Assumptions</h3>
-            <div className="grid grid-cols-4 gap-4">
-              <div>
-                <label className="text-xs text-gray-400">Daily Rev/EH ($)</label>
-                <input
-                  type="number"
-                  value={assumptions.dailyRevPerEh}
-                  onChange={(e) => setAssumptions({ ...assumptions, dailyRevPerEh: parseFloat(e.target.value) || 0 })}
-                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm mt-1"
-                />
-                <p className="text-[10px] text-gray-500 mt-1">~$29.4K @ BTC $97K</p>
-              </div>
-              <div>
-                <label className="text-xs text-gray-400">EBITDA Multiple (x)</label>
-                <input
-                  type="number"
-                  value={assumptions.ebitdaMultiple}
-                  onChange={(e) => setAssumptions({ ...assumptions, ebitdaMultiple: parseFloat(e.target.value) || 0 })}
-                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm mt-1"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400">Pool Fee %</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={assumptions.poolFeePct}
-                  onChange={(e) => setAssumptions({ ...assumptions, poolFeePct: parseFloat(e.target.value) || 0 })}
-                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm mt-1"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400">$/MW Hosted ($K)</label>
-                <input
-                  type="number"
-                  value={assumptions.hostedMwRate}
-                  onChange={(e) => setAssumptions({ ...assumptions, hostedMwRate: parseFloat(e.target.value) || 0 })}
-                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm mt-1"
-                />
-              </div>
-            </div>
+        {/* Assumptions Banner - Link to Factors */}
+        <div className="bg-gray-800 border border-gray-700 rounded-lg p-3 mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-6 text-sm">
+            <span className="text-gray-400">Using global assumptions:</span>
+            <span className="text-orange-400">Daily Rev/EH: <span className="font-mono">${assumptions.dailyRevPerEh.toLocaleString()}</span></span>
+            <span className="text-orange-400">EBITDA Multiple: <span className="font-mono">{assumptions.ebitdaMultiple}x</span></span>
+            <span className="text-orange-400">Pool Fee: <span className="font-mono">{(assumptions.poolFeePct * 100).toFixed(1)}%</span></span>
+            <span className="text-orange-400">$/MW Hosted: <span className="font-mono">${assumptions.hostedMwRate.toFixed(0)}K</span></span>
           </div>
-        )}
+          <Link to="/factors" className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300">
+            Edit in Factors <ExternalLink className="h-3 w-3" />
+          </Link>
+        </div>
 
         {/* Table */}
         <div className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
