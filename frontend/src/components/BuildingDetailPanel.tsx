@@ -4,7 +4,6 @@ import {
   X,
   Building2,
   MapPin,
-  Zap,
   DollarSign,
   TrendingUp,
   Percent,

@@ -269,9 +269,10 @@ function normalizeGrid(grid: string | null): string | null {
     'NORDIC': 'NORDIC',
     'NORDPOOL': 'NORDIC',
     'OTHER': 'OTHER',
-    'N/A': null,
-    'TBD': null,
   };
+
+  // Handle N/A and TBD as null
+  if (g === 'N/A' || g === 'TBD') return null;
 
   // Check for exact match
   if (gridMap[g] !== undefined) return gridMap[g];
