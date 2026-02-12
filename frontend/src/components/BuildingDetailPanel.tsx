@@ -11,9 +11,10 @@ import {
   Save,
   RotateCcw,
   AlertTriangle,
+  Settings,
 } from 'lucide-react';
 
-// Error Boundary to catch render errors
+// Error Boundary
 interface ErrorBoundaryProps {
   children: ReactNode;
   onClose: () => void;
@@ -54,13 +55,10 @@ class PanelErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryStat
           <p className="text-gray-400 mb-2">Something went wrong rendering this panel.</p>
           <pre className="text-red-400 text-xs bg-gray-800 p-2 rounded overflow-auto max-h-60">
             {this.state.error?.message}
-            {'\n\n'}
-            {this.state.error?.stack}
           </pre>
         </div>
       );
     }
-
     return this.props.children;
   }
 }
@@ -78,6 +76,66 @@ interface BuildingDetailPanelProps {
   onClose: () => void;
 }
 
+// Editable field component
+interface EditableFieldProps {
+  label: string;
+  value: string | number | null;
+  onChange: (value: string) => void;
+  type?: 'text' | 'number' | 'select' | 'date';
+  options?: { value: string; label: string }[];
+  suffix?: string;
+  prefix?: string;
+  placeholder?: string;
+  step?: string;
+}
+
+function EditableField({
+  label,
+  value,
+  onChange,
+  type = 'text',
+  options,
+  suffix,
+  prefix,
+  placeholder,
+  step,
+}: EditableFieldProps) {
+  const displayValue = value === null || value === undefined ? '' : String(value);
+
+  return (
+    <div>
+      <div className="text-[10px] text-gray-500 mb-0.5">{label}</div>
+      <div className="flex items-center">
+        {prefix && <span className="text-gray-400 text-xs mr-1">{prefix}</span>}
+        {type === 'select' && options ? (
+          <select
+            value={displayValue}
+            onChange={(e) => onChange(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white focus:border-orange-500 focus:outline-none"
+          >
+            {options.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            type={type}
+            value={displayValue}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder}
+            step={step}
+            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white focus:border-orange-500 focus:outline-none"
+          />
+        )}
+        {suffix && <span className="text-gray-400 text-xs ml-1">{suffix}</span>}
+      </div>
+    </div>
+  );
+}
+
+// Slider row component
 interface SliderRowProps {
   label: string;
   autoValue: number;
@@ -141,7 +199,7 @@ function SliderRow({
   );
 }
 
-// Safe number formatting helpers
+// Safe number formatting
 const safeToFixed = (val: any, digits: number): string => {
   const num = Number(val);
   if (isNaN(num) || !isFinite(num)) return '0';
@@ -166,21 +224,19 @@ const formatMultiplier = (value: number): string => {
   return `${num.toFixed(2)}x`;
 };
 
-const formatDate = (dateStr: string | null | undefined): string => {
-  if (!dateStr) return '-';
-  try {
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-  } catch {
-    return String(dateStr);
-  }
-};
-
 function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelProps) {
   const queryClient = useQueryClient();
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     lease: true,
+    valInputs: true,
     factors: true,
   });
+
+  // Editable lease details
+  const [leaseEdits, setLeaseEdits] = useState<Record<string, any>>({});
+  // Editable valuation inputs
+  const [valInputEdits, setValInputEdits] = useState<Record<string, any>>({});
+  // Factor overrides
   const [factorOverrides, setFactorOverrides] = useState<Record<string, number>>({});
   const [hasChanges, setHasChanges] = useState(false);
 
@@ -194,15 +250,15 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     },
   });
 
-  const updateFactorsMutation = useMutation({
-    mutationFn: async (factors: Record<string, any>) => {
+  const updateMutation = useMutation({
+    mutationFn: async (updates: Record<string, any>) => {
       const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/buildings/${buildingId}/factors`, {
+      const res = await fetch(`${apiUrl}/api/v1/buildings/${buildingId}/valuation-details`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(factors),
+        body: JSON.stringify(updates),
       });
-      if (!res.ok) throw new Error('Failed to update factors');
+      if (!res.ok) throw new Error('Failed to save changes');
       return res.json();
     },
     onSuccess: () => {
@@ -213,11 +269,29 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     },
   });
 
-  // Initialize factor overrides from data
+  // Initialize state from data
   useEffect(() => {
     if (data) {
+      const ld = data.leaseDetails || {};
       const fd = data.factorDetails || {};
+      const vi = data.valuation?.inputs || {};
       const bld = data.building || {};
+
+      setLeaseEdits({
+        tenant: ld.tenant || '',
+        leaseStructure: ld.leaseStructure || 'NNN',
+        leaseYears: ld.leaseYears || '',
+        leaseValueM: ld.leaseValueM || '',
+        annualRevM: ld.annualRevM || '',
+        noiPct: ld.noiPct ? (ld.noiPct * 100).toFixed(1) : '',
+        noiAnnualM: ld.noiAnnualM || '',
+      });
+
+      setValInputEdits({
+        capRate: vi.capRate ? (vi.capRate * 100).toFixed(2) : '7.50',
+        exitCapRate: vi.exitCapRate ? (vi.exitCapRate * 100).toFixed(2) : '8.00',
+        terminalGrowthRate: vi.terminalGrowthRate ? (vi.terminalGrowthRate * 100).toFixed(1) : '2.5',
+      });
 
       setFactorOverrides({
         phaseProbability: fd.phaseProbability?.final ?? fd.phaseProbability?.auto ?? 0.5,
@@ -234,6 +308,16 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     }
   }, [data]);
 
+  const handleLeaseChange = (key: string, value: string) => {
+    setLeaseEdits((prev) => ({ ...prev, [key]: value }));
+    setHasChanges(true);
+  };
+
+  const handleValInputChange = (key: string, value: string) => {
+    setValInputEdits((prev) => ({ ...prev, [key]: value }));
+    setHasChanges(true);
+  };
+
   const handleFactorChange = (key: string, value: number) => {
     setFactorOverrides((prev) => ({ ...prev, [key]: value }));
     setHasChanges(true);
@@ -241,20 +325,59 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
 
   const handleSave = () => {
     const fd = data?.factorDetails || {};
-    updateFactorsMutation.mutate({
-      fidoodleFactor: factorOverrides.fidoodleFactor,
-      probabilityOverride: factorOverrides.phaseProbability !== (fd.phaseProbability?.auto ?? 0.5) ? factorOverrides.phaseProbability : null,
-      regulatoryRisk: factorOverrides.regulatoryRisk,
-      sizeMultOverride: factorOverrides.sizeMultiplier !== (fd.sizeMultiplier?.auto ?? 1) ? factorOverrides.sizeMultiplier : null,
-      powerAuthMultOverride: factorOverrides.powerAuthority !== (fd.powerAuthority?.auto ?? 1) ? factorOverrides.powerAuthority : null,
-      ownershipMultOverride: factorOverrides.ownership !== (fd.ownership?.auto ?? 1) ? factorOverrides.ownership : null,
-      tierMultOverride: factorOverrides.datacenterTier !== (fd.datacenterTier?.auto ?? 1) ? factorOverrides.datacenterTier : null,
+
+    updateMutation.mutate({
+      // Lease details
+      lease: {
+        tenant: leaseEdits.tenant || null,
+        leaseStructure: leaseEdits.leaseStructure,
+        leaseYears: leaseEdits.leaseYears ? parseFloat(leaseEdits.leaseYears) : null,
+        leaseValueM: leaseEdits.leaseValueM ? parseFloat(leaseEdits.leaseValueM) : null,
+        annualRevM: leaseEdits.annualRevM ? parseFloat(leaseEdits.annualRevM) : null,
+        noiPct: leaseEdits.noiPct ? parseFloat(leaseEdits.noiPct) / 100 : null,
+        noiAnnualM: leaseEdits.noiAnnualM ? parseFloat(leaseEdits.noiAnnualM) : null,
+      },
+      // Valuation inputs (cap rates)
+      valuation: {
+        capRateOverride: parseFloat(valInputEdits.capRate) / 100,
+        exitCapRateOverride: parseFloat(valInputEdits.exitCapRate) / 100,
+        terminalGrowthOverride: parseFloat(valInputEdits.terminalGrowthRate) / 100,
+      },
+      // Factor overrides
+      factors: {
+        fidoodleFactor: factorOverrides.fidoodleFactor,
+        probabilityOverride: factorOverrides.phaseProbability !== (fd.phaseProbability?.auto ?? 0.5) ? factorOverrides.phaseProbability : null,
+        regulatoryRisk: factorOverrides.regulatoryRisk,
+        sizeMultOverride: factorOverrides.sizeMultiplier !== (fd.sizeMultiplier?.auto ?? 1) ? factorOverrides.sizeMultiplier : null,
+        powerAuthMultOverride: factorOverrides.powerAuthority !== (fd.powerAuthority?.auto ?? 1) ? factorOverrides.powerAuthority : null,
+        ownershipMultOverride: factorOverrides.ownership !== (fd.ownership?.auto ?? 1) ? factorOverrides.ownership : null,
+        tierMultOverride: factorOverrides.datacenterTier !== (fd.datacenterTier?.auto ?? 1) ? factorOverrides.datacenterTier : null,
+      },
     });
   };
 
   const handleResetAll = () => {
     if (data) {
+      const ld = data.leaseDetails || {};
       const fd = data.factorDetails || {};
+      const gf = data.globalFactors || {};
+
+      setLeaseEdits({
+        tenant: ld.tenant || '',
+        leaseStructure: ld.leaseStructure || 'NNN',
+        leaseYears: ld.leaseYears || '',
+        leaseValueM: ld.leaseValueM || '',
+        annualRevM: ld.annualRevM || '',
+        noiPct: ld.noiPct ? (ld.noiPct * 100).toFixed(1) : '',
+        noiAnnualM: ld.noiAnnualM || '',
+      });
+
+      setValInputEdits({
+        capRate: ((gf.hpcCapRate || 0.075) * 100).toFixed(2),
+        exitCapRate: ((gf.hpcExitCapRate || 0.08) * 100).toFixed(2),
+        terminalGrowthRate: ((gf.terminalGrowthRate || 0.025) * 100).toFixed(1),
+      });
+
       setFactorOverrides({
         phaseProbability: fd.phaseProbability?.auto ?? 0.5,
         regulatoryRisk: 1.0,
@@ -267,6 +390,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         energization: fd.energization?.auto ?? 1.0,
         fidoodleFactor: 1.0,
       });
+
       setHasChanges(true);
     }
   };
@@ -275,9 +399,9 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  // Calculate live valuation based on current slider values
+  // Calculate live valuation
   const calculateLiveValuation = () => {
-    if (!data) return { combinedFactor: 1, adjustedValue: 0, baseValue: 0, terminalValue: 0 };
+    if (!data) return { combinedFactor: 1, adjustedValue: 0, baseValue: 0, terminalValue: 0, grossValue: 0 };
 
     const combinedFactor =
       (factorOverrides.phaseProbability || 1) *
@@ -291,16 +415,32 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       (factorOverrides.energization || 1) *
       (factorOverrides.fidoodleFactor || 1);
 
-    const baseValue = data.valuation?.results?.baseValueM ?? 0;
-    const terminalValue = data.valuation?.results?.terminalValueM ?? 0;
+    // Use edited NOI for live calculation
+    const noiAnnual = leaseEdits.noiAnnualM ? parseFloat(leaseEdits.noiAnnualM) : 0;
+    const capRate = valInputEdits.capRate ? parseFloat(valInputEdits.capRate) / 100 : 0.075;
+    const exitCapRate = valInputEdits.exitCapRate ? parseFloat(valInputEdits.exitCapRate) / 100 : 0.08;
+    const terminalGrowthRate = valInputEdits.terminalGrowthRate ? parseFloat(valInputEdits.terminalGrowthRate) / 100 : 0.025;
+    const discountRate = data.valuation?.inputs?.discountRate || 0.10;
+    const leaseYears = leaseEdits.leaseYears ? parseFloat(leaseEdits.leaseYears) : (data.remainingLeaseYears || 10);
+    const renewalProbability = data.globalFactors?.renewalProbability || 0.75;
+
+    // Base Value = NOI / Cap Rate
+    const baseValue = noiAnnual > 0 && capRate > 0 ? noiAnnual / capRate : 0;
+
+    // Terminal Value calculation
+    const capRateDiff = Math.max(exitCapRate - terminalGrowthRate, 0.001);
+    const terminalNoi = noiAnnual * Math.pow(1 + terminalGrowthRate, leaseYears);
+    const terminalValueAtEnd = terminalNoi / capRateDiff;
+    const terminalValue = terminalValueAtEnd / Math.pow(1 + discountRate, leaseYears) * renewalProbability;
+
     const grossValue = baseValue + terminalValue;
     const adjustedValue = grossValue * combinedFactor;
 
     return {
       combinedFactor: isFinite(combinedFactor) ? combinedFactor : 1,
       adjustedValue: isFinite(adjustedValue) ? adjustedValue : 0,
-      baseValue,
-      terminalValue,
+      baseValue: isFinite(baseValue) ? baseValue : 0,
+      terminalValue: isFinite(terminalValue) ? terminalValue : 0,
       grossValue: isFinite(grossValue) ? grossValue : 0,
     };
   };
@@ -328,18 +468,15 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     );
   }
 
-  // Safely extract data with defaults
   const building = data.building || {};
   const site = data.site || {};
   const campus = data.campus || {};
-  const leaseDetails = data.leaseDetails || {};
   const factorDetails = data.factorDetails || {};
-
   const liveValuation = calculateLiveValuation();
 
   return (
     <div className="fixed inset-y-0 right-0 w-[520px] bg-gray-900 border-l border-gray-700 shadow-2xl z-50 flex flex-col overflow-hidden">
-      {/* Header with Building Info */}
+      {/* Header */}
       <div className="flex-shrink-0 p-3 border-b border-gray-700 bg-gray-800">
         <div className="flex justify-between items-start">
           <div>
@@ -361,13 +498,13 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       </div>
 
       {/* Sticky Valuation Summary */}
-      <div className="flex-shrink-0 p-3 bg-gray-850 border-b border-gray-700 bg-gradient-to-r from-gray-800 to-gray-900">
+      <div className="flex-shrink-0 p-3 border-b border-gray-700 bg-gradient-to-r from-gray-800 to-gray-900">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-orange-500" />
             <span className="text-sm font-medium text-gray-300">Valuation</span>
             <span className="text-xs text-gray-500">
-              ({safeToFixed(liveValuation.combinedFactor, 3)}x factor)
+              ({safeToFixed(liveValuation.combinedFactor, 3)}x)
             </span>
           </div>
           <div className="text-right">
@@ -394,49 +531,109 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
               <DollarSign className="h-4 w-4 text-green-500" />
               <span className="text-sm font-medium text-gray-200">Lease Details</span>
             </div>
-            {leaseDetails.noiAnnualM && (
-              <span className="text-sm text-green-400">{formatMoney(leaseDetails.noiAnnualM)}/yr NOI</span>
-            )}
           </button>
           {expandedSections.lease && (
             <div className="px-4 pb-4">
-              <div className="grid grid-cols-3 gap-x-4 gap-y-2 text-xs">
-                <div>
-                  <div className="text-gray-500">Tenant</div>
-                  <div className="text-white font-medium">{leaseDetails.tenant || '-'}</div>
+              <div className="grid grid-cols-3 gap-3">
+                <EditableField
+                  label="Tenant"
+                  value={leaseEdits.tenant}
+                  onChange={(v) => handleLeaseChange('tenant', v)}
+                  placeholder="e.g., CoreWeave"
+                />
+                <EditableField
+                  label="Structure"
+                  value={leaseEdits.leaseStructure}
+                  onChange={(v) => handleLeaseChange('leaseStructure', v)}
+                  type="select"
+                  options={[
+                    { value: 'NNN', label: 'NNN (Triple Net)' },
+                    { value: 'MODIFIED_GROSS', label: 'Modified Gross' },
+                    { value: 'GROSS', label: 'Gross' },
+                  ]}
+                />
+                <EditableField
+                  label="Term (years)"
+                  value={leaseEdits.leaseYears}
+                  onChange={(v) => handleLeaseChange('leaseYears', v)}
+                  type="number"
+                  step="0.5"
+                />
+                <EditableField
+                  label="Lease Value ($M)"
+                  value={leaseEdits.leaseValueM}
+                  onChange={(v) => handleLeaseChange('leaseValueM', v)}
+                  type="number"
+                  step="0.1"
+                />
+                <EditableField
+                  label="Annual Rev ($M)"
+                  value={leaseEdits.annualRevM}
+                  onChange={(v) => handleLeaseChange('annualRevM', v)}
+                  type="number"
+                  step="0.1"
+                />
+                <EditableField
+                  label="NOI %"
+                  value={leaseEdits.noiPct}
+                  onChange={(v) => handleLeaseChange('noiPct', v)}
+                  type="number"
+                  step="1"
+                  suffix="%"
+                />
+                <div className="col-span-3">
+                  <EditableField
+                    label="Annual NOI ($M) — used for valuation"
+                    value={leaseEdits.noiAnnualM}
+                    onChange={(v) => handleLeaseChange('noiAnnualM', v)}
+                    type="number"
+                    step="0.1"
+                  />
                 </div>
-                <div>
-                  <div className="text-gray-500">Structure</div>
-                  <div className="text-white font-medium">{leaseDetails.leaseStructure || 'NNN'}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Term</div>
-                  <div className="text-white font-medium">{leaseDetails.leaseYears ? `${leaseDetails.leaseYears} yrs` : '-'}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Lease Value</div>
-                  <div className="text-white">{formatMoney(leaseDetails.leaseValueM)}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Annual Rev</div>
-                  <div className="text-white">{formatMoney(leaseDetails.annualRevM)}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500">NOI %</div>
-                  <div className="text-white">{leaseDetails.noiPct ? formatPercent(leaseDetails.noiPct) : '-'}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Annual NOI</div>
-                  <div className="text-green-400 font-medium">{formatMoney(leaseDetails.noiAnnualM)}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500">Start</div>
-                  <div className="text-white">{formatDate(leaseDetails.leaseStart)}</div>
-                </div>
-                <div>
-                  <div className="text-gray-500">End</div>
-                  <div className="text-white">{formatDate(leaseDetails.leaseEnd)}</div>
-                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Valuation Inputs Section */}
+        <div className="border-b border-gray-700">
+          <button
+            onClick={() => toggleSection('valInputs')}
+            className="w-full flex items-center justify-between p-3 hover:bg-gray-800/50"
+          >
+            <div className="flex items-center gap-2">
+              {expandedSections.valInputs ? <ChevronDown className="h-4 w-4 text-gray-500" /> : <ChevronRight className="h-4 w-4 text-gray-500" />}
+              <Settings className="h-4 w-4 text-blue-500" />
+              <span className="text-sm font-medium text-gray-200">Valuation Inputs</span>
+            </div>
+          </button>
+          {expandedSections.valInputs && (
+            <div className="px-4 pb-4">
+              <div className="grid grid-cols-3 gap-3">
+                <EditableField
+                  label="Cap Rate"
+                  value={valInputEdits.capRate}
+                  onChange={(v) => handleValInputChange('capRate', v)}
+                  type="number"
+                  step="0.25"
+                  suffix="%"
+                />
+                <EditableField
+                  label="Exit Cap Rate"
+                  value={valInputEdits.exitCapRate}
+                  onChange={(v) => handleValInputChange('exitCapRate', v)}
+                  type="number"
+                  step="0.25"
+                  suffix="%"
+                />
+                <EditableField
+                  label="Terminal Growth"
+                  value={valInputEdits.terminalGrowthRate}
+                  onChange={(v) => handleValInputChange('terminalGrowthRate', v)}
+                  type="number"
+                  step="0.1"
+                  suffix="%"
+                />
               </div>
             </div>
           )}
@@ -486,7 +683,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 max={1.2}
                 step={0.01}
                 format={formatMultiplier}
-                description={`${Math.round(factorDetails.sizeMultiplier?.siteTotalMw ?? 0)} MW site`}
+                description={`${Math.round(factorDetails.sizeMultiplier?.siteTotalMw ?? 0)} MW`}
               />
               <SliderRow
                 label="Power Authority"
@@ -530,7 +727,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 max={1.05}
                 step={0.01}
                 format={formatMultiplier}
-                description={factorDetails.leaseStructure?.structure || 'NNN'}
+                description={leaseEdits.leaseStructure || 'NNN'}
               />
               <SliderRow
                 label="Tenant Credit"
@@ -541,7 +738,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 max={1.05}
                 step={0.01}
                 format={formatMultiplier}
-                description={factorDetails.tenantCredit?.tenant || 'no tenant'}
+                description={leaseEdits.tenant || 'no tenant'}
               />
               <SliderRow
                 label="Energization"
@@ -552,7 +749,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 max={1.1}
                 step={0.01}
                 format={formatMultiplier}
-                description={factorDetails.energization?.date ? formatDate(factorDetails.energization.date) : 'no date'}
               />
               <div className="mt-3 pt-3 border-t border-gray-700">
                 <SliderRow
@@ -570,25 +766,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
             </div>
           )}
         </div>
-
-        {/* Valuation Methodology (collapsed by default, read-only) */}
-        <div className="px-4 py-3">
-          <div className="text-xs text-gray-500 mb-2">Valuation Methodology</div>
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <div className="bg-gray-800 rounded px-2 py-1.5">
-              <div className="text-gray-500">Cap Rate</div>
-              <div className="text-white">{((data.valuation?.inputs?.capRate ?? 0.075) * 100).toFixed(2)}%</div>
-            </div>
-            <div className="bg-gray-800 rounded px-2 py-1.5">
-              <div className="text-gray-500">Exit Cap</div>
-              <div className="text-white">{((data.valuation?.inputs?.exitCapRate ?? 0.08) * 100).toFixed(2)}%</div>
-            </div>
-            <div className="bg-gray-800 rounded px-2 py-1.5">
-              <div className="text-gray-500">Growth</div>
-              <div className="text-white">{((data.valuation?.inputs?.terminalGrowthRate ?? 0.025) * 100).toFixed(1)}%</div>
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Footer with Save/Reset */}
@@ -599,15 +776,15 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
             className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200"
           >
             <RotateCcw className="h-4 w-4" />
-            Reset All
+            Reset
           </button>
           <button
             onClick={handleSave}
-            disabled={updateFactorsMutation.isPending}
+            disabled={updateMutation.isPending}
             className="flex items-center gap-1 px-4 py-1.5 bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 text-sm font-medium"
           >
             <Save className="h-4 w-4" />
-            {updateFactorsMutation.isPending ? 'Saving...' : 'Save Changes'}
+            {updateMutation.isPending ? 'Saving...' : 'Save All Changes'}
           </button>
         </div>
       )}
@@ -615,7 +792,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
   );
 }
 
-// Wrapper component with error boundary
 export default function BuildingDetailPanel({ buildingId, onClose }: BuildingDetailPanelProps) {
   return (
     <PanelErrorBoundary onClose={onClose}>

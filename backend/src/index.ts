@@ -1147,7 +1147,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
   }
 });
 
-// PATCH building factor overrides
+// PATCH building factor overrides (legacy endpoint)
 app.patch('/api/v1/buildings/:id/factors', async (req, res) => {
   try {
     const building = await prisma.building.update({
@@ -1173,6 +1173,97 @@ app.patch('/api/v1/buildings/:id/factors', async (req, res) => {
   } catch (error) {
     console.error('Error updating building factors:', error);
     res.status(500).json({ error: 'Failed to update building factors' });
+  }
+});
+
+// PATCH building valuation details (comprehensive update)
+// Updates lease details, valuation inputs, and factor overrides in one call
+app.patch('/api/v1/buildings/:id/valuation-details', async (req, res) => {
+  try {
+    const { lease, valuation, factors } = req.body;
+    const buildingId = req.params.id;
+
+    // Get the building with its current use period
+    const building = await prisma.building.findUnique({
+      where: { id: buildingId },
+      include: { usePeriods: { where: { isCurrent: true } } },
+    });
+
+    if (!building) {
+      return res.status(404).json({ error: 'Building not found' });
+    }
+
+    // Update building with valuation inputs and factor overrides
+    const buildingUpdate: Record<string, any> = {};
+
+    // Valuation inputs
+    if (valuation) {
+      if (valuation.capRateOverride !== undefined) buildingUpdate.capRateOverride = valuation.capRateOverride;
+      if (valuation.exitCapRateOverride !== undefined) buildingUpdate.exitCapRateOverride = valuation.exitCapRateOverride;
+      if (valuation.terminalGrowthOverride !== undefined) buildingUpdate.terminalGrowthOverride = valuation.terminalGrowthOverride;
+    }
+
+    // Factor overrides
+    if (factors) {
+      if (factors.fidoodleFactor !== undefined) buildingUpdate.fidoodleFactor = factors.fidoodleFactor;
+      if (factors.probabilityOverride !== undefined) buildingUpdate.probabilityOverride = factors.probabilityOverride;
+      if (factors.regulatoryRisk !== undefined) buildingUpdate.regulatoryRisk = factors.regulatoryRisk;
+      if (factors.sizeMultOverride !== undefined) buildingUpdate.sizeMultOverride = factors.sizeMultOverride;
+      if (factors.powerAuthMultOverride !== undefined) buildingUpdate.powerAuthMultOverride = factors.powerAuthMultOverride;
+      if (factors.ownershipMultOverride !== undefined) buildingUpdate.ownershipMultOverride = factors.ownershipMultOverride;
+      if (factors.tierMultOverride !== undefined) buildingUpdate.tierMultOverride = factors.tierMultOverride;
+    }
+
+    // Update building if there are changes
+    if (Object.keys(buildingUpdate).length > 0) {
+      await prisma.building.update({
+        where: { id: buildingId },
+        data: buildingUpdate,
+      });
+    }
+
+    // Update or create lease details on UsePeriod
+    if (lease) {
+      const currentUsePeriod = building.usePeriods[0];
+
+      const leaseUpdate: Record<string, any> = {};
+      if (lease.tenant !== undefined) leaseUpdate.tenant = lease.tenant;
+      if (lease.leaseStructure !== undefined) leaseUpdate.leaseStructure = lease.leaseStructure;
+      if (lease.leaseYears !== undefined) leaseUpdate.leaseYears = lease.leaseYears;
+      if (lease.leaseValueM !== undefined) leaseUpdate.leaseValueM = lease.leaseValueM;
+      if (lease.annualRevM !== undefined) leaseUpdate.annualRevM = lease.annualRevM;
+      if (lease.noiPct !== undefined) leaseUpdate.noiPct = lease.noiPct;
+      if (lease.noiAnnualM !== undefined) leaseUpdate.noiAnnualM = lease.noiAnnualM;
+
+      if (currentUsePeriod) {
+        // Update existing use period
+        await prisma.usePeriod.update({
+          where: { id: currentUsePeriod.id },
+          data: leaseUpdate,
+        });
+      } else {
+        // Create new use period if none exists
+        await prisma.usePeriod.create({
+          data: {
+            buildingId,
+            useType: 'HPC_AI_HOSTING',
+            isCurrent: true,
+            ...leaseUpdate,
+          },
+        });
+      }
+    }
+
+    // Return updated building with use periods
+    const updatedBuilding = await prisma.building.findUnique({
+      where: { id: buildingId },
+      include: { usePeriods: { where: { isCurrent: true } } },
+    });
+
+    res.json({ success: true, building: updatedBuilding });
+  } catch (error) {
+    console.error('Error updating valuation details:', error);
+    res.status(500).json({ error: 'Failed to update valuation details' });
   }
 });
 
