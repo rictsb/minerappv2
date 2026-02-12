@@ -23,15 +23,38 @@ const httpServer = createServer(app);
 // Socket.IO for real-time updates
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: (origin, callback) => {
+      if (!origin || origin.endsWith('.onrender.com') || origin.includes('localhost')) {
+        return callback(null, true);
+      }
+      callback(null, true);
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+    credentials: true,
   },
 });
 
 // Middleware
 app.use(helmet());
+
+// CORS - allow multiple origins for Render deployment
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://localhost:3000',
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    // Allow if origin is in allowed list or is a Render URL
+    if (allowedOrigins.includes(origin) || origin.endsWith('.onrender.com')) {
+      return callback(null, true);
+    }
+    callback(null, true); // Allow all for now during development
+  },
+  credentials: true,
 }));
 app.use(morgan('combined'));
 app.use(express.json());
