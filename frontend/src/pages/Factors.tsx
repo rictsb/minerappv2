@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { Save, Loader2, RotateCcw, ChevronDown, ChevronRight } from 'lucide-react';
+import { Save, Loader2, RotateCcw, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 function getApiUrl(): string {
@@ -232,7 +232,31 @@ export default function Factors() {
   const [factors, setFactors] = useState<Record<string, number>>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  const [fetchingPrices, setFetchingPrices] = useState(false);
   const saveTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // Fetch live crypto prices from CoinGecko
+  const fetchLivePrices = async () => {
+    setFetchingPrices(true);
+    try {
+      const res = await fetch(
+        'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd'
+      );
+      if (!res.ok) throw new Error('Failed to fetch prices');
+      const data = await res.json();
+
+      if (data.bitcoin?.usd) {
+        handleFactorChange('btcPrice', Math.round(data.bitcoin.usd));
+      }
+      if (data.ethereum?.usd) {
+        handleFactorChange('ethPrice', Math.round(data.ethereum.usd));
+      }
+    } catch (error) {
+      console.error('Error fetching live prices:', error);
+    } finally {
+      setFetchingPrices(false);
+    }
+  };
 
   // Fetch current factors
   const { data: savedFactors, isLoading: loadingFactors } = useQuery({
@@ -417,6 +441,18 @@ export default function Factors() {
 
               {!isCollapsed && (
                 <div className="px-4 pb-4">
+                  {section.id === 'market' && (
+                    <div className="flex justify-end mb-3">
+                      <button
+                        onClick={fetchLivePrices}
+                        disabled={fetchingPrices}
+                        className="flex items-center gap-1.5 px-2 py-1 text-xs text-orange-400 hover:text-orange-300 border border-orange-500/50 hover:border-orange-400 rounded transition disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${fetchingPrices ? 'animate-spin' : ''}`} />
+                        {fetchingPrices ? 'Fetching...' : 'Fetch Live'}
+                      </button>
+                    </div>
+                  )}
                   {section.id === 'phases' && (
                     <p className="text-xs text-gray-500 mb-3">
                       Default probability weights by development phase. Override per-building in Projects.

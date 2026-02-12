@@ -1,17 +1,12 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  ChevronDown,
-  ChevronRight,
   Filter,
   Search,
   Edit2,
   Save,
   X,
-  Layers,
-  Box,
   Trash2,
-  MapPin,
 } from 'lucide-react';
 
 function getApiUrl(): string {
@@ -60,6 +55,7 @@ interface Building {
   grossMw: string | null;
   itMw: string | null;
   pue: string | null;
+  grid: string | null;
   developmentPhase: string;
   energizationDate: string | null;
   confidence: string;
@@ -92,17 +88,40 @@ interface Company {
   sites: Site[];
 }
 
+interface FlatBuilding {
+  rowNum: number;
+  ticker: string;
+  companyName: string;
+  siteName: string;
+  campusName: string;
+  buildingId: string;
+  buildingName: string;
+  phase: string;
+  useType: string;
+  tenant: string | null;
+  grossMw: number | null;
+  itMw: number | null;
+  pue: number | null;
+  grid: string | null;
+  probability: number;
+  probabilityOverride: number | null;
+  regulatoryRisk: number;
+  leaseValueM: number | null;
+  noiAnnualM: number | null;
+  energizationDate: string | null;
+  ownershipStatus: string | null;
+  building: Building;
+}
+
 export default function Projects() {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterTicker, setFilterTicker] = useState('');
   const [filterPhase, setFilterPhase] = useState('');
   const [filterUseType, setFilterUseType] = useState('');
-  const [expandedSites, setExpandedSites] = useState<Set<string>>(new Set());
-  const [expandedCampuses, setExpandedCampuses] = useState<Set<string>>(new Set());
   const [editingBuilding, setEditingBuilding] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<Record<string, any>>({});
-  const [deleteConfirm, setDeleteConfirm] = useState<{ type: string; id: string; name: string } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
   const { data: companies, isLoading } = useQuery({
     queryKey: ['companies'],
@@ -146,62 +165,10 @@ export default function Projects() {
     },
   });
 
-  const deleteCampusMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/campuses/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete campus');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['companies'] });
-      setDeleteConfirm(null);
-    },
-  });
-
-  const deleteSiteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/sites/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete site');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['companies'] });
-      setDeleteConfirm(null);
-    },
-  });
-
-  // Flatten data for display
-  interface FlatRow {
-    rowNum: number;
-    type: 'site' | 'campus' | 'building';
-    depth: number;
-    ticker: string;
-    id: string;
-    name: string;
-    location?: string;
-    phase?: string;
-    useType?: string;
-    tenant?: string;
-    grossMw?: number;
-    itMw?: number;
-    pue?: number;
-    probability?: number;
-    probabilityOverride?: number | null;
-    regulatoryRisk?: number;
-    leaseValueM?: number;
-    noiAnnualM?: number;
-    energizationDate?: string;
-    hasChildren: boolean;
-    siteId?: string;
-    campusId?: string;
-    building?: Building;
-  }
-
-  const flattenedRows = useMemo(() => {
+  // Flatten all buildings into a single list
+  const flatBuildings = useMemo(() => {
     if (!companies) return [];
-    const rows: FlatRow[] = [];
+    const rows: FlatBuilding[] = [];
     let rowNum = 0;
 
     const sortedCompanies = [...companies].sort((a, b) => a.ticker.localeCompare(b.ticker));
@@ -210,167 +177,77 @@ export default function Projects() {
       if (!company.sites) continue;
       if (filterTicker && company.ticker !== filterTicker) continue;
 
-      const sortedSites = [...company.sites].sort((a, b) => a.name.localeCompare(b.name));
+      for (const site of company.sites) {
+        for (const campus of site.campuses || []) {
+          for (const building of campus.buildings || []) {
+            // Apply phase filter
+            if (filterPhase && building.developmentPhase !== filterPhase) continue;
 
-      for (const site of sortedSites) {
-        rowNum++;
-        const siteHasChildren = site.campuses && site.campuses.length > 0;
+            // Apply use type filter
+            const currentUse = building.usePeriods?.[0];
+            if (filterUseType && currentUse?.useType !== filterUseType) continue;
 
-        // Calculate total MW for site
-        let siteTotalMw = 0;
-        site.campuses?.forEach(campus => {
-          campus.buildings?.forEach(building => {
-            siteTotalMw += parseFloat(building.grossMw || '0');
-          });
-        });
-
-        rows.push({
-          rowNum,
-          type: 'site',
-          depth: 0,
-          ticker: company.ticker,
-          id: site.id,
-          name: site.name,
-          location: `${site.country}${site.state ? `, ${site.state}` : ''}`,
-          grossMw: siteTotalMw || undefined,
-          hasChildren: siteHasChildren,
-        });
-
-        if (expandedSites.has(site.id)) {
-          const sortedCampuses = [...(site.campuses || [])].sort((a, b) => a.name.localeCompare(b.name));
-
-          for (const campus of sortedCampuses) {
             rowNum++;
-            const campusHasChildren = campus.buildings && campus.buildings.length > 0;
-
-            // Calculate total MW for campus
-            let campusTotalMw = 0;
-            campus.buildings?.forEach(building => {
-              campusTotalMw += parseFloat(building.grossMw || '0');
-            });
+            const phase = building.developmentPhase || 'DILIGENCE';
+            const defaultProb = phaseConfig[phase]?.prob || 0.5;
+            const probOverride = building.probabilityOverride ? parseFloat(building.probabilityOverride) : null;
 
             rows.push({
               rowNum,
-              type: 'campus',
-              depth: 1,
               ticker: company.ticker,
-              id: campus.id,
-              name: campus.name,
-              grossMw: campusTotalMw || undefined,
-              hasChildren: campusHasChildren,
-              siteId: site.id,
+              companyName: company.name,
+              siteName: site.name,
+              campusName: campus.name,
+              buildingId: building.id,
+              buildingName: building.name,
+              phase,
+              useType: currentUse?.useType || 'UNCONTRACTED',
+              tenant: currentUse?.tenant || null,
+              grossMw: building.grossMw ? parseFloat(building.grossMw) : null,
+              itMw: building.itMw ? parseFloat(building.itMw) : null,
+              pue: building.pue ? parseFloat(building.pue) : null,
+              grid: building.grid || null,
+              probability: probOverride ?? defaultProb,
+              probabilityOverride: probOverride,
+              regulatoryRisk: building.regulatoryRisk ? parseFloat(building.regulatoryRisk) : 1.0,
+              leaseValueM: currentUse?.leaseValueM ? parseFloat(currentUse.leaseValueM) : null,
+              noiAnnualM: currentUse?.noiAnnualM ? parseFloat(currentUse.noiAnnualM) : null,
+              energizationDate: building.energizationDate || null,
+              ownershipStatus: building.ownershipStatus || null,
+              building,
             });
-
-            if (expandedCampuses.has(campus.id)) {
-              const sortedBuildings = [...(campus.buildings || [])].sort((a, b) => a.name.localeCompare(b.name));
-
-              for (const building of sortedBuildings) {
-                // Apply filters
-                if (filterPhase && building.developmentPhase !== filterPhase) continue;
-
-                const currentUse = building.usePeriods?.[0];
-                if (filterUseType && currentUse?.useType !== filterUseType) continue;
-
-                rowNum++;
-                const phase = building.developmentPhase || 'DILIGENCE';
-                const defaultProb = phaseConfig[phase]?.prob || 0.5;
-                const probOverride = building.probabilityOverride ? parseFloat(building.probabilityOverride) : null;
-
-                rows.push({
-                  rowNum,
-                  type: 'building',
-                  depth: 2,
-                  ticker: company.ticker,
-                  id: building.id,
-                  name: building.name,
-                  phase,
-                  useType: currentUse?.useType || 'UNCONTRACTED',
-                  tenant: currentUse?.tenant || undefined,
-                  grossMw: building.grossMw ? parseFloat(building.grossMw) : undefined,
-                  itMw: building.itMw ? parseFloat(building.itMw) : undefined,
-                  pue: building.pue ? parseFloat(building.pue) : undefined,
-                  probability: probOverride ?? defaultProb,
-                  probabilityOverride: probOverride,
-                  regulatoryRisk: building.regulatoryRisk ? parseFloat(building.regulatoryRisk) : 1.0,
-                  leaseValueM: currentUse?.leaseValueM ? parseFloat(currentUse.leaseValueM) : undefined,
-                  noiAnnualM: currentUse?.noiAnnualM ? parseFloat(currentUse.noiAnnualM) : undefined,
-                  energizationDate: building.energizationDate || undefined,
-                  hasChildren: false,
-                  siteId: site.id,
-                  campusId: campus.id,
-                  building,
-                });
-              }
-            }
           }
         }
       }
     }
 
     return rows;
-  }, [companies, expandedSites, expandedCampuses, filterTicker, filterPhase, filterUseType]);
+  }, [companies, filterTicker, filterPhase, filterUseType]);
 
   // Filter by search term
   const filteredRows = useMemo(() => {
-    if (!searchTerm) return flattenedRows;
+    if (!searchTerm) return flatBuildings;
     const search = searchTerm.toLowerCase();
-    return flattenedRows.filter(row => {
-      return row.name.toLowerCase().includes(search) ||
+    return flatBuildings.filter(row => {
+      return row.buildingName.toLowerCase().includes(search) ||
         row.ticker.toLowerCase().includes(search) ||
-        row.tenant?.toLowerCase().includes(search) ||
-        row.location?.toLowerCase().includes(search);
+        row.companyName.toLowerCase().includes(search) ||
+        row.siteName.toLowerCase().includes(search) ||
+        row.campusName.toLowerCase().includes(search) ||
+        row.tenant?.toLowerCase().includes(search);
     });
-  }, [flattenedRows, searchTerm]);
+  }, [flatBuildings, searchTerm]);
 
   const uniqueTickers = useMemo(() => {
     return [...new Set(companies?.map(c => c.ticker) || [])].sort();
   }, [companies]);
 
-  const toggleSite = (siteId: string) => {
-    setExpandedSites(prev => {
-      const next = new Set(prev);
-      if (next.has(siteId)) next.delete(siteId);
-      else next.add(siteId);
-      return next;
-    });
-  };
-
-  const toggleCampus = (campusId: string) => {
-    setExpandedCampuses(prev => {
-      const next = new Set(prev);
-      if (next.has(campusId)) next.delete(campusId);
-      else next.add(campusId);
-      return next;
-    });
-  };
-
-  const expandAll = () => {
-    const allSiteIds = new Set<string>();
-    const allCampusIds = new Set<string>();
-    companies?.forEach(company => {
-      company.sites?.forEach(site => {
-        allSiteIds.add(site.id);
-        site.campuses?.forEach(campus => {
-          allCampusIds.add(campus.id);
-        });
-      });
-    });
-    setExpandedSites(allSiteIds);
-    setExpandedCampuses(allCampusIds);
-  };
-
-  const collapseAll = () => {
-    setExpandedSites(new Set());
-    setExpandedCampuses(new Set());
-  };
-
-  const startEditBuilding = (row: FlatRow) => {
-    if (row.type !== 'building' || !row.building) return;
-    setEditingBuilding(row.id);
+  const startEditBuilding = (row: FlatBuilding) => {
+    setEditingBuilding(row.buildingId);
     setEditFormData({
       developmentPhase: row.phase,
-      probabilityOverride: typeof row.probabilityOverride === 'number' ? (row.probabilityOverride * 100).toString() : '',
-      regulatoryRisk: typeof row.regulatoryRisk === 'number' ? (row.regulatoryRisk * 100).toString() : '100',
+      probabilityOverride: row.probabilityOverride !== null ? (row.probabilityOverride * 100).toString() : '',
+      regulatoryRisk: (row.regulatoryRisk * 100).toString(),
       grossMw: row.grossMw?.toString() || '',
       itMw: row.itMw?.toString() || '',
       pue: row.pue?.toString() || '',
@@ -401,16 +278,10 @@ export default function Projects() {
 
   const handleDelete = () => {
     if (!deleteConfirm) return;
-    if (deleteConfirm.type === 'building') {
-      deleteBuildingMutation.mutate(deleteConfirm.id);
-    } else if (deleteConfirm.type === 'campus') {
-      deleteCampusMutation.mutate(deleteConfirm.id);
-    } else if (deleteConfirm.type === 'site') {
-      deleteSiteMutation.mutate(deleteConfirm.id);
-    }
+    deleteBuildingMutation.mutate(deleteConfirm.id);
   };
 
-  const formatDate = (dateStr: string | undefined) => {
+  const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-';
     try {
       return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
@@ -419,8 +290,8 @@ export default function Projects() {
     }
   };
 
-  const formatMoney = (value: number | undefined) => {
-    if (!value) return '-';
+  const formatMoney = (value: number | null) => {
+    if (value === null || value === undefined) return '-';
     return `$${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}M`;
   };
 
@@ -433,33 +304,25 @@ export default function Projects() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6">
+    <div className="min-h-screen bg-gray-900 text-white p-4">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-xl font-semibold text-gray-300">Projects</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Site → Campus → Building hierarchy
+            {filteredRows.length} buildings
           </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={expandAll} className="px-3 py-1.5 text-sm text-orange-500 hover:text-orange-400">
-            Expand All
-          </button>
-          <button onClick={collapseAll} className="px-3 py-1.5 text-sm text-gray-400 hover:text-gray-300">
-            Collapse All
-          </button>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-4">
-        <div className="flex flex-wrap items-center gap-4">
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-3 mb-4">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="flex-1 min-w-[200px] max-w-md relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
             <input
               type="text"
-              placeholder="Search sites, campuses, buildings..."
+              placeholder="Search ticker, site, building, tenant..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
@@ -508,157 +371,126 @@ export default function Projects() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-700 bg-gray-800/80">
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase w-12">#</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase w-16">Ticker</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase">Name</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase w-28">Phase</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase w-24">Use</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase w-32">Tenant</th>
-                <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase w-16">MW</th>
-                <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase w-16">Prob</th>
-                <th className="px-3 py-3 text-right text-xs font-medium text-red-400 uppercase w-16" title="Regulatory Risk Factor">Reg Risk</th>
-                <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase w-20">NOI/Yr</th>
-                <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase w-24">Energized</th>
-                <th className="px-3 py-3 text-center text-xs font-medium text-gray-400 uppercase w-20">Actions</th>
+                <th className="px-2 py-2 text-left text-xs font-medium text-gray-400 uppercase w-10">#</th>
+                <th className="px-2 py-2 text-left text-xs font-medium text-orange-400 uppercase w-14">Ticker</th>
+                <th className="px-2 py-2 text-left text-xs font-medium text-gray-400 uppercase w-36">Company</th>
+                <th className="px-2 py-2 text-left text-xs font-medium text-gray-400 uppercase">Site</th>
+                <th className="px-2 py-2 text-left text-xs font-medium text-gray-400 uppercase">Building</th>
+                <th className="px-2 py-2 text-left text-xs font-medium text-gray-400 uppercase w-24">Phase</th>
+                <th className="px-2 py-2 text-left text-xs font-medium text-gray-400 uppercase w-20">Use</th>
+                <th className="px-2 py-2 text-left text-xs font-medium text-gray-400 uppercase w-28">Tenant</th>
+                <th className="px-2 py-2 text-right text-xs font-medium text-gray-400 uppercase w-14">MW</th>
+                <th className="px-2 py-2 text-right text-xs font-medium text-gray-400 uppercase w-14">Prob</th>
+                <th className="px-2 py-2 text-right text-xs font-medium text-red-400 uppercase w-14" title="Regulatory Risk">RegR</th>
+                <th className="px-2 py-2 text-right text-xs font-medium text-gray-400 uppercase w-18">NOI/Yr</th>
+                <th className="px-2 py-2 text-right text-xs font-medium text-gray-400 uppercase w-20">Energized</th>
+                <th className="px-2 py-2 text-center text-xs font-medium text-gray-400 uppercase w-16">Edit</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-700/50">
               {filteredRows.map((row) => {
-                const isEditing = row.type === 'building' && editingBuilding === row.id;
-                const indentPx = row.depth * 24;
+                const isEditing = editingBuilding === row.buildingId;
 
                 return (
                   <tr
-                    key={`${row.type}-${row.id}`}
-                    className={`hover:bg-gray-700/30 transition ${
-                      row.type === 'site' ? 'bg-gray-800/50' :
-                      row.type === 'campus' ? 'bg-gray-800/30' : ''
-                    }`}
+                    key={row.buildingId}
+                    className="hover:bg-gray-700/30 transition"
                   >
-                    <td className="px-3 py-2 text-gray-500 text-xs">{row.rowNum}</td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-1.5 text-gray-500 text-xs">{row.rowNum}</td>
+                    <td className="px-2 py-1.5">
                       <span className="text-orange-500 font-medium text-xs">{row.ticker}</span>
                     </td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center" style={{ paddingLeft: `${indentPx}px` }}>
-                        {row.hasChildren && (
-                          <button
-                            onClick={() => row.type === 'site' ? toggleSite(row.id) : toggleCampus(row.id)}
-                            className="mr-2 p-0.5 hover:bg-gray-600 rounded"
-                          >
-                            {(row.type === 'site' ? expandedSites.has(row.id) : expandedCampuses.has(row.id)) ? (
-                              <ChevronDown className="h-4 w-4 text-gray-400" />
-                            ) : (
-                              <ChevronRight className="h-4 w-4 text-gray-400" />
-                            )}
-                          </button>
-                        )}
-                        {!row.hasChildren && <span className="w-5 mr-2" />}
-
-                        {row.type === 'site' && <MapPin className="h-4 w-4 mr-2 text-orange-500" />}
-                        {row.type === 'campus' && <Layers className="h-4 w-4 mr-2 text-blue-400" />}
-                        {row.type === 'building' && <Box className="h-4 w-4 mr-2 text-gray-400" />}
-
-                        <div className="flex flex-col">
-                          <span className={`${row.type === 'site' ? 'text-gray-200 font-medium' : row.type === 'campus' ? 'text-gray-300' : 'text-gray-400'}`}>
-                            {row.name}
-                          </span>
-                          {row.type === 'site' && row.location && (
-                            <span className="text-xs text-gray-500">{row.location}</span>
-                          )}
-                        </div>
-                      </div>
+                    <td className="px-2 py-1.5 text-gray-400 text-xs truncate max-w-[140px]" title={row.companyName}>
+                      {row.companyName}
                     </td>
-                    <td className="px-3 py-2">
-                      {row.type === 'building' && row.phase && (
-                        isEditing ? (
-                          <select
-                            value={editFormData.developmentPhase || ''}
-                            onChange={(e) => setEditFormData({ ...editFormData, developmentPhase: e.target.value })}
-                            className="bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs"
-                          >
-                            {Object.entries(phaseConfig).map(([k, v]) => (
-                              <option key={k} value={k}>{v.label}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className={`text-xs px-2 py-0.5 rounded-full border ${phaseConfig[row.phase]?.color || 'bg-gray-700 text-gray-400'}`}>
-                            {phaseConfig[row.phase]?.label || row.phase}
-                          </span>
-                        )
-                      )}
+                    <td className="px-2 py-1.5 text-gray-300 text-xs truncate" title={`${row.siteName} / ${row.campusName}`}>
+                      {row.siteName}
                     </td>
-                    <td className="px-3 py-2">
-                      {row.type === 'building' && row.useType && (
-                        <span className={`text-xs px-2 py-0.5 rounded-full border ${useTypeConfig[row.useType]?.color || 'bg-gray-700 text-gray-400'}`}>
-                          {useTypeConfig[row.useType]?.label || row.useType}
+                    <td className="px-2 py-1.5 text-gray-200 text-xs">
+                      {row.buildingName}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      {isEditing ? (
+                        <select
+                          value={editFormData.developmentPhase || ''}
+                          onChange={(e) => setEditFormData({ ...editFormData, developmentPhase: e.target.value })}
+                          className="bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs w-full"
+                        >
+                          {Object.entries(phaseConfig).map(([k, v]) => (
+                            <option key={k} value={k}>{v.label}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full border ${phaseConfig[row.phase]?.color || 'bg-gray-700 text-gray-400'}`}>
+                          {phaseConfig[row.phase]?.label || row.phase}
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-gray-400 text-xs truncate max-w-[120px]" title={row.tenant}>
+                    <td className="px-2 py-1.5">
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full border ${useTypeConfig[row.useType]?.color || 'bg-gray-700 text-gray-400'}`}>
+                        {useTypeConfig[row.useType]?.label || row.useType}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5 text-gray-400 text-xs truncate max-w-[110px]" title={row.tenant || ''}>
                       {row.tenant || '-'}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono">
+                    <td className="px-2 py-1.5 text-right font-mono">
                       {isEditing ? (
                         <input
                           type="number"
                           value={editFormData.grossMw || ''}
                           onChange={(e) => setEditFormData({ ...editFormData, grossMw: e.target.value })}
-                          className="w-16 bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs text-right"
+                          className="w-14 bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs text-right"
                         />
-                      ) : row.grossMw ? (
-                        <span className="text-gray-300">{Math.round(row.grossMw)}</span>
+                      ) : row.grossMw !== null ? (
+                        <span className="text-gray-300 text-xs">{Math.round(row.grossMw)}</span>
                       ) : (
-                        <span className="text-gray-600">-</span>
+                        <span className="text-gray-600 text-xs">-</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono">
-                      {row.type === 'building' && (
-                        isEditing ? (
-                          <input
-                            type="number"
-                            placeholder={`${Math.round((phaseConfig[editFormData.developmentPhase]?.prob || 0.5) * 100)}%`}
-                            value={editFormData.probabilityOverride || ''}
-                            onChange={(e) => setEditFormData({ ...editFormData, probabilityOverride: e.target.value })}
-                            className="w-16 bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 text-xs text-right"
-                          />
-                        ) : (
-                          <span className={row.probabilityOverride !== null ? 'text-orange-400' : 'text-gray-400'}>
-                            {Math.round((row.probability || 0) * 100)}%
-                          </span>
-                        )
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono">
-                      {row.type === 'building' && (
-                        isEditing ? (
-                          <input
-                            type="number"
-                            placeholder="100"
-                            value={editFormData.regulatoryRisk || '100'}
-                            onChange={(e) => setEditFormData({ ...editFormData, regulatoryRisk: e.target.value })}
-                            className="w-16 bg-gray-700 border border-red-600/50 text-white rounded px-2 py-1 text-xs text-right"
-                            min="0"
-                            max="100"
-                          />
-                        ) : (
-                          <span className={(row.regulatoryRisk || 1) < 1 ? 'text-red-400' : 'text-gray-500'}>
-                            {Math.round((row.regulatoryRisk || 1) * 100)}%
-                          </span>
-                        )
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono">
-                      {row.type === 'building' && row.noiAnnualM ? (
-                        <span className="text-green-400">{formatMoney(row.noiAnnualM)}</span>
+                    <td className="px-2 py-1.5 text-right font-mono">
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          placeholder={`${Math.round((phaseConfig[editFormData.developmentPhase]?.prob || 0.5) * 100)}`}
+                          value={editFormData.probabilityOverride || ''}
+                          onChange={(e) => setEditFormData({ ...editFormData, probabilityOverride: e.target.value })}
+                          className="w-14 bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs text-right"
+                        />
                       ) : (
-                        <span className="text-gray-600">-</span>
+                        <span className={`text-xs ${row.probabilityOverride !== null ? 'text-orange-400' : 'text-gray-400'}`}>
+                          {Math.round(row.probability * 100)}%
+                        </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right text-xs text-gray-400">
-                      {row.type === 'building' ? formatDate(row.energizationDate) : '-'}
+                    <td className="px-2 py-1.5 text-right font-mono">
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          placeholder="100"
+                          value={editFormData.regulatoryRisk || '100'}
+                          onChange={(e) => setEditFormData({ ...editFormData, regulatoryRisk: e.target.value })}
+                          className="w-14 bg-gray-700 border border-red-600/50 text-white rounded px-1 py-0.5 text-xs text-right"
+                          min="0"
+                          max="100"
+                        />
+                      ) : (
+                        <span className={`text-xs ${row.regulatoryRisk < 1 ? 'text-red-400' : 'text-gray-500'}`}>
+                          {Math.round(row.regulatoryRisk * 100)}%
+                        </span>
+                      )}
                     </td>
-                    <td className="px-3 py-2 text-center">
+                    <td className="px-2 py-1.5 text-right font-mono">
+                      {row.noiAnnualM !== null ? (
+                        <span className="text-green-400 text-xs">{formatMoney(row.noiAnnualM)}</span>
+                      ) : (
+                        <span className="text-gray-600 text-xs">-</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 text-right text-xs text-gray-400">
+                      {formatDate(row.energizationDate)}
+                    </td>
+                    <td className="px-2 py-1.5 text-center">
                       <div className="flex items-center justify-center gap-1">
                         {isEditing ? (
                           <>
@@ -678,17 +510,15 @@ export default function Projects() {
                           </>
                         ) : (
                           <>
-                            {row.type === 'building' && (
-                              <button
-                                onClick={() => startEditBuilding(row)}
-                                className="p-1 hover:bg-gray-600 rounded"
-                                title="Edit"
-                              >
-                                <Edit2 className="h-3 w-3 text-gray-500" />
-                              </button>
-                            )}
                             <button
-                              onClick={() => setDeleteConfirm({ type: row.type, id: row.id, name: row.name })}
+                              onClick={() => startEditBuilding(row)}
+                              className="p-1 hover:bg-gray-600 rounded"
+                              title="Edit"
+                            >
+                              <Edit2 className="h-3 w-3 text-gray-500" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirm({ id: row.buildingId, name: row.buildingName })}
                               className="p-1 hover:bg-red-900/50 rounded"
                               title="Delete"
                             >
@@ -704,8 +534,8 @@ export default function Projects() {
 
               {filteredRows.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-gray-500">
-                    No projects found. Import data to get started.
+                  <td colSpan={14} className="px-4 py-8 text-center text-gray-500">
+                    No buildings found. Import data to get started.
                   </td>
                 </tr>
               )}
@@ -720,24 +550,14 @@ export default function Projects() {
           <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4">
             <div className="flex items-center gap-3 mb-4">
               <Trash2 className="h-6 w-6 text-red-500" />
-              <h2 className="text-lg font-semibold text-gray-200">Confirm Delete</h2>
+              <h2 className="text-lg font-semibold text-gray-200">Delete Building</h2>
             </div>
             <p className="text-sm text-gray-400 mb-2">
-              Are you sure you want to delete this {deleteConfirm.type}?
+              Are you sure you want to delete this building?
             </p>
             <p className="text-sm text-white font-medium mb-4 p-2 bg-gray-700/50 rounded">
               "{deleteConfirm.name}"
             </p>
-            {deleteConfirm.type === 'site' && (
-              <p className="text-sm text-yellow-400 mb-4">
-                This will also delete all campuses and buildings within this site.
-              </p>
-            )}
-            {deleteConfirm.type === 'campus' && (
-              <p className="text-sm text-yellow-400 mb-4">
-                This will also delete all buildings within this campus.
-              </p>
-            )}
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setDeleteConfirm(null)}
@@ -747,7 +567,7 @@ export default function Projects() {
               </button>
               <button
                 onClick={handleDelete}
-                disabled={deleteBuildingMutation.isPending || deleteCampusMutation.isPending || deleteSiteMutation.isPending}
+                disabled={deleteBuildingMutation.isPending}
                 className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
               >
                 Delete
