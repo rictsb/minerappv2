@@ -12,6 +12,9 @@ import {
   RotateCcw,
   AlertTriangle,
   Settings,
+  Split,
+  Calendar,
+  Trash2,
 } from 'lucide-react';
 
 // Error Boundary
@@ -231,10 +234,14 @@ const formatMultiplier = (value: number): string => {
 function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelProps) {
   const queryClient = useQueryClient();
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    splits: true,
     lease: true,
     valInputs: true,
     factors: true,
   });
+  const [showSplitModal, setShowSplitModal] = useState(false);
+  const [splitType, setSplitType] = useState<'split' | 'transition'>('split');
+  const [newUsePeriod, setNewUsePeriod] = useState<Record<string, any>>({});
 
   // Editable lease details
   const [leaseEdits, setLeaseEdits] = useState<Record<string, any>>({});
@@ -270,6 +277,42 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       queryClient.invalidateQueries({ queryKey: ['companies'] });
       queryClient.invalidateQueries({ queryKey: ['valuation'] });
       setHasChanges(false);
+    },
+  });
+
+  // Create new use period (split or transition)
+  const createUsePeriodMutation = useMutation({
+    mutationFn: async (data: Record<string, any>) => {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/use-periods`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error('Failed to create use period');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['building-valuation', buildingId] });
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      setShowSplitModal(false);
+      setNewUsePeriod({});
+    },
+  });
+
+  // Delete use period
+  const deleteUsePeriodMutation = useMutation({
+    mutationFn: async (usePeriodId: string) => {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/use-periods/${usePeriodId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error('Failed to delete use period');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['building-valuation', buildingId] });
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
     },
   });
 
@@ -537,6 +580,112 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
 
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto">
+        {/* Capacity Allocation Section (Splits & Transitions) */}
+        <div className="border-b border-gray-700">
+          <button
+            onClick={() => toggleSection('splits')}
+            className="w-full flex items-center justify-between p-3 hover:bg-gray-800/50"
+          >
+            <div className="flex items-center gap-2">
+              {expandedSections.splits ? <ChevronDown className="h-4 w-4 text-gray-500" /> : <ChevronRight className="h-4 w-4 text-gray-500" />}
+              <Split className="h-4 w-4 text-purple-500" />
+              <span className="text-sm font-medium text-gray-200">Capacity Allocation</span>
+              {data?.usePeriods && data.usePeriods.length > 1 && (
+                <span className="text-xs bg-purple-900/50 text-purple-400 px-1.5 py-0.5 rounded">
+                  {data.usePeriods.filter((up: any) => up.isCurrent).length} splits
+                </span>
+              )}
+            </div>
+          </button>
+          {expandedSections.splits && (
+            <div className="px-4 pb-4">
+              {/* Capacity Summary */}
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="bg-gray-800/50 rounded p-2 text-center">
+                  <div className="text-[10px] text-gray-500">Total IT MW</div>
+                  <div className="text-sm font-bold text-white">{data?.capacityAllocation?.totalItMw || data?.building?.itMw || 0}</div>
+                </div>
+                <div className="bg-gray-800/50 rounded p-2 text-center">
+                  <div className="text-[10px] text-gray-500">Allocated</div>
+                  <div className="text-sm font-bold text-purple-400">{data?.capacityAllocation?.allocatedMw || 0} MW</div>
+                </div>
+                <div className="bg-gray-800/50 rounded p-2 text-center">
+                  <div className="text-[10px] text-gray-500">Unallocated</div>
+                  <div className="text-sm font-bold text-gray-400">{data?.capacityAllocation?.unallocatedMw || data?.building?.itMw || 0} MW</div>
+                </div>
+              </div>
+
+              {/* Use Periods List */}
+              <div className="space-y-2 mb-3">
+                {(data?.usePeriods || []).map((up: any) => (
+                  <div
+                    key={up.id}
+                    className={`bg-gray-800/30 border rounded p-2 ${up.isCurrent ? 'border-purple-600/50' : 'border-gray-700'}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${up.isCurrent ? 'bg-green-900/50 text-green-400' : 'bg-gray-700 text-gray-400'}`}>
+                          {up.isCurrent ? 'Current' : 'Future'}
+                        </span>
+                        <span className="text-sm font-medium text-white">{up.tenant || 'Uncontracted'}</span>
+                        {up.mwAllocation && (
+                          <span className="text-xs text-purple-400">{up.mwAllocation} MW</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${
+                          up.useType === 'HPC_AI_HOSTING' ? 'bg-purple-900/50 text-purple-400' :
+                          up.useType === 'BTC_MINING' ? 'bg-orange-900/50 text-orange-400' :
+                          'bg-gray-700 text-gray-400'
+                        }`}>
+                          {up.useType === 'HPC_AI_HOSTING' ? 'HPC/AI' : up.useType === 'BTC_MINING' ? 'BTC' : up.useType}
+                        </span>
+                        {(data?.usePeriods || []).length > 1 && (
+                          <button
+                            onClick={() => deleteUsePeriodMutation.mutate(up.id)}
+                            className="p-1 hover:bg-red-900/30 rounded text-red-500/70 hover:text-red-400"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {(up.startDate || up.endDate) && (
+                      <div className="flex items-center gap-1 mt-1 text-[10px] text-gray-500">
+                        <Calendar className="h-3 w-3" />
+                        <span>
+                          {up.startDate ? new Date(up.startDate).toLocaleDateString() : 'Now'}
+                          {' → '}
+                          {up.endDate ? new Date(up.endDate).toLocaleDateString() : 'Ongoing'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setSplitType('split'); setShowSplitModal(true); setNewUsePeriod({ isCurrent: true }); }}
+                  className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-purple-600/20 border border-purple-600/50 text-purple-400 rounded hover:bg-purple-600/30 text-xs"
+                >
+                  <Split className="h-3 w-3" />
+                  Add Split
+                </button>
+                <button
+                  onClick={() => { setSplitType('transition'); setShowSplitModal(true); setNewUsePeriod({ isCurrent: false }); }}
+                  className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-blue-600/20 border border-blue-600/50 text-blue-400 rounded hover:bg-blue-600/30 text-xs"
+                >
+                  <Calendar className="h-3 w-3" />
+                  Plan Transition
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Lease Details Section */}
         <div className="border-b border-gray-700">
           <button
@@ -813,6 +962,164 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
             <Save className="h-4 w-4" />
             {updateMutation.isPending ? 'Saving...' : 'Save All Changes'}
           </button>
+        </div>
+      )}
+
+      {/* Split/Transition Modal */}
+      {showSplitModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60]">
+          <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 max-w-md w-full mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                {splitType === 'split' ? (
+                  <>
+                    <Split className="h-5 w-5 text-purple-500" />
+                    Add Capacity Split
+                  </>
+                ) : (
+                  <>
+                    <Calendar className="h-5 w-5 text-blue-500" />
+                    Plan Transition
+                  </>
+                )}
+              </h3>
+              <button onClick={() => setShowSplitModal(false)} className="p-1 hover:bg-gray-700 rounded">
+                <X className="h-5 w-5 text-gray-400" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">MW Allocation</label>
+                  <input
+                    type="number"
+                    value={newUsePeriod.mwAllocation || ''}
+                    onChange={(e) => setNewUsePeriod({ ...newUsePeriod, mwAllocation: e.target.value })}
+                    placeholder={`Max: ${data?.capacityAllocation?.unallocatedMw || data?.building?.itMw || 0}`}
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Use Type</label>
+                  <select
+                    value={newUsePeriod.useType || 'HPC_AI_HOSTING'}
+                    onChange={(e) => setNewUsePeriod({ ...newUsePeriod, useType: e.target.value })}
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
+                  >
+                    <option value="HPC_AI_HOSTING">HPC/AI Hosting</option>
+                    <option value="BTC_MINING">BTC Mining</option>
+                    <option value="GPU_CLOUD">GPU Cloud</option>
+                    <option value="COLOCATION">Colocation</option>
+                    <option value="UNCONTRACTED">Uncontracted</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Tenant</label>
+                <input
+                  type="text"
+                  value={newUsePeriod.tenant || ''}
+                  onChange={(e) => setNewUsePeriod({ ...newUsePeriod, tenant: e.target.value })}
+                  placeholder="e.g., CoreWeave, Microsoft"
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
+                />
+              </div>
+
+              {splitType === 'transition' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Start Date</label>
+                    <input
+                      type="date"
+                      value={newUsePeriod.startDate || ''}
+                      onChange={(e) => setNewUsePeriod({ ...newUsePeriod, startDate: e.target.value })}
+                      className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">End Date (optional)</label>
+                    <input
+                      type="date"
+                      value={newUsePeriod.endDate || ''}
+                      onChange={(e) => setNewUsePeriod({ ...newUsePeriod, endDate: e.target.value })}
+                      className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Lease Value ($M)</label>
+                  <input
+                    type="number"
+                    value={newUsePeriod.leaseValueM || ''}
+                    onChange={(e) => setNewUsePeriod({ ...newUsePeriod, leaseValueM: e.target.value })}
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Lease Term (years)</label>
+                  <input
+                    type="number"
+                    value={newUsePeriod.leaseYears || ''}
+                    onChange={(e) => setNewUsePeriod({ ...newUsePeriod, leaseYears: e.target.value })}
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">NOI %</label>
+                <input
+                  type="number"
+                  value={newUsePeriod.noiPct || ''}
+                  onChange={(e) => setNewUsePeriod({ ...newUsePeriod, noiPct: e.target.value })}
+                  placeholder="e.g., 85"
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                onClick={() => setShowSplitModal(false)}
+                className="px-4 py-2 text-sm text-gray-400 hover:text-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const payload: Record<string, any> = {
+                    buildingId,
+                    isCurrent: splitType === 'split',
+                    isSplit: splitType === 'split',
+                    useType: newUsePeriod.useType || 'HPC_AI_HOSTING',
+                    tenant: newUsePeriod.tenant || null,
+                    mwAllocation: newUsePeriod.mwAllocation ? parseFloat(newUsePeriod.mwAllocation) : null,
+                    leaseValueM: newUsePeriod.leaseValueM ? parseFloat(newUsePeriod.leaseValueM) : null,
+                    leaseYears: newUsePeriod.leaseYears ? parseFloat(newUsePeriod.leaseYears) : null,
+                    noiPct: newUsePeriod.noiPct ? parseFloat(newUsePeriod.noiPct) / 100 : null,
+                  };
+                  if (splitType === 'transition') {
+                    payload.startDate = newUsePeriod.startDate ? new Date(newUsePeriod.startDate) : null;
+                    payload.endDate = newUsePeriod.endDate ? new Date(newUsePeriod.endDate) : null;
+                  }
+                  createUsePeriodMutation.mutate(payload);
+                }}
+                disabled={createUsePeriodMutation.isPending}
+                className={`px-4 py-2 text-sm text-white rounded ${
+                  splitType === 'split'
+                    ? 'bg-purple-600 hover:bg-purple-700'
+                    : 'bg-blue-600 hover:bg-blue-700'
+                } disabled:opacity-50`}
+              >
+                {createUsePeriodMutation.isPending ? 'Creating...' : splitType === 'split' ? 'Add Split' : 'Plan Transition'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

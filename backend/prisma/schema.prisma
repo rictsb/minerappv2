@@ -152,6 +152,7 @@ model Building {
 }
 
 // UsePeriod = Tracks use over time (BTC Mining → HPC/AI transitions)
+// Supports splits (multiple concurrent periods) and transitions (future periods)
 model UsePeriod {
   id                  String   @id @default(uuid())
   buildingId          String   @map("building_id")
@@ -159,8 +160,11 @@ model UsePeriod {
   // Use Info
   useType             UseType  @default(BTC_MINING)
   startDate           DateTime?
-  endDate             DateTime?  // null = current/active
-  isCurrent           Boolean  @default(true)
+  endDate             DateTime?  // null = ongoing/no end date
+  isCurrent           Boolean  @default(true)  // Active now (computed from dates or manual)
+
+  // Capacity Allocation (for splits)
+  mwAllocation        Decimal? @db.Decimal(10, 2)  // IT MW allocated to this use period
 
   // Lease/Tenant Details (if applicable)
   tenant              String?  @db.VarChar(255)

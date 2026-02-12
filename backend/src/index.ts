@@ -298,17 +298,35 @@ app.get('/api/v1/use-periods', async (req, res) => {
   }
 });
 
+// Get all use periods for a specific building (for splits/transitions view)
+app.get('/api/v1/buildings/:id/use-periods', async (req, res) => {
+  try {
+    const usePeriods = await prisma.usePeriod.findMany({
+      where: { buildingId: req.params.id },
+      orderBy: [{ isCurrent: 'desc' }, { startDate: 'asc' }],
+    });
+    res.json(usePeriods);
+  } catch (error) {
+    console.error('Error fetching building use periods:', error);
+    res.status(500).json({ error: 'Failed to fetch use periods' });
+  }
+});
+
 app.post('/api/v1/use-periods', async (req, res) => {
   try {
-    // If creating a new current use period, mark old ones as not current
-    if (req.body.isCurrent && req.body.buildingId) {
+    const { isSplit, ...data } = req.body;
+
+    // If it's a SPLIT, we want multiple concurrent periods (don't mark others as not current)
+    // If it's a TRANSITION (not a split), mark old periods as ended
+    if (data.isCurrent && data.buildingId && !isSplit) {
       await prisma.usePeriod.updateMany({
-        where: { buildingId: req.body.buildingId, isCurrent: true },
+        where: { buildingId: data.buildingId, isCurrent: true },
         data: { isCurrent: false, endDate: new Date() },
       });
     }
+
     const usePeriod = await prisma.usePeriod.create({
-      data: req.body,
+      data,
     });
     res.json(usePeriod);
   } catch (error) {
@@ -778,7 +796,9 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
             },
           },
         },
-        usePeriods: { where: { isCurrent: true } },
+        usePeriods: {
+          orderBy: [{ isCurrent: 'desc' }, { startDate: 'asc' }],
+        },
       },
     });
 
@@ -803,8 +823,17 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
     }
 
     const mw = Number(building.grossMw) || 0;
-    const currentUse = building.usePeriods[0];
+    const itMw = Number(building.itMw) || 0;
+
+    // Get all current use periods (supports splits)
+    const currentUsePeriods = building.usePeriods.filter((up: any) => up.isCurrent);
+    const allUsePeriods = building.usePeriods;
+    const currentUse = currentUsePeriods[0]; // Primary current use for backward compatibility
     const useType = currentUse?.useType || 'UNCONTRACTED';
+
+    // Calculate total allocated MW across current splits
+    const allocatedMw = currentUsePeriods.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
+    const unallocatedMw = Math.max(0, itMw - allocatedMw);
 
     // Get lease details
     const leaseDetails = {
@@ -1110,7 +1139,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         id: building.id,
         name: building.name,
         grossMw: mw,
-        itMw: Number(building.itMw) || null,
+        itMw,
         pue: Number(building.pue) || null,
         grid: building.grid,
         ownershipStatus: building.ownershipStatus,
@@ -1128,6 +1157,32 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         id: building.campus.id,
         name: building.campus.name,
       },
+      // All use periods for the building (splits + transitions)
+      usePeriods: allUsePeriods.map((up: any) => ({
+        id: up.id,
+        useType: up.useType,
+        tenant: up.tenant,
+        mwAllocation: Number(up.mwAllocation) || null,
+        startDate: up.startDate,
+        endDate: up.endDate,
+        isCurrent: up.isCurrent,
+        leaseStructure: up.leaseStructure,
+        leaseValueM: Number(up.leaseValueM) || null,
+        leaseYears: Number(up.leaseYears) || null,
+        annualRevM: Number(up.annualRevM) || null,
+        noiPct: Number(up.noiPct) || null,
+        noiAnnualM: Number(up.noiAnnualM) || null,
+        leaseStart: up.leaseStart,
+        leaseEnd: up.leaseEnd,
+      })),
+      // Capacity allocation summary
+      capacityAllocation: {
+        totalItMw: itMw,
+        allocatedMw,
+        unallocatedMw,
+        currentSplits: currentUsePeriods.length,
+      },
+      // Primary lease details (backward compatibility)
       leaseDetails,
       remainingLeaseYears,
       factorDetails,
