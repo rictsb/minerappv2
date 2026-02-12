@@ -158,6 +158,7 @@ export default function Projects() {
   const [filterTicker, setFilterTicker] = useState('');
   const [filterPhase, setFilterPhase] = useState('');
   const [filterUseType, setFilterUseType] = useState('');
+  const [filterTenant, setFilterTenant] = useState('');
   const [editingBuilding, setEditingBuilding] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<Record<string, any>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
@@ -262,6 +263,7 @@ export default function Projects() {
 
             const currentUse = building.usePeriods?.[0];
             if (filterUseType && currentUse?.useType !== filterUseType) continue;
+            if (filterTenant && (currentUse?.tenant || '') !== filterTenant) continue;
 
             rowNum++;
             const phase = building.developmentPhase || 'DILIGENCE';
@@ -299,7 +301,7 @@ export default function Projects() {
     }
 
     return rows;
-  }, [companies, filterTicker, filterPhase, filterUseType]);
+  }, [companies, filterTicker, filterPhase, filterUseType, filterTenant]);
 
   // Filter by search term
   const filteredRows = useMemo(() => {
@@ -346,6 +348,22 @@ export default function Projects() {
 
   const uniqueTickers = useMemo(() => {
     return [...new Set(companies?.map(c => c.ticker) || [])].sort();
+  }, [companies]);
+
+  const uniqueTenants = useMemo(() => {
+    if (!companies) return [];
+    const tenants = new Set<string>();
+    for (const company of companies) {
+      for (const site of company.sites || []) {
+        for (const campus of site.campuses || []) {
+          for (const building of campus.buildings || []) {
+            const tenant = building.usePeriods?.[0]?.tenant;
+            if (tenant) tenants.add(tenant);
+          }
+        }
+      }
+    }
+    return [...tenants].sort();
   }, [companies]);
 
   const handleSort = (key: SortKey) => {
@@ -511,6 +529,15 @@ export default function Projects() {
               <option value="BTC_MINING">BTC Mining</option>
               <option value="HPC_AI_HOSTING">HPC/AI</option>
               <option value="GPU_CLOUD">GPU Cloud</option>
+            </select>
+
+            <select
+              value={filterTenant}
+              onChange={(e) => setFilterTenant(e.target.value)}
+              className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="">All Tenants</option>
+              {uniqueTenants.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
         </div>
