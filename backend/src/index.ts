@@ -879,12 +879,17 @@ app.get('/api/v1/valuation', async (req, res) => {
 
       // Mining EV is now calculated from the Mining Valuations table (done above)
       const totalEv = evMining + evHpcContracted + evHpcPipeline;
-      const fairValue = netLiquid + totalEv;
+      const totalValueM = netLiquid + totalEv;
+
+      // Get FD shares from Company table and calculate per-share fair value
+      const fdSharesM = Number(company.fdSharesM) || 0;
+      const fairValuePerShare = fdSharesM > 0 ? totalValueM / fdSharesM : null;
 
       return {
         ticker: company.ticker,
         name: company.name,
         stockPrice: Number(company.stockPrice) || null,
+        fdSharesM: fdSharesM > 0 ? Math.round(fdSharesM * 10) / 10 : null,
         netLiquid: Math.round(netLiquid * 10) / 10,
         totalMw: Math.round(totalItMw),  // Total IT MW capacity from Projects
         evMining: Math.round(evMining),
@@ -892,7 +897,8 @@ app.get('/api/v1/valuation', async (req, res) => {
         evHpcPipeline: Math.round(evHpcPipeline),
         evGpu: 0, // Placeholder for GPU cloud revenue-based valuation
         totalEv: Math.round(totalEv),
-        fairValue: Math.round(fairValue),
+        totalValueM: Math.round(totalValueM),
+        fairValuePerShare: fairValuePerShare !== null ? Math.round(fairValuePerShare * 100) / 100 : null,
       };
     });
 

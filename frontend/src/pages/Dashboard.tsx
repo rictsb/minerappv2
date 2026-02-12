@@ -15,6 +15,7 @@ interface Valuation {
   ticker: string;
   name: string;
   stockPrice: number | null;
+  fdSharesM: number | null;
   netLiquid: number;
   totalMw: number;
   evMining: number;
@@ -22,7 +23,8 @@ interface Valuation {
   evHpcPipeline: number;
   evGpu: number;
   totalEv: number;
-  fairValue: number;
+  totalValueM: number;
+  fairValuePerShare: number | null;
 }
 
 interface ValuationResponse {
@@ -190,8 +192,9 @@ export default function Dashboard() {
             </thead>
             <tbody className="divide-y divide-gray-700">
               {valuations.map((v) => {
-                const upside = v.stockPrice && v.stockPrice > 0
-                  ? ((v.fairValue / v.stockPrice) - 1) * 100
+                // Calculate upside: (Fair Value Per Share / Stock Price - 1) * 100
+                const upside = v.stockPrice && v.stockPrice > 0 && v.fairValuePerShare
+                  ? ((v.fairValuePerShare / v.stockPrice) - 1) * 100
                   : null;
 
                 return (
@@ -225,7 +228,7 @@ export default function Dashboard() {
                       {v.evGpu > 0 ? formatNumber(v.evGpu, 0) : '-'}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-orange-500 font-semibold">
-                      {v.fairValue > 0 ? `$${formatNumber(v.fairValue, 0)}M` : '-'}
+                      {v.fairValuePerShare ? formatMoney(v.fairValuePerShare) : '-'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {upside !== null ? (
