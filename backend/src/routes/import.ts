@@ -382,9 +382,26 @@ router.post('/excel', upload.single('file'), async (req: Request, res: Response)
       for (const row of data) {
         const ticker = row['Ticker'];
         const instrument = row['Instrument'];
-        if (!ticker || !instrument || String(ticker).toLowerCase().includes('company ticker')) continue;
+        if (!ticker || !instrument) continue;
+
+        // Skip summary/total rows and header rows
+        const tickerStr = String(ticker).toLowerCase().trim();
+        if (tickerStr.includes('total') ||
+            tickerStr.includes('company ticker') ||
+            tickerStr.includes('sum') ||
+            tickerStr === '' ||
+            tickerStr.includes('header')) continue;
 
         try {
+          // Check if company exists first
+          const company = await prisma.company.findUnique({
+            where: { ticker: String(ticker).trim() },
+          });
+          if (!company) {
+            (results.errors as string[]).push(`Debt skipped: Company '${ticker}' not found`);
+            continue;
+          }
+
           const existingDebt = await prisma.debt.findFirst({
             where: {
               ticker: String(ticker).trim(),
