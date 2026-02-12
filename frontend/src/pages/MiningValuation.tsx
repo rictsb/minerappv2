@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Save, X, Trash2, Edit2, Pickaxe } from 'lucide-react';
+import { Save, X, Trash2, Edit2, Pickaxe, Settings } from 'lucide-react';
 
 function getApiUrl(): string {
   let apiUrl = import.meta.env.VITE_API_URL || '';
@@ -14,32 +14,33 @@ interface MiningValuation {
   id: string;
   ticker: string;
   hashrateEh: string | null;
-  hashrateType: string | null;
-  hashrateNote: string | null;
-  miningEvM: string | null;
-  totalDebtM: string | null;
-  nonMiningDebtAdjM: string | null;
-  miningDebtM: string | null;
-  cashM: string | null;
-  sharesOutstandingM: string | null;
-  fdSharesM: string | null;
-  fdSharesUsedM: string | null;
+  efficiencyJth: string | null;
+  powerCostKwh: string | null;
+  hostedMw: string | null;
+  sourceDate: string | null;
   notes: string | null;
 }
+
+interface Assumptions {
+  dailyRevPerEh: number;
+  ebitdaMultiple: number;
+  poolFeePct: number;
+  hostedMwRate: number;
+}
+
+const defaultAssumptions: Assumptions = {
+  dailyRevPerEh: 29400,
+  ebitdaMultiple: 6,
+  poolFeePct: 0.02,
+  hostedMwRate: 300,
+};
 
 const emptyRow: Partial<MiningValuation> = {
   ticker: '',
   hashrateEh: '',
-  hashrateType: 'Self',
-  hashrateNote: '',
-  miningEvM: '',
-  totalDebtM: '',
-  nonMiningDebtAdjM: '0',
-  miningDebtM: '',
-  cashM: '',
-  sharesOutstandingM: '',
-  fdSharesM: '',
-  fdSharesUsedM: '',
+  efficiencyJth: '',
+  powerCostKwh: '',
+  hostedMw: '0',
   notes: '',
 };
 
@@ -49,6 +50,8 @@ export default function MiningValuation() {
   const [editForm, setEditForm] = useState<Partial<MiningValuation>>({});
   const [showAddForm, setShowAddForm] = useState(false);
   const [newRow, setNewRow] = useState<Partial<MiningValuation>>(emptyRow);
+  const [showAssumptions, setShowAssumptions] = useState(false);
+  const [assumptions, setAssumptions] = useState<Assumptions>(defaultAssumptions);
 
   const { data: valuations = [], isLoading } = useQuery({
     queryKey: ['mining-valuations'],
@@ -90,25 +93,89 @@ export default function MiningValuation() {
     },
   });
 
+  // Calculate derived values for each row
+  const calculatedData = useMemo(() => {
+    return valuations.map((row) => {
+      const eh = parseFloat(row.hashrateEh || '0') || 0;
+      const eff = parseFloat(row.efficiencyJth || '0') || 0;
+      const power = parseFloat(row.powerCostKwh || '0') || 0;
+      const hostedMw = parseFloat(row.hostedMw || '0') || 0;
+
+      // Ann Rev = EH/s × DailyRev/EH × 365 / 1M
+      const annRevM = (eh * assumptions.dailyRevPerEh * 365) / 1_000_000;
+
+      // Ann Power = EH/s × Eff × $/kWh × 8.76 (8760 hrs/yr / 1000)
+      const annPowerM = (eh * eff * power * 8.76);
+
+      // Pool Fees = PoolFee% × Revenue
+      const poolFeesM = assumptions.poolFeePct * annRevM;
+
+      // EBITDA = Rev - Power - Fees
+      const ebitdaM = annRevM - annPowerM - poolFeesM;
+
+      // Margin = EBITDA / Revenue
+      const margin = annRevM > 0 ? ebitdaM / annRevM : 0;
+
+      // Self Mining Val = MAX(0, EBITDA × Multiple)
+      const selfMiningValM = Math.max(0, ebitdaM * assumptions.ebitdaMultiple);
+
+      // Hosted Val = MW × $/MW / 1000 (rate is in $K)
+      const hostedValM = (hostedMw * assumptions.hostedMwRate) / 1000;
+
+      // Total Val = Self Mining + Hosted
+      const totalValM = selfMiningValM + hostedValM;
+
+      return {
+        ...row,
+        annRevM,
+        annPowerM,
+        poolFeesM,
+        ebitdaM,
+        margin,
+        selfMiningValM,
+        hostedValM,
+        totalValM,
+      };
+    });
+  }, [valuations, assumptions]);
+
+  // Calculate totals
+  const totals = useMemo(() => {
+    return calculatedData.reduce(
+      (acc, row) => ({
+        hashrateEh: acc.hashrateEh + (parseFloat(row.hashrateEh || '0') || 0),
+        hostedMw: acc.hostedMw + (parseFloat(row.hostedMw || '0') || 0),
+        annRevM: acc.annRevM + row.annRevM,
+        annPowerM: acc.annPowerM + row.annPowerM,
+        poolFeesM: acc.poolFeesM + row.poolFeesM,
+        ebitdaM: acc.ebitdaM + row.ebitdaM,
+        selfMiningValM: acc.selfMiningValM + row.selfMiningValM,
+        hostedValM: acc.hostedValM + row.hostedValM,
+        totalValM: acc.totalValM + row.totalValM,
+      }),
+      { hashrateEh: 0, hostedMw: 0, annRevM: 0, annPowerM: 0, poolFeesM: 0, ebitdaM: 0, selfMiningValM: 0, hostedValM: 0, totalValM: 0 }
+    );
+  }, [calculatedData]);
+
   const startEdit = (row: MiningValuation) => {
     setEditingTicker(row.ticker);
     setEditForm({ ...row });
   };
 
-  const saveEdit = () => {
-    saveMutation.mutate(editForm);
-  };
-
+  const saveEdit = () => saveMutation.mutate(editForm);
   const saveNew = () => {
     if (!newRow.ticker) return;
     saveMutation.mutate(newRow);
   };
 
-  const formatNumber = (val: string | null, decimals = 2) => {
-    if (!val) return '-';
-    const num = parseFloat(val);
-    if (isNaN(num)) return '-';
-    return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  const formatNum = (val: number | null | undefined, decimals = 2) => {
+    if (val == null || isNaN(val)) return '-';
+    return val.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  };
+
+  const formatPct = (val: number | null | undefined) => {
+    if (val == null || isNaN(val)) return '-';
+    return `${(val * 100).toFixed(1)}%`;
   };
 
   if (isLoading) {
@@ -121,255 +188,160 @@ export default function MiningValuation() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-6">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-full mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <Pickaxe className="h-6 w-6 text-orange-500" />
             <h1 className="text-2xl font-bold">Mining Valuation</h1>
-            <span className="text-sm text-gray-500">EV per EH/s methodology</span>
+            <span className="text-sm text-gray-500">Self-Mining Profitability Model</span>
           </div>
-          <button
-            onClick={() => setShowAddForm(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
-          >
-            <Plus className="h-4 w-4" />
-            Add Company
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowAssumptions(!showAssumptions)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${showAssumptions ? 'bg-orange-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+            >
+              <Settings className="h-4 w-4" />
+              Assumptions
+            </button>
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+            >
+              Add Company
+            </button>
+          </div>
         </div>
+
+        {/* Assumptions Panel */}
+        {showAssumptions && (
+          <div className="bg-gray-800 border border-orange-500/30 rounded-lg p-4 mb-4">
+            <h3 className="text-sm font-medium text-orange-400 mb-3">Global Assumptions</h3>
+            <div className="grid grid-cols-4 gap-4">
+              <div>
+                <label className="text-xs text-gray-400">Daily Rev/EH ($)</label>
+                <input
+                  type="number"
+                  value={assumptions.dailyRevPerEh}
+                  onChange={(e) => setAssumptions({ ...assumptions, dailyRevPerEh: parseFloat(e.target.value) || 0 })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm mt-1"
+                />
+                <p className="text-[10px] text-gray-500 mt-1">~$29.4K @ BTC $97K</p>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400">EBITDA Multiple (x)</label>
+                <input
+                  type="number"
+                  value={assumptions.ebitdaMultiple}
+                  onChange={(e) => setAssumptions({ ...assumptions, ebitdaMultiple: parseFloat(e.target.value) || 0 })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400">Pool Fee %</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={assumptions.poolFeePct}
+                  onChange={(e) => setAssumptions({ ...assumptions, poolFeePct: parseFloat(e.target.value) || 0 })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400">$/MW Hosted ($K)</label>
+                <input
+                  type="number"
+                  value={assumptions.hostedMwRate}
+                  onChange={(e) => setAssumptions({ ...assumptions, hostedMwRate: parseFloat(e.target.value) || 0 })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm mt-1"
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Table */}
         <div className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-900 text-gray-400 text-xs uppercase">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-900 text-gray-400 uppercase">
                 <tr>
-                  <th className="px-3 py-3 text-left">Ticker</th>
-                  <th className="px-3 py-3 text-right">Hashrate (EH/s)</th>
-                  <th className="px-3 py-3 text-left">Type</th>
-                  <th className="px-3 py-3 text-left">Note</th>
-                  <th className="px-3 py-3 text-right">Mining EV ($M)</th>
-                  <th className="px-3 py-3 text-right">Total Debt ($M)</th>
-                  <th className="px-3 py-3 text-right">Mining Debt ($M)</th>
-                  <th className="px-3 py-3 text-right">Cash ($M)</th>
-                  <th className="px-3 py-3 text-right">Shares (M)</th>
-                  <th className="px-3 py-3 text-right">FD Shares (M)</th>
-                  <th className="px-3 py-3 text-center">Actions</th>
+                  <th className="px-2 py-2 text-left">Ticker</th>
+                  <th className="px-2 py-2 text-right bg-blue-900/20">EH/s</th>
+                  <th className="px-2 py-2 text-right bg-blue-900/20">Eff (J/TH)</th>
+                  <th className="px-2 py-2 text-right bg-blue-900/20">$/kWh</th>
+                  <th className="px-2 py-2 text-right">Ann Rev ($M)</th>
+                  <th className="px-2 py-2 text-right">Power ($M)</th>
+                  <th className="px-2 py-2 text-right">Fees ($M)</th>
+                  <th className="px-2 py-2 text-right">EBITDA ($M)</th>
+                  <th className="px-2 py-2 text-right">Margin</th>
+                  <th className="px-2 py-2 text-right text-green-400">Self Val ($M)</th>
+                  <th className="px-2 py-2 text-right bg-purple-900/20">Host MW</th>
+                  <th className="px-2 py-2 text-right text-purple-400">Host Val ($M)</th>
+                  <th className="px-2 py-2 text-right text-yellow-400 font-bold">Total ($M)</th>
+                  <th className="px-2 py-2 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-700">
                 {/* Add new row */}
                 {showAddForm && (
                   <tr className="bg-green-900/20">
-                    <td className="px-3 py-2">
-                      <input
-                        type="text"
-                        value={newRow.ticker || ''}
-                        onChange={(e) => setNewRow({ ...newRow, ticker: e.target.value.toUpperCase() })}
-                        className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs"
-                        placeholder="TICKER"
-                      />
+                    <td className="px-2 py-1">
+                      <input type="text" value={newRow.ticker || ''} onChange={(e) => setNewRow({ ...newRow, ticker: e.target.value.toUpperCase() })} className="w-16 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs" placeholder="TICKER" />
                     </td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        value={newRow.hashrateEh || ''}
-                        onChange={(e) => setNewRow({ ...newRow, hashrateEh: e.target.value })}
-                        className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <select
-                        value={newRow.hashrateType || 'Self'}
-                        onChange={(e) => setNewRow({ ...newRow, hashrateType: e.target.value })}
-                        className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs"
-                      >
-                        <option value="Self">Self</option>
-                        <option value="HUM">HUM</option>
-                        <option value="Estimated">Estimated</option>
-                      </select>
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="text"
-                        value={newRow.hashrateNote || ''}
-                        onChange={(e) => setNewRow({ ...newRow, hashrateNote: e.target.value })}
-                        className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs"
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        value={newRow.miningEvM || ''}
-                        onChange={(e) => setNewRow({ ...newRow, miningEvM: e.target.value })}
-                        className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        value={newRow.totalDebtM || ''}
-                        onChange={(e) => setNewRow({ ...newRow, totalDebtM: e.target.value })}
-                        className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        value={newRow.miningDebtM || ''}
-                        onChange={(e) => setNewRow({ ...newRow, miningDebtM: e.target.value })}
-                        className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        value={newRow.cashM || ''}
-                        onChange={(e) => setNewRow({ ...newRow, cashM: e.target.value })}
-                        className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        value={newRow.sharesOutstandingM || ''}
-                        onChange={(e) => setNewRow({ ...newRow, sharesOutstandingM: e.target.value })}
-                        className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        value={newRow.fdSharesM || ''}
-                        onChange={(e) => setNewRow({ ...newRow, fdSharesM: e.target.value })}
-                        className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                      />
-                    </td>
-                    <td className="px-3 py-2 text-center">
+                    <td className="px-2 py-1"><input type="number" step="0.1" value={newRow.hashrateEh || ''} onChange={(e) => setNewRow({ ...newRow, hashrateEh: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
+                    <td className="px-2 py-1"><input type="number" step="0.1" value={newRow.efficiencyJth || ''} onChange={(e) => setNewRow({ ...newRow, efficiencyJth: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
+                    <td className="px-2 py-1"><input type="number" step="0.001" value={newRow.powerCostKwh || ''} onChange={(e) => setNewRow({ ...newRow, powerCostKwh: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
+                    <td colSpan={5} className="px-2 py-1 text-gray-500 text-center text-[10px]">Auto-calculated</td>
+                    <td className="px-2 py-1"><input type="number" value={newRow.hostedMw || ''} onChange={(e) => setNewRow({ ...newRow, hostedMw: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
+                    <td colSpan={2} className="px-2 py-1 text-gray-500 text-center text-[10px]">Auto</td>
+                    <td className="px-2 py-1 text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <button onClick={saveNew} className="p-1 bg-green-600 rounded hover:bg-green-700">
-                          <Save className="h-3 w-3" />
-                        </button>
-                        <button onClick={() => { setShowAddForm(false); setNewRow(emptyRow); }} className="p-1 bg-gray-600 rounded hover:bg-gray-500">
-                          <X className="h-3 w-3" />
-                        </button>
+                        <button onClick={saveNew} className="p-1 bg-green-600 rounded hover:bg-green-700"><Save className="h-3 w-3" /></button>
+                        <button onClick={() => { setShowAddForm(false); setNewRow(emptyRow); }} className="p-1 bg-gray-600 rounded hover:bg-gray-500"><X className="h-3 w-3" /></button>
                       </div>
                     </td>
                   </tr>
                 )}
 
                 {/* Data rows */}
-                {valuations.map((row) => (
+                {calculatedData.map((row) => (
                   <tr key={row.ticker} className="hover:bg-gray-700/30">
                     {editingTicker === row.ticker ? (
                       <>
-                        <td className="px-3 py-2 font-medium text-orange-400">{row.ticker}</td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            value={editForm.hashrateEh || ''}
-                            onChange={(e) => setEditForm({ ...editForm, hashrateEh: e.target.value })}
-                            className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <select
-                            value={editForm.hashrateType || 'Self'}
-                            onChange={(e) => setEditForm({ ...editForm, hashrateType: e.target.value })}
-                            className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs"
-                          >
-                            <option value="Self">Self</option>
-                            <option value="HUM">HUM</option>
-                            <option value="Estimated">Estimated</option>
-                          </select>
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="text"
-                            value={editForm.hashrateNote || ''}
-                            onChange={(e) => setEditForm({ ...editForm, hashrateNote: e.target.value })}
-                            className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs"
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            value={editForm.miningEvM || ''}
-                            onChange={(e) => setEditForm({ ...editForm, miningEvM: e.target.value })}
-                            className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            value={editForm.totalDebtM || ''}
-                            onChange={(e) => setEditForm({ ...editForm, totalDebtM: e.target.value })}
-                            className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            value={editForm.miningDebtM || ''}
-                            onChange={(e) => setEditForm({ ...editForm, miningDebtM: e.target.value })}
-                            className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            value={editForm.cashM || ''}
-                            onChange={(e) => setEditForm({ ...editForm, cashM: e.target.value })}
-                            className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            value={editForm.sharesOutstandingM || ''}
-                            onChange={(e) => setEditForm({ ...editForm, sharesOutstandingM: e.target.value })}
-                            className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            value={editForm.fdSharesM || ''}
-                            onChange={(e) => setEditForm({ ...editForm, fdSharesM: e.target.value })}
-                            className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-center">
+                        <td className="px-2 py-1 font-medium text-orange-400">{row.ticker}</td>
+                        <td className="px-2 py-1"><input type="number" step="0.1" value={editForm.hashrateEh || ''} onChange={(e) => setEditForm({ ...editForm, hashrateEh: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
+                        <td className="px-2 py-1"><input type="number" step="0.1" value={editForm.efficiencyJth || ''} onChange={(e) => setEditForm({ ...editForm, efficiencyJth: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
+                        <td className="px-2 py-1"><input type="number" step="0.001" value={editForm.powerCostKwh || ''} onChange={(e) => setEditForm({ ...editForm, powerCostKwh: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
+                        <td colSpan={5} className="px-2 py-1 text-gray-500 text-center text-[10px]">Auto-calculated</td>
+                        <td className="px-2 py-1"><input type="number" value={editForm.hostedMw || ''} onChange={(e) => setEditForm({ ...editForm, hostedMw: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
+                        <td colSpan={2} className="px-2 py-1 text-gray-500 text-center text-[10px]">Auto</td>
+                        <td className="px-2 py-1 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <button onClick={saveEdit} className="p-1 bg-green-600 rounded hover:bg-green-700">
-                              <Save className="h-3 w-3" />
-                            </button>
-                            <button onClick={() => setEditingTicker(null)} className="p-1 bg-gray-600 rounded hover:bg-gray-500">
-                              <X className="h-3 w-3" />
-                            </button>
+                            <button onClick={saveEdit} className="p-1 bg-green-600 rounded hover:bg-green-700"><Save className="h-3 w-3" /></button>
+                            <button onClick={() => setEditingTicker(null)} className="p-1 bg-gray-600 rounded hover:bg-gray-500"><X className="h-3 w-3" /></button>
                           </div>
                         </td>
                       </>
                     ) : (
                       <>
-                        <td className="px-3 py-2 font-medium text-orange-400">{row.ticker}</td>
-                        <td className="px-3 py-2 text-right font-mono">{formatNumber(row.hashrateEh, 1)}</td>
-                        <td className="px-3 py-2 text-gray-400">{row.hashrateType || '-'}</td>
-                        <td className="px-3 py-2 text-gray-500 text-xs">{row.hashrateNote || '-'}</td>
-                        <td className="px-3 py-2 text-right font-mono text-green-400">${formatNumber(row.miningEvM)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-red-400">${formatNumber(row.totalDebtM)}</td>
-                        <td className="px-3 py-2 text-right font-mono">${formatNumber(row.miningDebtM)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-blue-400">${formatNumber(row.cashM)}</td>
-                        <td className="px-3 py-2 text-right font-mono">{formatNumber(row.sharesOutstandingM, 1)}</td>
-                        <td className="px-3 py-2 text-right font-mono">{formatNumber(row.fdSharesM, 1)}</td>
-                        <td className="px-3 py-2 text-center">
+                        <td className="px-2 py-1 font-medium text-orange-400">{row.ticker}</td>
+                        <td className="px-2 py-1 text-right font-mono text-blue-300">{formatNum(parseFloat(row.hashrateEh || '0'), 1)}</td>
+                        <td className="px-2 py-1 text-right font-mono text-blue-300">{formatNum(parseFloat(row.efficiencyJth || '0'), 1)}</td>
+                        <td className="px-2 py-1 text-right font-mono text-blue-300">${formatNum(parseFloat(row.powerCostKwh || '0'), 3)}</td>
+                        <td className="px-2 py-1 text-right font-mono">${formatNum(row.annRevM, 1)}</td>
+                        <td className="px-2 py-1 text-right font-mono text-red-400">${formatNum(row.annPowerM, 1)}</td>
+                        <td className="px-2 py-1 text-right font-mono text-red-400">${formatNum(row.poolFeesM, 1)}</td>
+                        <td className={`px-2 py-1 text-right font-mono ${row.ebitdaM >= 0 ? 'text-green-400' : 'text-red-400'}`}>${formatNum(row.ebitdaM, 1)}</td>
+                        <td className={`px-2 py-1 text-right font-mono ${row.margin >= 0 ? 'text-gray-400' : 'text-red-400'}`}>{formatPct(row.margin)}</td>
+                        <td className="px-2 py-1 text-right font-mono text-green-400">${formatNum(row.selfMiningValM, 1)}</td>
+                        <td className="px-2 py-1 text-right font-mono text-purple-300">{formatNum(parseFloat(row.hostedMw || '0'), 0)}</td>
+                        <td className="px-2 py-1 text-right font-mono text-purple-400">${formatNum(row.hostedValM, 1)}</td>
+                        <td className="px-2 py-1 text-right font-mono text-yellow-400 font-bold">${formatNum(row.totalValM, 1)}</td>
+                        <td className="px-2 py-1 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <button onClick={() => startEdit(row)} className="p-1 hover:bg-gray-600 rounded">
-                              <Edit2 className="h-3 w-3 text-gray-500" />
-                            </button>
-                            <button onClick={() => deleteMutation.mutate(row.ticker)} className="p-1 hover:bg-red-900/50 rounded">
-                              <Trash2 className="h-3 w-3 text-red-500/70" />
-                            </button>
+                            <button onClick={() => startEdit(row)} className="p-1 hover:bg-gray-600 rounded"><Edit2 className="h-3 w-3 text-gray-500" /></button>
+                            <button onClick={() => deleteMutation.mutate(row.ticker)} className="p-1 hover:bg-red-900/50 rounded"><Trash2 className="h-3 w-3 text-red-500/70" /></button>
                           </div>
                         </td>
                       </>
@@ -377,9 +349,29 @@ export default function MiningValuation() {
                   </tr>
                 ))}
 
+                {/* Totals row */}
+                {calculatedData.length > 0 && (
+                  <tr className="bg-gray-900 font-bold border-t-2 border-orange-500">
+                    <td className="px-2 py-2 text-orange-400">TOTAL</td>
+                    <td className="px-2 py-2 text-right font-mono">{formatNum(totals.hashrateEh, 1)}</td>
+                    <td className="px-2 py-2"></td>
+                    <td className="px-2 py-2"></td>
+                    <td className="px-2 py-2 text-right font-mono">${formatNum(totals.annRevM, 0)}</td>
+                    <td className="px-2 py-2 text-right font-mono text-red-400">${formatNum(totals.annPowerM, 0)}</td>
+                    <td className="px-2 py-2 text-right font-mono text-red-400">${formatNum(totals.poolFeesM, 0)}</td>
+                    <td className="px-2 py-2 text-right font-mono text-green-400">${formatNum(totals.ebitdaM, 0)}</td>
+                    <td className="px-2 py-2"></td>
+                    <td className="px-2 py-2 text-right font-mono text-green-400">${formatNum(totals.selfMiningValM, 0)}</td>
+                    <td className="px-2 py-2 text-right font-mono">{formatNum(totals.hostedMw, 0)}</td>
+                    <td className="px-2 py-2 text-right font-mono text-purple-400">${formatNum(totals.hostedValM, 0)}</td>
+                    <td className="px-2 py-2 text-right font-mono text-yellow-400">${formatNum(totals.totalValM, 0)}</td>
+                    <td className="px-2 py-2"></td>
+                  </tr>
+                )}
+
                 {valuations.length === 0 && !showAddForm && (
                   <tr>
-                    <td colSpan={11} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={14} className="px-4 py-8 text-center text-gray-500">
                       No mining valuations yet. Click "Add Company" to get started.
                     </td>
                   </tr>
@@ -387,6 +379,14 @@ export default function MiningValuation() {
               </tbody>
             </table>
           </div>
+        </div>
+
+        {/* Legend */}
+        <div className="mt-4 text-[10px] text-gray-500 flex gap-6">
+          <span><span className="text-blue-300">Blue</span> = Input fields</span>
+          <span><span className="text-green-400">Green</span> = Self-mining value</span>
+          <span><span className="text-purple-400">Purple</span> = Hosted value</span>
+          <span><span className="text-yellow-400">Yellow</span> = Total valuation</span>
         </div>
       </div>
     </div>

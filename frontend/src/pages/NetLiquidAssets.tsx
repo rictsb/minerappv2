@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Save, X, Trash2, Edit2, Wallet } from 'lucide-react';
+import { Save, X, Trash2, Edit2, Wallet, Settings } from 'lucide-react';
 
 function getApiUrl(): string {
   let apiUrl = import.meta.env.VITE_API_URL || '';
@@ -13,27 +13,30 @@ function getApiUrl(): string {
 interface NetLiquidAsset {
   id: string;
   ticker: string;
-  mcapM: string | null;
-  btcHoldings: string | null;
-  ethHoldings: string | null;
-  totalHodlM: string | null;
-  hodlMcapRatio: string | null;
-  cashEquivM: string | null;
-  hodlPlusCashM: string | null;
-  hodlCashMcapRatio: string | null;
+  cashM: string | null;
+  btcCount: string | null;
+  ethCount: string | null;
+  totalDebtM: string | null;
+  sourceDate: string | null;
   notes: string | null;
 }
 
+interface Assumptions {
+  btcPrice: number;
+  ethPrice: number;
+}
+
+const defaultAssumptions: Assumptions = {
+  btcPrice: 69000,
+  ethPrice: 2010,
+};
+
 const emptyRow: Partial<NetLiquidAsset> = {
   ticker: '',
-  mcapM: '',
-  btcHoldings: '',
-  ethHoldings: '0',
-  totalHodlM: '',
-  hodlMcapRatio: '',
-  cashEquivM: '',
-  hodlPlusCashM: '',
-  hodlCashMcapRatio: '',
+  cashM: '',
+  btcCount: '',
+  ethCount: '0',
+  totalDebtM: '',
   notes: '',
 };
 
@@ -43,6 +46,8 @@ export default function NetLiquidAssets() {
   const [editForm, setEditForm] = useState<Partial<NetLiquidAsset>>({});
   const [showAddForm, setShowAddForm] = useState(false);
   const [newRow, setNewRow] = useState<Partial<NetLiquidAsset>>(emptyRow);
+  const [showAssumptions, setShowAssumptions] = useState(false);
+  const [assumptions, setAssumptions] = useState<Assumptions>(defaultAssumptions);
 
   const { data: assets = [], isLoading } = useQuery({
     queryKey: ['net-liquid-assets'],
@@ -84,39 +89,69 @@ export default function NetLiquidAssets() {
     },
   });
 
+  // Calculate derived values for each row
+  const calculatedData = useMemo(() => {
+    return assets.map((row) => {
+      const cash = parseFloat(row.cashM || '0') || 0;
+      const btcCount = parseFloat(row.btcCount || '0') || 0;
+      const ethCount = parseFloat(row.ethCount || '0') || 0;
+      const totalDebt = parseFloat(row.totalDebtM || '0') || 0;
+
+      // BTC Value = BTC_Count × BTC Price / 1M
+      const btcValueM = (btcCount * assumptions.btcPrice) / 1_000_000;
+
+      // ETH Value = ETH_Count × ETH Price / 1M
+      const ethValueM = (ethCount * assumptions.ethPrice) / 1_000_000;
+
+      // Total Liquid = Cash + BTC + ETH
+      const totalLiquidM = cash + btcValueM + ethValueM;
+
+      // Net Liquid = Total Liquid − Total Debt
+      const netLiquidM = totalLiquidM - totalDebt;
+
+      return {
+        ...row,
+        btcValueM,
+        ethValueM,
+        totalLiquidM,
+        netLiquidM,
+      };
+    });
+  }, [assets, assumptions]);
+
+  // Calculate totals
+  const totals = useMemo(() => {
+    return calculatedData.reduce(
+      (acc, row) => ({
+        cashM: acc.cashM + (parseFloat(row.cashM || '0') || 0),
+        btcCount: acc.btcCount + (parseFloat(row.btcCount || '0') || 0),
+        btcValueM: acc.btcValueM + row.btcValueM,
+        ethCount: acc.ethCount + (parseFloat(row.ethCount || '0') || 0),
+        ethValueM: acc.ethValueM + row.ethValueM,
+        totalLiquidM: acc.totalLiquidM + row.totalLiquidM,
+        totalDebtM: acc.totalDebtM + (parseFloat(row.totalDebtM || '0') || 0),
+        netLiquidM: acc.netLiquidM + row.netLiquidM,
+      }),
+      { cashM: 0, btcCount: 0, btcValueM: 0, ethCount: 0, ethValueM: 0, totalLiquidM: 0, totalDebtM: 0, netLiquidM: 0 }
+    );
+  }, [calculatedData]);
+
   const startEdit = (row: NetLiquidAsset) => {
     setEditingTicker(row.ticker);
     setEditForm({ ...row });
   };
 
-  const saveEdit = () => {
-    saveMutation.mutate(editForm);
-  };
-
+  const saveEdit = () => saveMutation.mutate(editForm);
   const saveNew = () => {
     if (!newRow.ticker) return;
     saveMutation.mutate(newRow);
   };
 
-  const formatNumber = (val: string | null, decimals = 2) => {
-    if (!val) return '-';
-    const num = parseFloat(val);
+  const formatNum = (val: number | string | null | undefined, decimals = 0) => {
+    if (val == null) return '-';
+    const num = typeof val === 'string' ? parseFloat(val) : val;
     if (isNaN(num)) return '-';
     return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-  };
-
-  const formatBtc = (val: string | null) => {
-    if (!val) return '-';
-    const num = parseFloat(val);
-    if (isNaN(num)) return '-';
-    return num.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  };
-
-  const formatPercent = (val: string | null) => {
-    if (!val) return '-';
-    const num = parseFloat(val);
-    if (isNaN(num)) return '-';
-    return `${(num * 100).toFixed(1)}%`;
   };
 
   if (isLoading) {
@@ -131,20 +166,55 @@ export default function NetLiquidAssets() {
     <div className="min-h-screen bg-gray-900 text-white p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <Wallet className="h-6 w-6 text-blue-500" />
             <h1 className="text-2xl font-bold">Net Liquid Assets</h1>
-            <span className="text-sm text-gray-500">BTC/ETH Holdings + Cash</span>
+            <span className="text-sm text-gray-500">Cash + Crypto Holdings - Debt</span>
           </div>
-          <button
-            onClick={() => setShowAddForm(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            <Plus className="h-4 w-4" />
-            Add Company
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowAssumptions(!showAssumptions)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${showAssumptions ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+            >
+              <Settings className="h-4 w-4" />
+              Assumptions
+            </button>
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Add Company
+            </button>
+          </div>
         </div>
+
+        {/* Assumptions Panel */}
+        {showAssumptions && (
+          <div className="bg-gray-800 border border-blue-500/30 rounded-lg p-4 mb-4">
+            <h3 className="text-sm font-medium text-blue-400 mb-3">Price Assumptions</h3>
+            <div className="grid grid-cols-2 gap-4 max-w-md">
+              <div>
+                <label className="text-xs text-gray-400">BTC Price ($)</label>
+                <input
+                  type="number"
+                  value={assumptions.btcPrice}
+                  onChange={(e) => setAssumptions({ ...assumptions, btcPrice: parseFloat(e.target.value) || 0 })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400">ETH Price ($)</label>
+                <input
+                  type="number"
+                  value={assumptions.ethPrice}
+                  onChange={(e) => setAssumptions({ ...assumptions, ethPrice: parseFloat(e.target.value) || 0 })}
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm mt-1"
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Table */}
         <div className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
@@ -153,14 +223,14 @@ export default function NetLiquidAssets() {
               <thead className="bg-gray-900 text-gray-400 text-xs uppercase">
                 <tr>
                   <th className="px-3 py-3 text-left">Ticker</th>
-                  <th className="px-3 py-3 text-right">MCAP ($M)</th>
-                  <th className="px-3 py-3 text-right">BTC Holdings</th>
-                  <th className="px-3 py-3 text-right">ETH Holdings</th>
-                  <th className="px-3 py-3 text-right">Total HODL ($M)</th>
-                  <th className="px-3 py-3 text-right">HODL/MCAP</th>
-                  <th className="px-3 py-3 text-right">Cash ($M)</th>
-                  <th className="px-3 py-3 text-right">HODL+Cash ($M)</th>
-                  <th className="px-3 py-3 text-right">(H+C)/MCAP</th>
+                  <th className="px-3 py-3 text-right bg-blue-900/20">Cash ($M)</th>
+                  <th className="px-3 py-3 text-right bg-orange-900/20">BTC Count</th>
+                  <th className="px-3 py-3 text-right">BTC Value ($M)</th>
+                  <th className="px-3 py-3 text-right bg-purple-900/20">ETH Count</th>
+                  <th className="px-3 py-3 text-right">ETH Value ($M)</th>
+                  <th className="px-3 py-3 text-right text-cyan-400">Total Liquid ($M)</th>
+                  <th className="px-3 py-3 text-right bg-red-900/20">Total Debt ($M)</th>
+                  <th className="px-3 py-3 text-right text-yellow-400 font-bold">Net Liquid ($M)</th>
                   <th className="px-3 py-3 text-center">Actions</th>
                 </tr>
               </thead>
@@ -169,155 +239,103 @@ export default function NetLiquidAssets() {
                 {showAddForm && (
                   <tr className="bg-blue-900/20">
                     <td className="px-3 py-2">
-                      <input
-                        type="text"
-                        value={newRow.ticker || ''}
-                        onChange={(e) => setNewRow({ ...newRow, ticker: e.target.value.toUpperCase() })}
-                        className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs"
-                        placeholder="TICKER"
-                      />
+                      <input type="text" value={newRow.ticker || ''} onChange={(e) => setNewRow({ ...newRow, ticker: e.target.value.toUpperCase() })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs" placeholder="TICKER" />
                     </td>
                     <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        value={newRow.mcapM || ''}
-                        onChange={(e) => setNewRow({ ...newRow, mcapM: e.target.value })}
-                        className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                      />
+                      <input type="number" value={newRow.cashM || ''} onChange={(e) => setNewRow({ ...newRow, cashM: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
                     </td>
                     <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        value={newRow.btcHoldings || ''}
-                        onChange={(e) => setNewRow({ ...newRow, btcHoldings: e.target.value })}
-                        className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                      />
+                      <input type="number" value={newRow.btcCount || ''} onChange={(e) => setNewRow({ ...newRow, btcCount: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
                     </td>
+                    <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
                     <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        value={newRow.ethHoldings || ''}
-                        onChange={(e) => setNewRow({ ...newRow, ethHoldings: e.target.value })}
-                        className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                      />
+                      <input type="number" value={newRow.ethCount || ''} onChange={(e) => setNewRow({ ...newRow, ethCount: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
                     </td>
+                    <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
+                    <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
                     <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        value={newRow.totalHodlM || ''}
-                        onChange={(e) => setNewRow({ ...newRow, totalHodlM: e.target.value })}
-                        className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                      />
+                      <input type="number" value={newRow.totalDebtM || ''} onChange={(e) => setNewRow({ ...newRow, totalDebtM: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
                     </td>
-                    <td className="px-3 py-2 text-gray-500 text-center">-</td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        value={newRow.cashEquivM || ''}
-                        onChange={(e) => setNewRow({ ...newRow, cashEquivM: e.target.value })}
-                        className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                      />
-                    </td>
-                    <td className="px-3 py-2 text-gray-500 text-center">-</td>
-                    <td className="px-3 py-2 text-gray-500 text-center">-</td>
+                    <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
                     <td className="px-3 py-2 text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <button onClick={saveNew} className="p-1 bg-green-600 rounded hover:bg-green-700">
-                          <Save className="h-3 w-3" />
-                        </button>
-                        <button onClick={() => { setShowAddForm(false); setNewRow(emptyRow); }} className="p-1 bg-gray-600 rounded hover:bg-gray-500">
-                          <X className="h-3 w-3" />
-                        </button>
+                        <button onClick={saveNew} className="p-1 bg-green-600 rounded hover:bg-green-700"><Save className="h-3 w-3" /></button>
+                        <button onClick={() => { setShowAddForm(false); setNewRow(emptyRow); }} className="p-1 bg-gray-600 rounded hover:bg-gray-500"><X className="h-3 w-3" /></button>
                       </div>
                     </td>
                   </tr>
                 )}
 
                 {/* Data rows */}
-                {assets.map((row) => (
+                {calculatedData.map((row) => (
                   <tr key={row.ticker} className="hover:bg-gray-700/30">
                     {editingTicker === row.ticker ? (
                       <>
                         <td className="px-3 py-2 font-medium text-orange-400">{row.ticker}</td>
                         <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            value={editForm.mcapM || ''}
-                            onChange={(e) => setEditForm({ ...editForm, mcapM: e.target.value })}
-                            className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                          />
+                          <input type="number" value={editForm.cashM || ''} onChange={(e) => setEditForm({ ...editForm, cashM: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
                         </td>
                         <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            value={editForm.btcHoldings || ''}
-                            onChange={(e) => setEditForm({ ...editForm, btcHoldings: e.target.value })}
-                            className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                          />
+                          <input type="number" value={editForm.btcCount || ''} onChange={(e) => setEditForm({ ...editForm, btcCount: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
                         </td>
+                        <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
                         <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            value={editForm.ethHoldings || ''}
-                            onChange={(e) => setEditForm({ ...editForm, ethHoldings: e.target.value })}
-                            className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                          />
+                          <input type="number" value={editForm.ethCount || ''} onChange={(e) => setEditForm({ ...editForm, ethCount: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
                         </td>
+                        <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
+                        <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
                         <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            value={editForm.totalHodlM || ''}
-                            onChange={(e) => setEditForm({ ...editForm, totalHodlM: e.target.value })}
-                            className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                          />
+                          <input type="number" value={editForm.totalDebtM || ''} onChange={(e) => setEditForm({ ...editForm, totalDebtM: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
                         </td>
-                        <td className="px-3 py-2 text-gray-500 text-center">-</td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            value={editForm.cashEquivM || ''}
-                            onChange={(e) => setEditForm({ ...editForm, cashEquivM: e.target.value })}
-                            className="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-gray-500 text-center">-</td>
-                        <td className="px-3 py-2 text-gray-500 text-center">-</td>
+                        <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
                         <td className="px-3 py-2 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <button onClick={saveEdit} className="p-1 bg-green-600 rounded hover:bg-green-700">
-                              <Save className="h-3 w-3" />
-                            </button>
-                            <button onClick={() => setEditingTicker(null)} className="p-1 bg-gray-600 rounded hover:bg-gray-500">
-                              <X className="h-3 w-3" />
-                            </button>
+                            <button onClick={saveEdit} className="p-1 bg-green-600 rounded hover:bg-green-700"><Save className="h-3 w-3" /></button>
+                            <button onClick={() => setEditingTicker(null)} className="p-1 bg-gray-600 rounded hover:bg-gray-500"><X className="h-3 w-3" /></button>
                           </div>
                         </td>
                       </>
                     ) : (
                       <>
                         <td className="px-3 py-2 font-medium text-orange-400">{row.ticker}</td>
-                        <td className="px-3 py-2 text-right font-mono">${formatNumber(row.mcapM, 0)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-orange-400">{formatBtc(row.btcHoldings)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-purple-400">{formatBtc(row.ethHoldings)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-yellow-400">${formatNumber(row.totalHodlM, 0)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-gray-400">{formatPercent(row.hodlMcapRatio)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-blue-400">${formatNumber(row.cashEquivM, 0)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-green-400">${formatNumber(row.hodlPlusCashM, 0)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-gray-400">{formatPercent(row.hodlCashMcapRatio)}</td>
+                        <td className="px-3 py-2 text-right font-mono text-blue-300">${formatNum(row.cashM)}</td>
+                        <td className="px-3 py-2 text-right font-mono text-orange-400">{formatNum(row.btcCount)}</td>
+                        <td className="px-3 py-2 text-right font-mono text-orange-300">${formatNum(row.btcValueM, 1)}</td>
+                        <td className="px-3 py-2 text-right font-mono text-purple-400">{formatNum(row.ethCount)}</td>
+                        <td className="px-3 py-2 text-right font-mono text-purple-300">${formatNum(row.ethValueM, 1)}</td>
+                        <td className="px-3 py-2 text-right font-mono text-cyan-400">${formatNum(row.totalLiquidM, 1)}</td>
+                        <td className="px-3 py-2 text-right font-mono text-red-400">${formatNum(row.totalDebtM)}</td>
+                        <td className={`px-3 py-2 text-right font-mono font-bold ${row.netLiquidM >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          ${formatNum(row.netLiquidM, 1)}
+                        </td>
                         <td className="px-3 py-2 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <button onClick={() => startEdit(row)} className="p-1 hover:bg-gray-600 rounded">
-                              <Edit2 className="h-3 w-3 text-gray-500" />
-                            </button>
-                            <button onClick={() => deleteMutation.mutate(row.ticker)} className="p-1 hover:bg-red-900/50 rounded">
-                              <Trash2 className="h-3 w-3 text-red-500/70" />
-                            </button>
+                            <button onClick={() => startEdit(row)} className="p-1 hover:bg-gray-600 rounded"><Edit2 className="h-3 w-3 text-gray-500" /></button>
+                            <button onClick={() => deleteMutation.mutate(row.ticker)} className="p-1 hover:bg-red-900/50 rounded"><Trash2 className="h-3 w-3 text-red-500/70" /></button>
                           </div>
                         </td>
                       </>
                     )}
                   </tr>
                 ))}
+
+                {/* Totals row */}
+                {calculatedData.length > 0 && (
+                  <tr className="bg-gray-900 font-bold border-t-2 border-blue-500">
+                    <td className="px-3 py-3 text-blue-400">TOTAL</td>
+                    <td className="px-3 py-3 text-right font-mono">${formatNum(totals.cashM)}</td>
+                    <td className="px-3 py-3 text-right font-mono text-orange-400">{formatNum(totals.btcCount)}</td>
+                    <td className="px-3 py-3 text-right font-mono text-orange-300">${formatNum(totals.btcValueM, 0)}</td>
+                    <td className="px-3 py-3 text-right font-mono text-purple-400">{formatNum(totals.ethCount)}</td>
+                    <td className="px-3 py-3 text-right font-mono text-purple-300">${formatNum(totals.ethValueM, 0)}</td>
+                    <td className="px-3 py-3 text-right font-mono text-cyan-400">${formatNum(totals.totalLiquidM, 0)}</td>
+                    <td className="px-3 py-3 text-right font-mono text-red-400">${formatNum(totals.totalDebtM)}</td>
+                    <td className={`px-3 py-3 text-right font-mono font-bold ${totals.netLiquidM >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      ${formatNum(totals.netLiquidM, 0)}
+                    </td>
+                    <td className="px-3 py-3"></td>
+                  </tr>
+                )}
 
                 {assets.length === 0 && !showAddForm && (
                   <tr>
@@ -329,6 +347,15 @@ export default function NetLiquidAssets() {
               </tbody>
             </table>
           </div>
+        </div>
+
+        {/* Legend */}
+        <div className="mt-4 text-[10px] text-gray-500 flex gap-6">
+          <span><span className="text-blue-300">Blue</span> = Cash input</span>
+          <span><span className="text-orange-400">Orange</span> = BTC holdings</span>
+          <span><span className="text-purple-400">Purple</span> = ETH holdings</span>
+          <span><span className="text-red-400">Red</span> = Debt</span>
+          <span><span className="text-green-400">Green</span> / <span className="text-red-400">Red</span> = Net Liquid (positive/negative)</span>
         </div>
       </div>
     </div>

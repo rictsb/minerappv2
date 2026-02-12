@@ -1,38 +1,29 @@
--- Create Mining Valuations table
+-- Drop existing tables if they exist (recreate with correct structure)
+DROP TABLE IF EXISTS "mining_valuations";
+DROP TABLE IF EXISTS "net_liquid_assets";
+
+-- Create Mining Valuations table (correct structure from spreadsheet)
 CREATE TABLE IF NOT EXISTS "mining_valuations" (
     "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     "ticker" VARCHAR(10) UNIQUE NOT NULL,
     "hashrateEh" DECIMAL(10,2),
-    "hashrateType" VARCHAR(50),
-    "hashrateNote" TEXT,
-    "miningEvM" DECIMAL(12,2),
-    "totalDebtM" DECIMAL(12,2),
-    "nonMiningDebtAdjM" DECIMAL(12,2),
-    "miningDebtM" DECIMAL(12,2),
-    "cashM" DECIMAL(12,2),
-    "sharesOutstandingM" DECIMAL(12,4),
-    "fdSharesM" DECIMAL(12,4),
-    "fdSharesUsedM" DECIMAL(12,4),
-    "sourceUrl" TEXT,
+    "efficiencyJth" DECIMAL(6,2),
+    "powerCostKwh" DECIMAL(6,4),
+    "hostedMw" DECIMAL(10,2),
     "sourceDate" TIMESTAMP(3),
     "notes" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create Net Liquid Assets table
+-- Create Net Liquid Assets table (correct structure from spreadsheet)
 CREATE TABLE IF NOT EXISTS "net_liquid_assets" (
     "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     "ticker" VARCHAR(10) UNIQUE NOT NULL,
-    "mcapM" DECIMAL(14,2),
-    "btcHoldings" DECIMAL(18,8),
-    "ethHoldings" DECIMAL(18,8),
-    "totalHodlM" DECIMAL(14,2),
-    "hodlMcapRatio" DECIMAL(6,4),
-    "cashEquivM" DECIMAL(12,2),
-    "hodlPlusCashM" DECIMAL(14,2),
-    "hodlCashMcapRatio" DECIMAL(6,4),
-    "sourceUrl" TEXT,
+    "cashM" DECIMAL(12,2),
+    "btcCount" DECIMAL(18,8),
+    "ethCount" DECIMAL(18,8),
+    "totalDebtM" DECIMAL(12,2),
     "sourceDate" TIMESTAMP(3),
     "notes" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
