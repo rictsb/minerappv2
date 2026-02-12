@@ -416,7 +416,13 @@ const DEFAULT_FACTORS: Record<string, any> = {
   btcPrice: 97000,
   ethPrice: 2500,
 
-  // HPC/AI valuation
+  // HPC/AI valuation - Cap Rate Method
+  hpcCapRate: 0.075, // 7.5% cap rate for HPC/AI
+  hpcExitCapRate: 0.080, // 8.0% exit cap rate for terminal value
+  terminalGrowthRate: 0.025, // 2.5% terminal growth rate
+  discountRate: 0.10, // 10% discount rate for DCF
+
+  // Legacy HPC valuation (backup)
   mwValueHpcContracted: 25, // $M per MW for contracted HPC
   mwValueHpcUncontracted: 8, // $M per MW for pipeline/uncontracted
   noiMultiple: 10, // NOI multiple for valuation
@@ -449,6 +455,10 @@ const DEFAULT_FACTORS: Record<string, any> = {
   nnnMult: 1.00,
   modifiedGrossMult: 0.95,
   grossMult: 0.90,
+
+  // Lease renewal assumptions
+  leaseRenewalProbability: 0.85, // 85% probability of renewal
+  renewalTermYears: 10, // Assumed renewal term
 
   // Energization year discount
   energizationDecayRate: 0.15, // 15% annual decay
@@ -741,6 +751,426 @@ app.get('/api/v1/valuation', async (req, res) => {
   } catch (error) {
     console.error('Error calculating valuations:', error);
     res.status(500).json({ error: 'Failed to calculate valuations' });
+  }
+});
+
+// ===========================================
+// BUILDING VALUATION DETAIL API
+// ===========================================
+
+// GET detailed valuation for a single building
+app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
+  try {
+    // Get the building with all related data
+    const building = await prisma.building.findUnique({
+      where: { id: req.params.id },
+      include: {
+        campus: {
+          include: {
+            site: {
+              include: {
+                campuses: {
+                  include: {
+                    buildings: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        usePeriods: { where: { isCurrent: true } },
+      },
+    });
+
+    if (!building) {
+      return res.status(404).json({ error: 'Building not found' });
+    }
+
+    // Get settings or use defaults
+    const settingsRows = await prisma.settings.findMany();
+    const settings: Record<string, any> = {};
+    for (const s of settingsRows) {
+      settings[s.key] = s.value;
+    }
+    const factors = { ...DEFAULT_FACTORS, ...settings };
+
+    // Calculate total site MW for size multiplier
+    let siteTotalMw = 0;
+    for (const campus of building.campus.site.campuses) {
+      for (const b of campus.buildings) {
+        siteTotalMw += Number(b.grossMw) || 0;
+      }
+    }
+
+    const mw = Number(building.grossMw) || 0;
+    const currentUse = building.usePeriods[0];
+    const useType = currentUse?.useType || 'UNCONTRACTED';
+
+    // Get lease details
+    const leaseDetails = {
+      tenant: currentUse?.tenant || null,
+      leaseStructure: (currentUse as any)?.leaseStructure || 'NNN',
+      leaseValueM: Number(currentUse?.leaseValueM) || null,
+      leaseYears: Number(currentUse?.leaseYears) || null,
+      annualRevM: Number(currentUse?.annualRevM) || null,
+      noiPct: Number(currentUse?.noiPct) || null,
+      noiAnnualM: Number(currentUse?.noiAnnualM) || null,
+      leaseStart: currentUse?.leaseStart || null,
+      leaseEnd: (currentUse as any)?.leaseEnd || null,
+    };
+
+    // Calculate remaining lease years
+    let remainingLeaseYears = leaseDetails.leaseYears || 0;
+    if (leaseDetails.leaseStart && leaseDetails.leaseYears) {
+      const startDate = new Date(leaseDetails.leaseStart);
+      const endDate = new Date(startDate);
+      endDate.setFullYear(endDate.getFullYear() + leaseDetails.leaseYears);
+      const now = new Date();
+      remainingLeaseYears = Math.max(0, (endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 365));
+    }
+
+    // Auto-derived factor calculations
+    const getPhaseProbability = (phase: string): number => {
+      const phaseMap: Record<string, string> = {
+        OPERATIONAL: 'probOperational',
+        CONSTRUCTION: 'probConstruction',
+        DEVELOPMENT: 'probDevelopment',
+        EXCLUSIVITY: 'probExclusivity',
+        DILIGENCE: 'probDiligence',
+      };
+      const key = phaseMap[phase];
+      return key ? (factors[key] ?? 0.5) : 0.5;
+    };
+
+    const getSizeMultiplier = (totalMw: number): number => {
+      if (totalMw >= 500) return factors.sizeGte500;
+      if (totalMw >= 250) return factors.size250to499;
+      if (totalMw >= 100) return factors.size100to249;
+      return factors.sizeLt100;
+    };
+
+    const getPowerAuthorityMultiplier = (grid: string | null): number => {
+      if (!grid) return factors.paOther;
+      const gridLower = grid.toLowerCase();
+      if (gridLower.includes('ercot')) return factors.paErcot;
+      if (gridLower.includes('pjm')) return factors.paPjm;
+      if (gridLower.includes('miso')) return factors.paMiso;
+      if (gridLower.includes('nyiso')) return factors.paNyiso;
+      if (gridLower.includes('caiso')) return factors.paCaiso;
+      if (gridLower.includes('canada') || gridLower.includes('hydro')) return factors.paCanada;
+      if (gridLower.includes('norway') || gridLower.includes('nordic')) return factors.paNorway;
+      if (gridLower.includes('uae')) return factors.paUae;
+      return factors.paOther;
+    };
+
+    const getOwnershipMultiplier = (status: string | null): number => {
+      if (!status) return factors.ownedMult;
+      const s = status.toLowerCase();
+      if (s.includes('own') || s.includes('fee')) return factors.ownedMult;
+      if (s.includes('long') || s.includes('ground')) return factors.longtermLeaseMult;
+      return factors.shorttermLeaseMult;
+    };
+
+    const getTierMultiplier = (tier: string | null): number => {
+      if (!tier) return factors.tierIiiMult;
+      if (tier.includes('IV') || tier.includes('4')) return factors.tierIvMult;
+      if (tier.includes('III') || tier.includes('3')) return factors.tierIiiMult;
+      if (tier.includes('II') || tier.includes('2')) return factors.tierIiMult;
+      return factors.tierIMult;
+    };
+
+    const getLeaseStructureMultiplier = (structure: string | null): number => {
+      if (!structure) return factors.nnnMult;
+      const s = structure.toUpperCase();
+      if (s.includes('NNN') || s.includes('TRIPLE')) return factors.nnnMult;
+      if (s.includes('MODIFIED')) return factors.modifiedGrossMult;
+      if (s.includes('GROSS')) return factors.grossMult;
+      return factors.nnnMult;
+    };
+
+    const getTenantCreditMultiplier = (tenant: string | null): number => {
+      if (!tenant) return 1.0;
+      const t = tenant.toLowerCase();
+      const sofrRate = factors.sofrRate;
+      let spread = factors.tcOther;
+
+      if (t.includes('google')) spread = factors.tcGoogle;
+      else if (t.includes('microsoft') || t.includes('azure')) spread = factors.tcMicrosoft;
+      else if (t.includes('amazon') || t.includes('aws')) spread = factors.tcAmazon;
+      else if (t.includes('meta') || t.includes('facebook')) spread = factors.tcMeta;
+      else if (t.includes('oracle')) spread = factors.tcOracle;
+      else if (t.includes('coreweave')) spread = factors.tcCoreweave;
+      else if (t.includes('anthropic')) spread = factors.tcAnthropic;
+      else if (t.includes('openai')) spread = factors.tcOpenai;
+      else if (t.includes('xai')) spread = factors.tcXai;
+
+      return sofrRate / (sofrRate + spread);
+    };
+
+    const getEnergizationMultiplier = (date: Date | null): number => {
+      if (!date) return 1.0;
+      const year = new Date(date).getFullYear();
+      const baseYear = factors.energizationBaseYear;
+      const decayRate = factors.energizationDecayRate;
+      return Math.exp(-decayRate * (year - baseYear));
+    };
+
+    // Build factor details with auto-derived and override values
+    const datacenterTier = (building as any).datacenterTier || 'TIER_III';
+    const fidoodleFactor = Number((building as any).fidoodleFactor) || 1.0;
+
+    const factorDetails = {
+      // Phase & Risk
+      phase: building.developmentPhase,
+      phaseProbability: {
+        auto: getPhaseProbability(building.developmentPhase),
+        override: building.probabilityOverride ? Number(building.probabilityOverride) : null,
+        final: building.probabilityOverride
+          ? Number(building.probabilityOverride)
+          : getPhaseProbability(building.developmentPhase),
+      },
+      regulatoryRisk: {
+        value: Number(building.regulatoryRisk) ?? 1.0,
+      },
+
+      // Size
+      sizeMultiplier: {
+        siteTotalMw,
+        auto: getSizeMultiplier(siteTotalMw),
+        override: (building as any).sizeMultOverride ? Number((building as any).sizeMultOverride) : null,
+        final: (building as any).sizeMultOverride
+          ? Number((building as any).sizeMultOverride)
+          : getSizeMultiplier(siteTotalMw),
+      },
+
+      // Power Authority
+      powerAuthority: {
+        grid: building.grid,
+        auto: getPowerAuthorityMultiplier(building.grid),
+        override: (building as any).powerAuthMultOverride ? Number((building as any).powerAuthMultOverride) : null,
+        final: (building as any).powerAuthMultOverride
+          ? Number((building as any).powerAuthMultOverride)
+          : getPowerAuthorityMultiplier(building.grid),
+      },
+
+      // Ownership
+      ownership: {
+        status: building.ownershipStatus,
+        auto: getOwnershipMultiplier(building.ownershipStatus),
+        override: (building as any).ownershipMultOverride ? Number((building as any).ownershipMultOverride) : null,
+        final: (building as any).ownershipMultOverride
+          ? Number((building as any).ownershipMultOverride)
+          : getOwnershipMultiplier(building.ownershipStatus),
+      },
+
+      // Datacenter Tier
+      datacenterTier: {
+        tier: datacenterTier,
+        auto: getTierMultiplier(datacenterTier),
+        override: (building as any).tierMultOverride ? Number((building as any).tierMultOverride) : null,
+        final: (building as any).tierMultOverride
+          ? Number((building as any).tierMultOverride)
+          : getTierMultiplier(datacenterTier),
+      },
+
+      // Lease Structure
+      leaseStructure: {
+        structure: leaseDetails.leaseStructure,
+        auto: getLeaseStructureMultiplier(leaseDetails.leaseStructure),
+        final: getLeaseStructureMultiplier(leaseDetails.leaseStructure),
+      },
+
+      // Tenant Credit
+      tenantCredit: {
+        tenant: leaseDetails.tenant,
+        auto: getTenantCreditMultiplier(leaseDetails.tenant),
+        final: getTenantCreditMultiplier(leaseDetails.tenant),
+      },
+
+      // Energization
+      energization: {
+        date: building.energizationDate,
+        auto: getEnergizationMultiplier(building.energizationDate),
+        final: getEnergizationMultiplier(building.energizationDate),
+      },
+
+      // Custom Fidoodle Factor
+      fidoodleFactor: {
+        value: fidoodleFactor,
+      },
+    };
+
+    // Calculate combined adjustment factor
+    const combinedFactor =
+      factorDetails.phaseProbability.final *
+      factorDetails.regulatoryRisk.value *
+      factorDetails.sizeMultiplier.final *
+      factorDetails.powerAuthority.final *
+      factorDetails.ownership.final *
+      factorDetails.datacenterTier.final *
+      factorDetails.leaseStructure.final *
+      factorDetails.tenantCredit.final *
+      factorDetails.energization.final *
+      factorDetails.fidoodleFactor.value;
+
+    // HPC/AI Valuation Calculation
+    const noiAnnual = leaseDetails.noiAnnualM || 0;
+    const capRate = (building as any).capRateOverride ? Number((building as any).capRateOverride) : factors.hpcCapRate;
+    const exitCapRate = (building as any).exitCapRateOverride ? Number((building as any).exitCapRateOverride) : factors.hpcExitCapRate;
+    const terminalGrowthRate = (building as any).terminalGrowthOverride ? Number((building as any).terminalGrowthOverride) : factors.terminalGrowthRate;
+    const discountRate = factors.discountRate;
+
+    // Base Value = NOI / Cap Rate
+    const baseValue = noiAnnual > 0 ? noiAnnual / capRate : 0;
+
+    // Terminal Value using Gordon Growth Model
+    // TV = NOI * (1 + g) / (r - g), then discount to present
+    const leaseYears = remainingLeaseYears || leaseDetails.leaseYears || 10;
+    const renewalProbability = factors.leaseRenewalProbability;
+
+    // Calculate terminal value at end of lease, discounted to present
+    // Terminal NOI = Current NOI * (1 + g)^leaseYears
+    const terminalNoi = noiAnnual * Math.pow(1 + terminalGrowthRate, leaseYears);
+    const terminalValueAtEnd = terminalNoi / (exitCapRate - terminalGrowthRate);
+    const terminalValuePV = terminalValueAtEnd / Math.pow(1 + discountRate, leaseYears) * renewalProbability;
+
+    // Gross Value = Base Value + Terminal Value PV
+    const grossValue = baseValue + terminalValuePV;
+
+    // Adjusted Value = Gross Value * Combined Factor
+    const adjustedValue = grossValue * combinedFactor;
+
+    const valuation = {
+      // Method used
+      method: 'NOI_CAP_RATE_TERMINAL',
+      useType,
+
+      // Key inputs
+      inputs: {
+        noiAnnualM: noiAnnual,
+        capRate,
+        exitCapRate,
+        terminalGrowthRate,
+        discountRate,
+        leaseYears,
+        remainingLeaseYears,
+        renewalProbability,
+      },
+
+      // Step-by-step calculation
+      calculation: {
+        step1_baseValue: {
+          description: 'NOI / Cap Rate',
+          formula: `${noiAnnual.toFixed(2)} / ${(capRate * 100).toFixed(2)}%`,
+          value: baseValue,
+        },
+        step2_terminalNoi: {
+          description: `NOI grown at ${(terminalGrowthRate * 100).toFixed(1)}% for ${leaseYears.toFixed(1)} years`,
+          formula: `${noiAnnual.toFixed(2)} × (1 + ${(terminalGrowthRate * 100).toFixed(1)}%)^${leaseYears.toFixed(1)}`,
+          value: terminalNoi,
+        },
+        step3_terminalValueAtEnd: {
+          description: 'Terminal Value at lease end (Gordon Growth)',
+          formula: `${terminalNoi.toFixed(2)} / (${(exitCapRate * 100).toFixed(2)}% - ${(terminalGrowthRate * 100).toFixed(1)}%)`,
+          value: terminalValueAtEnd,
+        },
+        step4_terminalValuePV: {
+          description: `Terminal Value discounted to present (${(renewalProbability * 100).toFixed(0)}% renewal prob)`,
+          formula: `${terminalValueAtEnd.toFixed(2)} / (1 + ${(discountRate * 100).toFixed(0)}%)^${leaseYears.toFixed(1)} × ${(renewalProbability * 100).toFixed(0)}%`,
+          value: terminalValuePV,
+        },
+        step5_grossValue: {
+          description: 'Base Value + Terminal Value PV',
+          value: grossValue,
+        },
+        step6_combinedFactor: {
+          description: 'Product of all adjustment factors',
+          value: combinedFactor,
+        },
+        step7_adjustedValue: {
+          description: 'Gross Value × Combined Factor',
+          formula: `${grossValue.toFixed(2)} × ${combinedFactor.toFixed(4)}`,
+          value: adjustedValue,
+        },
+      },
+
+      // Final results
+      results: {
+        baseValueM: Math.round(baseValue * 10) / 10,
+        terminalValueM: Math.round(terminalValuePV * 10) / 10,
+        grossValueM: Math.round(grossValue * 10) / 10,
+        adjustedValueM: Math.round(adjustedValue * 10) / 10,
+      },
+    };
+
+    res.json({
+      building: {
+        id: building.id,
+        name: building.name,
+        grossMw: mw,
+        itMw: Number(building.itMw) || null,
+        pue: Number(building.pue) || null,
+        grid: building.grid,
+        ownershipStatus: building.ownershipStatus,
+        developmentPhase: building.developmentPhase,
+        energizationDate: building.energizationDate,
+        datacenterTier,
+        fidoodleFactor,
+      },
+      site: {
+        id: building.campus.site.id,
+        name: building.campus.site.name,
+        totalMw: siteTotalMw,
+      },
+      campus: {
+        id: building.campus.id,
+        name: building.campus.name,
+      },
+      leaseDetails,
+      remainingLeaseYears,
+      factorDetails,
+      combinedFactor,
+      valuation,
+      globalFactors: {
+        hpcCapRate: factors.hpcCapRate,
+        hpcExitCapRate: factors.hpcExitCapRate,
+        terminalGrowthRate: factors.terminalGrowthRate,
+        discountRate: factors.discountRate,
+        renewalProbability: factors.leaseRenewalProbability,
+      },
+    });
+  } catch (error) {
+    console.error('Error calculating building valuation:', error);
+    res.status(500).json({ error: 'Failed to calculate building valuation' });
+  }
+});
+
+// PATCH building factor overrides
+app.patch('/api/v1/buildings/:id/factors', async (req, res) => {
+  try {
+    const building = await prisma.building.update({
+      where: { id: req.params.id },
+      data: {
+        fidoodleFactor: req.body.fidoodleFactor,
+        probabilityOverride: req.body.probabilityOverride,
+        regulatoryRisk: req.body.regulatoryRisk,
+        sizeMultOverride: req.body.sizeMultOverride,
+        powerAuthMultOverride: req.body.powerAuthMultOverride,
+        ownershipMultOverride: req.body.ownershipMultOverride,
+        tierMultOverride: req.body.tierMultOverride,
+        capRateOverride: req.body.capRateOverride,
+        exitCapRateOverride: req.body.exitCapRateOverride,
+        terminalGrowthOverride: req.body.terminalGrowthOverride,
+        datacenterTier: req.body.datacenterTier,
+      },
+      include: {
+        usePeriods: { where: { isCurrent: true } },
+      },
+    });
+    res.json(building);
+  } catch (error) {
+    console.error('Error updating building factors:', error);
+    res.status(500).json({ error: 'Failed to update building factors' });
   }
 });
 

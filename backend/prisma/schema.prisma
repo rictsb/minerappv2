@@ -117,12 +117,23 @@ model Building {
   ownershipStatus     String?  @db.VarChar(100)
   developmentPhase    DevelopmentPhase @default(DILIGENCE)
   energizationDate    DateTime?
+  datacenterTier      DatacenterTier @default(TIER_III)
 
   // Valuation Control
   confidence          Confidence @default(MEDIUM)
   probabilityOverride Decimal?   @db.Decimal(3, 2)  // Manual override (0.00-1.00)
   regulatoryRisk      Decimal    @default(1.0) @db.Decimal(3, 2)  // 1.0 = no risk, 0.0 = blocked
+  fidoodleFactor      Decimal    @default(1.0) @db.Decimal(4, 3)  // Custom site adjustment (0.001-9.999)
   includeInValuation  Boolean    @default(true)
+
+  // Factor Overrides (null = use auto-derived value)
+  sizeMultOverride        Decimal? @db.Decimal(4, 3)
+  powerAuthMultOverride   Decimal? @db.Decimal(4, 3)
+  ownershipMultOverride   Decimal? @db.Decimal(4, 3)
+  tierMultOverride        Decimal? @db.Decimal(4, 3)
+  capRateOverride         Decimal? @db.Decimal(5, 4)  // e.g., 0.0750 for 7.5%
+  exitCapRateOverride     Decimal? @db.Decimal(5, 4)
+  terminalGrowthOverride  Decimal? @db.Decimal(5, 4)
 
   // Notes & Source
   notes               String?
@@ -153,12 +164,15 @@ model UsePeriod {
 
   // Lease/Tenant Details (if applicable)
   tenant              String?  @db.VarChar(255)
+  tenantCreditRating  String?  @db.VarChar(50)  // Override for tenant credit lookup
+  leaseStructure      LeaseStructure @default(NNN)
   leaseValueM         Decimal? @db.Decimal(12, 2)
   leaseYears          Decimal? @db.Decimal(5, 2)
   annualRevM          Decimal? @db.Decimal(12, 2)
   noiPct              Decimal? @db.Decimal(5, 4)
   noiAnnualM          Decimal? @db.Decimal(12, 2)
   leaseStart          DateTime?
+  leaseEnd            DateTime?  // Calculated or explicit lease end date
   leaseNotes          String?
 
   // Mining-specific (for self-mining use)
@@ -318,6 +332,19 @@ enum DevelopmentPhase {
   DEVELOPMENT      // 70% probability
   EXCLUSIVITY      // 50% probability
   DILIGENCE        // 30% probability
+}
+
+enum DatacenterTier {
+  TIER_IV          // 1.15x multiplier - Fault tolerant
+  TIER_III         // 1.00x multiplier - Concurrently maintainable (default)
+  TIER_II          // 0.90x multiplier - Redundant capacity
+  TIER_I           // 0.80x multiplier - Basic site infrastructure
+}
+
+enum LeaseStructure {
+  NNN              // 1.00x - Triple Net (tenant pays all expenses)
+  MODIFIED_GROSS   // 0.95x - Some expenses shared
+  GROSS            // 0.90x - Landlord pays all expenses
 }
 
 enum UseType {

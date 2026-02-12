@@ -11,6 +11,7 @@ import {
   ArrowDown,
   ArrowUpDown,
 } from 'lucide-react';
+import BuildingDetailPanel from '../components/BuildingDetailPanel';
 
 function getApiUrl(): string {
   let apiUrl = import.meta.env.VITE_API_URL || '';
@@ -162,6 +163,7 @@ export default function Projects() {
   const [editingBuilding, setEditingBuilding] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<Record<string, any>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('ticker');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
@@ -508,9 +510,9 @@ export default function Projects() {
               className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm"
             >
               <option value="">All Use Types</option>
-              {Object.entries(useTypeConfig).map(([k, v]) => (
-                <option key={k} value={k}>{v.label}</option>
-              ))}
+              <option value="BTC_MINING">BTC Mining</option>
+              <option value="HPC_AI_HOSTING">HPC/AI</option>
+              <option value="GPU_CLOUD">GPU Cloud</option>
             </select>
           </div>
         </div>
@@ -578,7 +580,10 @@ export default function Projects() {
                   return (
                     <tr
                       key={row.buildingId}
-                      className="hover:bg-gray-700/30 transition"
+                      className={`hover:bg-gray-700/30 transition cursor-pointer ${
+                        selectedBuildingId === row.buildingId ? 'bg-orange-900/20 border-l-2 border-orange-500' : ''
+                      }`}
+                      onClick={() => !isEditing && setSelectedBuildingId(row.buildingId)}
                     >
                       <td className="px-2 py-1.5 text-gray-500 text-xs">{idx + 1}</td>
                       <td className="px-2 py-1.5">
@@ -769,6 +774,14 @@ export default function Projects() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Building Detail Panel */}
+      {selectedBuildingId && (
+        <BuildingDetailPanel
+          buildingId={selectedBuildingId}
+          onClose={() => setSelectedBuildingId(null)}
+        />
       )}
     </div>
   );

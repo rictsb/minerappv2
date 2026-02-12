@@ -27,7 +27,8 @@ const navItems = [
 export default function Layout({ children }: LayoutProps) {
   const [collapsed, setCollapsed] = useState(() => {
     const saved = localStorage.getItem('nav-collapsed');
-    return saved === 'true';
+    // Default to collapsed (true) if not set
+    return saved === null ? true : saved === 'true';
   });
 
   useEffect(() => {

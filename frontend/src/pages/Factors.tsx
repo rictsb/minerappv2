@@ -30,9 +30,12 @@ const FACTOR_CONFIGS: Record<string, FactorConfig[]> = {
     { key: 'ethPrice', label: 'ETH Price', min: 500, max: 10000, step: 50, format: (v) => `$${v.toLocaleString()}`, defaultValue: 2500 },
   ],
   hpc: [
-    { key: 'mwValueHpcContracted', label: 'Contracted HPC ($/MW)', min: 5, max: 50, step: 1, format: (v) => `$${v}M/MW`, defaultValue: 25 },
+    { key: 'hpcCapRate', label: 'Cap Rate', min: 0.04, max: 0.15, step: 0.0025, format: (v) => `${(v * 100).toFixed(2)}%`, defaultValue: 0.075 },
+    { key: 'hpcExitCapRate', label: 'Exit Cap Rate', min: 0.04, max: 0.15, step: 0.0025, format: (v) => `${(v * 100).toFixed(2)}%`, defaultValue: 0.08 },
+    { key: 'terminalGrowthRate', label: 'Terminal Growth', min: 0, max: 0.05, step: 0.0025, format: (v) => `${(v * 100).toFixed(2)}%`, defaultValue: 0.025 },
+    { key: 'discountRate', label: 'Discount Rate', min: 0.05, max: 0.20, step: 0.005, format: (v) => `${(v * 100).toFixed(1)}%`, defaultValue: 0.10 },
+    { key: 'leaseRenewalProbability', label: 'Renewal Probability', min: 0, max: 1, step: 0.05, format: (v) => `${(v * 100).toFixed(0)}%`, defaultValue: 0.85 },
     { key: 'mwValueHpcUncontracted', label: 'Pipeline HPC ($/MW)', min: 1, max: 30, step: 0.5, format: (v) => `$${v}M/MW`, defaultValue: 8 },
-    { key: 'noiMultiple', label: 'NOI Multiple', min: 5, max: 25, step: 0.5, format: (v) => `${v}x`, defaultValue: 10 },
   ],
   mining: [
     { key: 'ebitdaMultiple', label: 'EBITDA Multiple', min: 2, max: 15, step: 0.5, format: (v) => `${v}x`, defaultValue: 6 },
