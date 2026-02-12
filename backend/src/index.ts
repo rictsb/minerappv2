@@ -623,7 +623,7 @@ app.get('/api/v1/valuation', async (req, res) => {
       return baseRate / tenantRate;
     };
 
-    const valuations = companies.map((company) => {
+    const valuations = companies.map((company: any) => {
       // Net Liquid = Cash + BTC Value + ETH Value - Debt
       const btcValue = (Number(company.btcCount) || 0) * (factors.btcPrice / 1000000);
       const ethValue = (Number(company.ethHoldings) || 0);

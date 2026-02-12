@@ -108,7 +108,7 @@ export async function updateAllStockPrices(): Promise<{
     select: { ticker: true },
   });
 
-  const tickers = companies.map(c => c.ticker);
+  const tickers = companies.map((c: { ticker: string }) => c.ticker);
   const quotes = await fetchMultipleStockPrices(tickers);
 
   let updated = 0;
