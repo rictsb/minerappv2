@@ -411,16 +411,86 @@ app.post('/api/v1/settings', async (req, res) => {
 // ===========================================
 
 // Default valuation factors
-const DEFAULT_FACTORS = {
+const DEFAULT_FACTORS: Record<string, any> = {
+  // Market prices
   btcPrice: 97000,
   ethPrice: 2500,
+
+  // HPC/AI valuation
   mwValueHpcContracted: 25, // $M per MW for contracted HPC
   mwValueHpcUncontracted: 8, // $M per MW for pipeline/uncontracted
-  mwValueBtcMining: 0.3, // $M per MW for BTC mining
   noiMultiple: 10, // NOI multiple for valuation
+
+  // Mining valuation
+  mwValueBtcMining: 0.3, // $M per MW for BTC mining
   ebitdaMultiple: 6, // EBITDA multiple for mining
   dailyRevPerEh: 29400, // Daily revenue per EH/s
   poolFeePct: 0.02,
+
+  // Phase probabilities
+  probOperational: 1.0,
+  probConstruction: 0.9,
+  probDevelopment: 0.7,
+  probExclusivity: 0.5,
+  probDiligence: 0.3,
+
+  // Datacenter tier multipliers
+  tierIvMult: 1.15,
+  tierIiiMult: 1.00,
+  tierIiMult: 0.90,
+  tierIMult: 0.80,
+
+  // Site ownership multipliers
+  ownedMult: 1.00,
+  longtermLeaseMult: 0.95,
+  shorttermLeaseMult: 0.85,
+
+  // Lease structure multipliers
+  nnnMult: 1.00,
+  modifiedGrossMult: 0.95,
+  grossMult: 0.90,
+
+  // Energization year discount
+  energizationDecayRate: 0.15, // 15% annual decay
+  energizationBaseYear: 2025, // Base year (multiplier = 1.0)
+
+  // Power authority multipliers
+  paErcot: 1.05,
+  paPjm: 1.00,
+  paMiso: 0.95,
+  paNyiso: 0.95,
+  paCaiso: 0.90,
+  paCanada: 0.95,
+  paNorway: 0.90,
+  paUae: 0.85,
+  paBhutan: 0.70,
+  paParaguay: 0.70,
+  paEthiopia: 0.60,
+  paOther: 0.80,
+
+  // Base rate
+  sofrRate: 4.3,
+
+  // Tenant credit spreads (vs SOFR)
+  tcGoogle: -1.00,
+  tcMicrosoft: -1.00,
+  tcAmazon: -1.00,
+  tcMeta: -0.75,
+  tcOracle: -0.50,
+  tcCoreweave: 0.00,
+  tcAnthropic: 0.00,
+  tcOpenai: 0.00,
+  tcXai: 0.25,
+  tcOther: 1.00,
+  tcSelf: 3.00,
+
+  // Site size multipliers
+  sizeGte500: 1.10,
+  size250to499: 1.00,
+  size100to249: 0.95,
+  sizeLt100: 0.85,
+
+  // Legacy phase probabilities object (for backward compatibility)
   phaseProbabilities: {
     OPERATIONAL: 1.0,
     CONSTRUCTION: 0.9,
@@ -461,6 +531,88 @@ app.get('/api/v1/valuation', async (req, res) => {
       },
     });
 
+    // Helper function to get phase probability from factors
+    const getPhaseProbability = (phase: string): number => {
+      const phaseMap: Record<string, string> = {
+        OPERATIONAL: 'probOperational',
+        CONSTRUCTION: 'probConstruction',
+        DEVELOPMENT: 'probDevelopment',
+        EXCLUSIVITY: 'probExclusivity',
+        DILIGENCE: 'probDiligence',
+      };
+      const key = phaseMap[phase];
+      return key ? (factors[key] ?? DEFAULT_FACTORS[key] ?? 0.5) : 0.5;
+    };
+
+    // Helper function to calculate energization discount
+    const getEnergizationMultiplier = (energizationDate: Date | null): number => {
+      if (!energizationDate) return 1.0;
+      const year = new Date(energizationDate).getFullYear();
+      const baseYear = factors.energizationBaseYear ?? DEFAULT_FACTORS.energizationBaseYear;
+      const decayRate = factors.energizationDecayRate ?? DEFAULT_FACTORS.energizationDecayRate;
+      return Math.exp(-decayRate * (year - baseYear));
+    };
+
+    // Helper function to get power authority multiplier
+    const getPowerAuthorityMultiplier = (grid: string | null): number => {
+      if (!grid) return factors.paOther ?? DEFAULT_FACTORS.paOther;
+      const gridLower = grid.toLowerCase();
+      if (gridLower.includes('ercot')) return factors.paErcot ?? DEFAULT_FACTORS.paErcot;
+      if (gridLower.includes('pjm')) return factors.paPjm ?? DEFAULT_FACTORS.paPjm;
+      if (gridLower.includes('miso')) return factors.paMiso ?? DEFAULT_FACTORS.paMiso;
+      if (gridLower.includes('nyiso')) return factors.paNyiso ?? DEFAULT_FACTORS.paNyiso;
+      if (gridLower.includes('caiso')) return factors.paCaiso ?? DEFAULT_FACTORS.paCaiso;
+      if (gridLower.includes('canada') || gridLower.includes('hydro')) return factors.paCanada ?? DEFAULT_FACTORS.paCanada;
+      if (gridLower.includes('norway')) return factors.paNorway ?? DEFAULT_FACTORS.paNorway;
+      if (gridLower.includes('uae')) return factors.paUae ?? DEFAULT_FACTORS.paUae;
+      if (gridLower.includes('bhutan')) return factors.paBhutan ?? DEFAULT_FACTORS.paBhutan;
+      if (gridLower.includes('paraguay')) return factors.paParaguay ?? DEFAULT_FACTORS.paParaguay;
+      if (gridLower.includes('ethiopia')) return factors.paEthiopia ?? DEFAULT_FACTORS.paEthiopia;
+      return factors.paOther ?? DEFAULT_FACTORS.paOther;
+    };
+
+    // Helper function to get site size multiplier
+    const getSizeMultiplier = (totalMw: number): number => {
+      if (totalMw >= 500) return factors.sizeGte500 ?? DEFAULT_FACTORS.sizeGte500;
+      if (totalMw >= 250) return factors.size250to499 ?? DEFAULT_FACTORS.size250to499;
+      if (totalMw >= 100) return factors.size100to249 ?? DEFAULT_FACTORS.size100to249;
+      return factors.sizeLt100 ?? DEFAULT_FACTORS.sizeLt100;
+    };
+
+    // Helper function to get ownership multiplier
+    const getOwnershipMultiplier = (ownershipStatus: string | null): number => {
+      if (!ownershipStatus) return factors.ownedMult ?? DEFAULT_FACTORS.ownedMult;
+      const status = ownershipStatus.toLowerCase();
+      if (status.includes('own') || status.includes('fee')) return factors.ownedMult ?? DEFAULT_FACTORS.ownedMult;
+      if (status.includes('long') || status.includes('ground')) return factors.longtermLeaseMult ?? DEFAULT_FACTORS.longtermLeaseMult;
+      if (status.includes('short') || status.includes('lease')) return factors.shorttermLeaseMult ?? DEFAULT_FACTORS.shorttermLeaseMult;
+      return factors.ownedMult ?? DEFAULT_FACTORS.ownedMult;
+    };
+
+    // Helper function to get tenant credit multiplier (converts spread to NOI adjustment)
+    const getTenantCreditMultiplier = (tenant: string | null): number => {
+      if (!tenant) return 1.0;
+      const t = tenant.toLowerCase();
+      const sofrRate = factors.sofrRate ?? DEFAULT_FACTORS.sofrRate;
+      let spread = factors.tcOther ?? DEFAULT_FACTORS.tcOther;
+
+      if (t.includes('google')) spread = factors.tcGoogle ?? DEFAULT_FACTORS.tcGoogle;
+      else if (t.includes('microsoft') || t.includes('azure')) spread = factors.tcMicrosoft ?? DEFAULT_FACTORS.tcMicrosoft;
+      else if (t.includes('amazon') || t.includes('aws')) spread = factors.tcAmazon ?? DEFAULT_FACTORS.tcAmazon;
+      else if (t.includes('meta') || t.includes('facebook')) spread = factors.tcMeta ?? DEFAULT_FACTORS.tcMeta;
+      else if (t.includes('oracle')) spread = factors.tcOracle ?? DEFAULT_FACTORS.tcOracle;
+      else if (t.includes('coreweave')) spread = factors.tcCoreweave ?? DEFAULT_FACTORS.tcCoreweave;
+      else if (t.includes('anthropic')) spread = factors.tcAnthropic ?? DEFAULT_FACTORS.tcAnthropic;
+      else if (t.includes('openai')) spread = factors.tcOpenai ?? DEFAULT_FACTORS.tcOpenai;
+      else if (t.includes('xai') || t.includes('x.ai')) spread = factors.tcXai ?? DEFAULT_FACTORS.tcXai;
+
+      // Lower credit spread = higher multiplier (better credit = higher value)
+      // Base case: 0% spread = 1.0x, -1% = 1.05x, +3% = 0.85x
+      const baseRate = sofrRate;
+      const tenantRate = sofrRate + spread;
+      return baseRate / tenantRate;
+    };
+
     const valuations = companies.map((company) => {
       // Net Liquid = Cash + BTC Value + ETH Value - Debt
       const btcValue = (Number(company.btcCount) || 0) * (factors.btcPrice / 1000000);
@@ -477,6 +629,15 @@ app.get('/api/v1/valuation', async (req, res) => {
       let evHpcPipeline = 0;
 
       for (const site of company.sites) {
+        // Calculate total site MW for size multiplier
+        let siteTotalMw = 0;
+        for (const campus of site.campuses) {
+          for (const building of campus.buildings) {
+            siteTotalMw += Number(building.grossMw) || 0;
+          }
+        }
+        const sizeMultiplier = getSizeMultiplier(siteTotalMw);
+
         for (const campus of site.campuses) {
           for (const building of campus.buildings) {
             // Skip buildings excluded from valuation
@@ -484,20 +645,34 @@ app.get('/api/v1/valuation', async (req, res) => {
 
             const mw = Number(building.grossMw) || 0;
             const phase = building.developmentPhase;
+
+            // Get base probability from phase or override
             const prob = building.probabilityOverride
               ? Number(building.probabilityOverride)
-              : (factors.phaseProbabilities as any)[phase] || 0.5;
+              : getPhaseProbability(phase);
 
             // Regulatory risk multiplier (1.0 = no risk, 0.0 = blocked)
             const regRisk = Number(building.regulatoryRisk) ?? 1.0;
+
+            // Energization year discount
+            const energizationMult = getEnergizationMultiplier(building.energizationDate);
+
+            // Power authority multiplier
+            const paMult = getPowerAuthorityMultiplier(building.grid);
+
+            // Ownership multiplier
+            const ownershipMult = getOwnershipMultiplier(building.ownershipStatus);
 
             const currentUse = building.usePeriods[0];
             const useType = currentUse?.useType || 'UNCONTRACTED';
             const hasLease = currentUse?.tenant && currentUse?.leaseValueM;
             const noiAnnual = Number(currentUse?.noiAnnualM) || 0;
 
-            // Combined adjustment factor (probability × regulatory risk)
-            const adjFactor = prob * regRisk;
+            // Tenant credit multiplier
+            const tenantMult = getTenantCreditMultiplier(currentUse?.tenant ?? null);
+
+            // Combined adjustment factor
+            const adjFactor = prob * regRisk * energizationMult * paMult * ownershipMult * sizeMultiplier;
 
             // Categorize and value
             if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
@@ -513,9 +688,9 @@ app.get('/api/v1/valuation', async (req, res) => {
                 mwHpcContracted += mw;
                 // Value from NOI if available, otherwise from lease value
                 if (noiAnnual > 0) {
-                  evHpcContracted += noiAnnual * factors.noiMultiple * adjFactor;
+                  evHpcContracted += noiAnnual * factors.noiMultiple * adjFactor * tenantMult;
                 } else {
-                  evHpcContracted += (Number(currentUse?.leaseValueM) || 0) * adjFactor;
+                  evHpcContracted += (Number(currentUse?.leaseValueM) || 0) * adjFactor * tenantMult;
                 }
               } else {
                 mwHpcPipeline += mw * adjFactor;
