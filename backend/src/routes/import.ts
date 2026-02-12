@@ -116,6 +116,18 @@ function cleanCol(row: Record<string, unknown>, ...keys: string[]): unknown {
   return null;
 }
 
+// Helper to find sheet name case-insensitively
+function findSheet(workbook: XLSX.WorkBook, ...names: string[]): string | null {
+  for (const name of names) {
+    // Exact match first
+    if (workbook.SheetNames.includes(name)) return name;
+    // Case-insensitive match
+    const found = workbook.SheetNames.find(s => s.toLowerCase().trim() === name.toLowerCase().trim());
+    if (found) return found;
+  }
+  return null;
+}
+
 // POST /api/v1/import/excel
 router.post('/excel', upload.single('file'), async (req: Request, res: Response) => {
   try {
@@ -123,7 +135,10 @@ router.post('/excel', upload.single('file'), async (req: Request, res: Response)
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
+    console.log('Processing file:', req.file.originalname);
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });
+    console.log('Available sheets:', workbook.SheetNames);
+
     const results: Record<string, number | string[]> = {
       sites: 0,
       campuses: 0,
@@ -135,8 +150,10 @@ router.post('/excel', upload.single('file'), async (req: Request, res: Response)
     };
 
     // Process Sites sheet
-    if (workbook.SheetNames.includes('Sites')) {
-      const sitesSheet = workbook.Sheets['Sites'];
+    const sitesSheetName = findSheet(workbook, 'Sites', 'Site', 'sites');
+    if (sitesSheetName) {
+      console.log('Processing Sites sheet:', sitesSheetName);
+      const sitesSheet = workbook.Sheets[sitesSheetName];
       const sitesData: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sitesSheet, { defval: null });
 
       // Skip header row if it contains column descriptions
@@ -301,8 +318,10 @@ router.post('/excel', upload.single('file'), async (req: Request, res: Response)
     }
 
     // Process Net Liquid Assets sheet (company financials)
-    if (workbook.SheetNames.includes('Net Liquid Assets')) {
-      const sheet = workbook.Sheets['Net Liquid Assets'];
+    const netLiquidSheetName = findSheet(workbook, 'Net Liquid Assets', 'Net_Liquid_Assets', 'NetLiquidAssets', 'Liquid Assets');
+    if (netLiquidSheetName) {
+      console.log('Processing Net Liquid Assets sheet:', netLiquidSheetName);
+      const sheet = workbook.Sheets[netLiquidSheetName];
       const data: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: null, range: 1 });
 
       for (const row of data) {
@@ -328,8 +347,10 @@ router.post('/excel', upload.single('file'), async (req: Request, res: Response)
     }
 
     // Process Mining Valuation sheet
-    if (workbook.SheetNames.includes('Mining Valuation')) {
-      const sheet = workbook.Sheets['Mining Valuation'];
+    const miningSheetName = findSheet(workbook, 'Mining Valuation', 'Mining_Valuation', 'MiningValuation', 'Mining');
+    if (miningSheetName) {
+      console.log('Processing Mining Valuation sheet:', miningSheetName);
+      const sheet = workbook.Sheets[miningSheetName];
       const data: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: null, range: 1 });
 
       for (const row of data) {
@@ -352,8 +373,10 @@ router.post('/excel', upload.single('file'), async (req: Request, res: Response)
     }
 
     // Process Debt sheet
-    if (workbook.SheetNames.includes('Debt')) {
-      const sheet = workbook.Sheets['Debt'];
+    const debtSheetName = findSheet(workbook, 'Debt', 'Debts', 'debt');
+    if (debtSheetName) {
+      console.log('Processing Debt sheet:', debtSheetName);
+      const sheet = workbook.Sheets[debtSheetName];
       const data: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: null });
 
       for (const row of data) {
@@ -407,9 +430,21 @@ router.post('/excel', upload.single('file'), async (req: Request, res: Response)
       }
     }
 
+    // Check if any sheets were found
+    const sheetsFound = [sitesSheetName, netLiquidSheetName, miningSheetName, debtSheetName].filter(Boolean);
+    console.log('Sheets found:', sheetsFound);
+    console.log('Import results:', results);
+
+    if (sheetsFound.length === 0) {
+      return res.status(400).json({
+        error: 'No recognized sheets found',
+        details: `Available sheets: ${workbook.SheetNames.join(', ')}. Expected: Sites, Net Liquid Assets, Mining Valuation, or Debt`,
+      });
+    }
+
     res.json({
       success: true,
-      message: 'Import completed',
+      message: `Import completed. Processed sheets: ${sheetsFound.join(', ')}`,
       results,
     });
   } catch (error: unknown) {
