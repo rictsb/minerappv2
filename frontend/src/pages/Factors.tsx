@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Settings as SettingsIcon, Save, Loader2, RotateCcw } from 'lucide-react';
+import { Save, Loader2, RotateCcw } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 function getApiUrl(): string {
@@ -48,7 +48,7 @@ export default function Factors() {
   const queryClient = useQueryClient();
   const [factors, setFactors] = useState<Record<string, number>>({});
   const [saving, setSaving] = useState<string | null>(null);
-  const saveTimeoutRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const saveTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // Fetch current factors
   const { data: savedFactors, isLoading: loadingFactors } = useQuery({
