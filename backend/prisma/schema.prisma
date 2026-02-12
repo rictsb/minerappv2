@@ -375,3 +375,70 @@ enum AuditAction {
   UPDATE
   DELETE
 }
+
+// ===========================================
+// SOTP VALUATION COMPONENTS
+// ===========================================
+
+// Mining Valuation - EV per EH/s methodology
+model MiningValuation {
+  id                  String   @id @default(uuid())
+  ticker              String   @unique @db.VarChar(10)
+
+  // Hashrate data
+  hashrateEh          Decimal? @db.Decimal(10, 2)  // Hashrate in EH/s
+  hashrateType        String?  @db.VarChar(50)     // Self, HUM, etc.
+  hashrateNote        String?                       // Date or note about hashrate
+
+  // Valuation
+  miningEvM           Decimal? @db.Decimal(12, 2)  // Mining EV ($M)
+  totalDebtM          Decimal? @db.Decimal(12, 2)  // Total debt ($M)
+  nonMiningDebtAdjM   Decimal? @db.Decimal(12, 2)  // Non-mining debt adjustment
+  miningDebtM         Decimal? @db.Decimal(12, 2)  // Mining debt ($M)
+  cashM               Decimal? @db.Decimal(12, 2)  // Cash ($M)
+
+  // Shares
+  sharesOutstandingM  Decimal? @db.Decimal(12, 4)  // Basic shares (M)
+  fdSharesM           Decimal? @db.Decimal(12, 4)  // Fully diluted shares (M)
+  fdSharesUsedM       Decimal? @db.Decimal(12, 4)  // FD shares used for calc
+
+  // Source
+  sourceUrl           String?
+  sourceDate          DateTime?
+  notes               String?
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("mining_valuations")
+}
+
+// Net Liquid Assets - HODL value tracking
+model NetLiquidAssets {
+  id                  String   @id @default(uuid())
+  ticker              String   @unique @db.VarChar(10)
+
+  // Market cap
+  mcapM               Decimal? @db.Decimal(14, 2)  // Market cap ($M)
+
+  // Crypto holdings
+  btcHoldings         Decimal? @db.Decimal(18, 8)  // BTC count
+  ethHoldings         Decimal? @db.Decimal(18, 8)  // ETH count
+  totalHodlM          Decimal? @db.Decimal(14, 2)  // Total HODL value ($M)
+  hodlMcapRatio       Decimal? @db.Decimal(6, 4)   // HODL / MCAP ratio
+
+  // Cash
+  cashEquivM          Decimal? @db.Decimal(12, 2)  // Cash & equivalents ($M)
+  hodlPlusCashM       Decimal? @db.Decimal(14, 2)  // HODL + Cash ($M)
+  hodlCashMcapRatio   Decimal? @db.Decimal(6, 4)   // (HODL+Cash) / MCAP ratio
+
+  // Source
+  sourceUrl           String?
+  sourceDate          DateTime?
+  notes               String?
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("net_liquid_assets")
+}

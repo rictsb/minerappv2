@@ -9,6 +9,8 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  Pickaxe,
+  Wallet,
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -18,6 +20,8 @@ interface LayoutProps {
 const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/projects', label: 'Projects', icon: Building2 },
+  { path: '/mining-valuation', label: 'Mining Val', icon: Pickaxe },
+  { path: '/net-liquid-assets', label: 'Net Liquid', icon: Wallet },
   { path: '/factors', label: 'Factors', icon: Settings2 },
   { path: '/data-quality', label: 'Data Quality', icon: AlertTriangle },
   { path: '/map', label: 'Map', icon: Map },

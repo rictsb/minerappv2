@@ -6,6 +6,8 @@ import Factors from './pages/Factors';
 import DataQuality from './pages/DataQuality';
 import MapView from './pages/MapView';
 import Settings from './pages/Settings';
+import MiningValuation from './pages/MiningValuation';
+import NetLiquidAssets from './pages/NetLiquidAssets';
 
 function App() {
   return (
@@ -15,6 +17,8 @@ function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/projects" element={<Projects />} />
         <Route path="/projects/:ticker" element={<Projects />} />
+        <Route path="/mining-valuation" element={<MiningValuation />} />
+        <Route path="/net-liquid-assets" element={<NetLiquidAssets />} />
         <Route path="/factors" element={<Factors />} />
         <Route path="/data-quality" element={<DataQuality />} />
         <Route path="/map" element={<MapView />} />

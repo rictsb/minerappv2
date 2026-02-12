@@ -359,6 +359,112 @@ app.delete('/api/v1/use-periods/:id', async (req, res) => {
 });
 
 // ===========================================
+// MINING VALUATION API
+// ===========================================
+
+app.get('/api/v1/mining-valuations', async (req, res) => {
+  try {
+    const valuations = await prisma.miningValuation.findMany({
+      orderBy: { ticker: 'asc' },
+    });
+    res.json(valuations);
+  } catch (error) {
+    console.error('Error fetching mining valuations:', error);
+    res.status(500).json({ error: 'Failed to fetch mining valuations' });
+  }
+});
+
+app.post('/api/v1/mining-valuations', async (req, res) => {
+  try {
+    const valuation = await prisma.miningValuation.upsert({
+      where: { ticker: req.body.ticker },
+      update: req.body,
+      create: req.body,
+    });
+    res.json(valuation);
+  } catch (error) {
+    console.error('Error saving mining valuation:', error);
+    res.status(500).json({ error: 'Failed to save mining valuation' });
+  }
+});
+
+app.patch('/api/v1/mining-valuations/:ticker', async (req, res) => {
+  try {
+    const valuation = await prisma.miningValuation.update({
+      where: { ticker: req.params.ticker },
+      data: req.body,
+    });
+    res.json(valuation);
+  } catch (error) {
+    console.error('Error updating mining valuation:', error);
+    res.status(500).json({ error: 'Failed to update mining valuation' });
+  }
+});
+
+app.delete('/api/v1/mining-valuations/:ticker', async (req, res) => {
+  try {
+    await prisma.miningValuation.delete({ where: { ticker: req.params.ticker } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting mining valuation:', error);
+    res.status(500).json({ error: 'Failed to delete mining valuation' });
+  }
+});
+
+// ===========================================
+// NET LIQUID ASSETS API
+// ===========================================
+
+app.get('/api/v1/net-liquid-assets', async (req, res) => {
+  try {
+    const assets = await prisma.netLiquidAssets.findMany({
+      orderBy: { ticker: 'asc' },
+    });
+    res.json(assets);
+  } catch (error) {
+    console.error('Error fetching net liquid assets:', error);
+    res.status(500).json({ error: 'Failed to fetch net liquid assets' });
+  }
+});
+
+app.post('/api/v1/net-liquid-assets', async (req, res) => {
+  try {
+    const asset = await prisma.netLiquidAssets.upsert({
+      where: { ticker: req.body.ticker },
+      update: req.body,
+      create: req.body,
+    });
+    res.json(asset);
+  } catch (error) {
+    console.error('Error saving net liquid assets:', error);
+    res.status(500).json({ error: 'Failed to save net liquid assets' });
+  }
+});
+
+app.patch('/api/v1/net-liquid-assets/:ticker', async (req, res) => {
+  try {
+    const asset = await prisma.netLiquidAssets.update({
+      where: { ticker: req.params.ticker },
+      data: req.body,
+    });
+    res.json(asset);
+  } catch (error) {
+    console.error('Error updating net liquid assets:', error);
+    res.status(500).json({ error: 'Failed to update net liquid assets' });
+  }
+});
+
+app.delete('/api/v1/net-liquid-assets/:ticker', async (req, res) => {
+  try {
+    await prisma.netLiquidAssets.delete({ where: { ticker: req.params.ticker } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting net liquid assets:', error);
+    res.status(500).json({ error: 'Failed to delete net liquid assets' });
+  }
+});
+
+// ===========================================
 // GLOBAL FACTORS API
 // ===========================================
 
