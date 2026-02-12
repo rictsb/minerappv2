@@ -6,12 +6,10 @@ import {
   MapPin,
   DollarSign,
   TrendingUp,
-  Percent,
   ChevronDown,
   ChevronRight,
   Save,
   RotateCcw,
-  Info,
   AlertTriangle,
 } from 'lucide-react';
 
@@ -43,7 +41,7 @@ class PanelErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryStat
   render() {
     if (this.state.hasError) {
       return (
-        <div className="fixed inset-y-0 right-0 w-[500px] bg-gray-900 border-l border-gray-700 shadow-2xl z-50 p-4">
+        <div className="fixed inset-y-0 right-0 w-[520px] bg-gray-900 border-l border-gray-700 shadow-2xl z-50 p-4">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold text-red-400 flex items-center gap-2">
               <AlertTriangle className="h-5 w-5" />
@@ -80,132 +78,101 @@ interface BuildingDetailPanelProps {
   onClose: () => void;
 }
 
-interface FactorRowProps {
+interface SliderRowProps {
   label: string;
   autoValue: number;
-  overrideValue: number | null;
-  finalValue: number;
-  suffix?: string;
+  currentValue: number;
+  onChange: (value: number) => void;
+  min: number;
+  max: number;
+  step: number;
+  format: (v: number) => string;
   description?: string;
-  onOverrideChange?: (value: number | null) => void;
-  editable?: boolean;
-  min?: number;
-  max?: number;
-  step?: number;
-  asPercent?: boolean;
 }
 
-function FactorRow({
+function SliderRow({
   label,
   autoValue,
-  overrideValue,
-  finalValue,
-  suffix = 'x',
+  currentValue,
+  onChange,
+  min,
+  max,
+  step,
+  format,
   description,
-  onOverrideChange,
-  editable = true,
-  min = 0,
-  max = 2,
-  step = 0.01,
-  asPercent = false,
-}: FactorRowProps) {
-  const [editing, setEditing] = useState(false);
-  const [inputValue, setInputValue] = useState('');
-
-  const displayValue = (v: number) => {
-    const num = Number(v);
-    if (isNaN(num) || !isFinite(num)) return asPercent ? '0%' : `0${suffix}`;
-    if (asPercent) return `${(num * 100).toFixed(1)}%`;
-    return `${num.toFixed(3)}${suffix}`;
-  };
-
-  const handleSave = () => {
-    if (inputValue === '' || inputValue === 'auto') {
-      onOverrideChange?.(null);
-    } else {
-      const val = asPercent ? parseFloat(inputValue) / 100 : parseFloat(inputValue);
-      if (!isNaN(val)) {
-        onOverrideChange?.(val);
-      }
-    }
-    setEditing(false);
-  };
+}: SliderRowProps) {
+  const isOverridden = Math.abs(currentValue - autoValue) > 0.0001;
 
   return (
-    <div className="flex items-center justify-between py-1.5 px-2 hover:bg-gray-700/30 rounded group">
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-400">{label}</span>
-        {description && (
-          <div className="relative">
-            <Info className="h-3 w-3 text-gray-600 cursor-help" />
-            <div className="absolute bottom-full left-0 mb-1 px-2 py-1 bg-gray-800 text-xs text-gray-300 rounded shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 border border-gray-700">
-              {description}
-            </div>
-          </div>
-        )}
+    <div className="py-2 border-b border-gray-800 last:border-b-0">
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-gray-300">{label}</span>
+          {description && (
+            <span className="text-[10px] text-gray-500">({description})</span>
+          )}
+        </div>
+        <div className="flex items-center gap-3 text-xs">
+          <span className="text-gray-500 w-16 text-right">Auto: {format(autoValue)}</span>
+          <span className={`font-mono w-16 text-right ${isOverridden ? 'text-orange-400 font-medium' : 'text-white'}`}>
+            {format(currentValue)}
+          </span>
+        </div>
       </div>
       <div className="flex items-center gap-2">
-        {editing ? (
-          <div className="flex items-center gap-1">
-            <input
-              type="number"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSave();
-                if (e.key === 'Escape') setEditing(false);
-              }}
-              className="w-16 px-1 py-0.5 bg-gray-700 border border-gray-600 rounded text-xs text-right text-white"
-              autoFocus
-              min={asPercent ? min * 100 : min}
-              max={asPercent ? max * 100 : max}
-              step={asPercent ? step * 100 : step}
-            />
-            <button onClick={handleSave} className="p-0.5 text-green-400 hover:text-green-300">
-              <Save className="h-3 w-3" />
-            </button>
-            <button onClick={() => setEditing(false)} className="p-0.5 text-gray-400 hover:text-gray-300">
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        ) : (
-          <>
-            <span className="text-xs text-gray-500">
-              auto: {displayValue(autoValue)}
-            </span>
-            {overrideValue !== null && (
-              <span className="text-xs text-orange-400">
-                → {displayValue(overrideValue)}
-              </span>
-            )}
-            <span className={`text-xs font-medium ${overrideValue !== null ? 'text-orange-400' : 'text-white'}`}>
-              = {displayValue(finalValue)}
-            </span>
-            {editable && (
-              <button
-                onClick={() => {
-                  const fv = Number(finalValue) || 0;
-                  setInputValue(asPercent ? (fv * 100).toFixed(1) : fv.toFixed(3));
-                  setEditing(true);
-                }}
-                className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-500 hover:text-gray-300"
-                title="Override"
-              >
-                <Percent className="h-3 w-3" />
-              </button>
-            )}
-          </>
-        )}
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={currentValue}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+          className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
+        />
+        <button
+          onClick={() => onChange(autoValue)}
+          className={`text-[10px] px-1.5 py-0.5 rounded ${isOverridden ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-800 text-gray-600'}`}
+          disabled={!isOverridden}
+        >
+          Reset
+        </button>
       </div>
     </div>
   );
 }
 
-// Safe number formatting helper
+// Safe number formatting helpers
 const safeToFixed = (val: any, digits: number): string => {
   const num = Number(val);
   if (isNaN(num) || !isFinite(num)) return '0';
   return num.toFixed(digits);
+};
+
+const formatMoney = (value: number | null | undefined): string => {
+  const num = Number(value);
+  if (isNaN(num) || !isFinite(num)) return '$0M';
+  return `$${num.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`;
+};
+
+const formatPercent = (value: number): string => {
+  const num = Number(value);
+  if (isNaN(num) || !isFinite(num)) return '0%';
+  return `${(num * 100).toFixed(1)}%`;
+};
+
+const formatMultiplier = (value: number): string => {
+  const num = Number(value);
+  if (isNaN(num) || !isFinite(num)) return '1.00x';
+  return `${num.toFixed(2)}x`;
+};
+
+const formatDate = (dateStr: string | null | undefined): string => {
+  if (!dateStr) return '-';
+  try {
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  } catch {
+    return String(dateStr);
+  }
 };
 
 function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelProps) {
@@ -213,9 +180,8 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     lease: true,
     factors: true,
-    valuation: true,
   });
-  const [factorOverrides, setFactorOverrides] = useState<Record<string, any>>({});
+  const [factorOverrides, setFactorOverrides] = useState<Record<string, number>>({});
   const [hasChanges, setHasChanges] = useState(false);
 
   const { data, isLoading, error } = useQuery({
@@ -247,50 +213,59 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     },
   });
 
+  // Initialize factor overrides from data
   useEffect(() => {
     if (data) {
       const fd = data.factorDetails || {};
-      const gf = data.globalFactors || {};
-      const val = data.valuation || { inputs: {} };
       const bld = data.building || {};
 
       setFactorOverrides({
-        fidoodleFactor: bld.fidoodleFactor ?? 1.0,
-        probabilityOverride: fd.phaseProbability?.override ?? null,
+        phaseProbability: fd.phaseProbability?.final ?? fd.phaseProbability?.auto ?? 0.5,
         regulatoryRisk: fd.regulatoryRisk?.value ?? 1.0,
-        sizeMultOverride: fd.sizeMultiplier?.override ?? null,
-        powerAuthMultOverride: fd.powerAuthority?.override ?? null,
-        ownershipMultOverride: fd.ownership?.override ?? null,
-        tierMultOverride: fd.datacenterTier?.override ?? null,
-        capRateOverride: (val.inputs?.capRate && val.inputs.capRate !== gf.hpcCapRate) ? val.inputs.capRate : null,
-        exitCapRateOverride: (val.inputs?.exitCapRate && val.inputs.exitCapRate !== gf.hpcExitCapRate) ? val.inputs.exitCapRate : null,
-        terminalGrowthOverride: (val.inputs?.terminalGrowthRate && val.inputs.terminalGrowthRate !== gf.terminalGrowthRate) ? val.inputs.terminalGrowthRate : null,
+        sizeMultiplier: fd.sizeMultiplier?.final ?? fd.sizeMultiplier?.auto ?? 1.0,
+        powerAuthority: fd.powerAuthority?.final ?? fd.powerAuthority?.auto ?? 1.0,
+        ownership: fd.ownership?.final ?? fd.ownership?.auto ?? 1.0,
+        datacenterTier: fd.datacenterTier?.final ?? fd.datacenterTier?.auto ?? 1.0,
+        leaseStructure: fd.leaseStructure?.final ?? fd.leaseStructure?.auto ?? 1.0,
+        tenantCredit: fd.tenantCredit?.final ?? fd.tenantCredit?.auto ?? 1.0,
+        energization: fd.energization?.final ?? fd.energization?.auto ?? 1.0,
+        fidoodleFactor: bld.fidoodleFactor ?? 1.0,
       });
     }
   }, [data]);
 
-  const handleFactorChange = (key: string, value: number | null) => {
+  const handleFactorChange = (key: string, value: number) => {
     setFactorOverrides((prev) => ({ ...prev, [key]: value }));
     setHasChanges(true);
   };
 
   const handleSave = () => {
-    updateFactorsMutation.mutate(factorOverrides);
+    const fd = data?.factorDetails || {};
+    updateFactorsMutation.mutate({
+      fidoodleFactor: factorOverrides.fidoodleFactor,
+      probabilityOverride: factorOverrides.phaseProbability !== (fd.phaseProbability?.auto ?? 0.5) ? factorOverrides.phaseProbability : null,
+      regulatoryRisk: factorOverrides.regulatoryRisk,
+      sizeMultOverride: factorOverrides.sizeMultiplier !== (fd.sizeMultiplier?.auto ?? 1) ? factorOverrides.sizeMultiplier : null,
+      powerAuthMultOverride: factorOverrides.powerAuthority !== (fd.powerAuthority?.auto ?? 1) ? factorOverrides.powerAuthority : null,
+      ownershipMultOverride: factorOverrides.ownership !== (fd.ownership?.auto ?? 1) ? factorOverrides.ownership : null,
+      tierMultOverride: factorOverrides.datacenterTier !== (fd.datacenterTier?.auto ?? 1) ? factorOverrides.datacenterTier : null,
+    });
   };
 
-  const handleReset = () => {
+  const handleResetAll = () => {
     if (data) {
+      const fd = data.factorDetails || {};
       setFactorOverrides({
-        fidoodleFactor: 1.0,
-        probabilityOverride: null,
+        phaseProbability: fd.phaseProbability?.auto ?? 0.5,
         regulatoryRisk: 1.0,
-        sizeMultOverride: null,
-        powerAuthMultOverride: null,
-        ownershipMultOverride: null,
-        tierMultOverride: null,
-        capRateOverride: null,
-        exitCapRateOverride: null,
-        terminalGrowthOverride: null,
+        sizeMultiplier: fd.sizeMultiplier?.auto ?? 1.0,
+        powerAuthority: fd.powerAuthority?.auto ?? 1.0,
+        ownership: fd.ownership?.auto ?? 1.0,
+        datacenterTier: fd.datacenterTier?.auto ?? 1.0,
+        leaseStructure: fd.leaseStructure?.auto ?? 1.0,
+        tenantCredit: fd.tenantCredit?.auto ?? 1.0,
+        energization: fd.energization?.auto ?? 1.0,
+        fidoodleFactor: 1.0,
       });
       setHasChanges(true);
     }
@@ -300,23 +275,39 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const formatMoney = (value: number | null) => {
-    if (value === null || value === undefined) return '-';
-    return `$${value.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`;
-  };
+  // Calculate live valuation based on current slider values
+  const calculateLiveValuation = () => {
+    if (!data) return { combinedFactor: 1, adjustedValue: 0, baseValue: 0, terminalValue: 0 };
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '-';
-    try {
-      return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    } catch {
-      return dateStr;
-    }
+    const combinedFactor =
+      (factorOverrides.phaseProbability || 1) *
+      (factorOverrides.regulatoryRisk || 1) *
+      (factorOverrides.sizeMultiplier || 1) *
+      (factorOverrides.powerAuthority || 1) *
+      (factorOverrides.ownership || 1) *
+      (factorOverrides.datacenterTier || 1) *
+      (factorOverrides.leaseStructure || 1) *
+      (factorOverrides.tenantCredit || 1) *
+      (factorOverrides.energization || 1) *
+      (factorOverrides.fidoodleFactor || 1);
+
+    const baseValue = data.valuation?.results?.baseValueM ?? 0;
+    const terminalValue = data.valuation?.results?.terminalValueM ?? 0;
+    const grossValue = baseValue + terminalValue;
+    const adjustedValue = grossValue * combinedFactor;
+
+    return {
+      combinedFactor: isFinite(combinedFactor) ? combinedFactor : 1,
+      adjustedValue: isFinite(adjustedValue) ? adjustedValue : 0,
+      baseValue,
+      terminalValue,
+      grossValue: isFinite(grossValue) ? grossValue : 0,
+    };
   };
 
   if (isLoading) {
     return (
-      <div className="fixed inset-y-0 right-0 w-[500px] bg-gray-900 border-l border-gray-700 shadow-2xl flex items-center justify-center z-50">
+      <div className="fixed inset-y-0 right-0 w-[520px] bg-gray-900 border-l border-gray-700 shadow-2xl flex items-center justify-center z-50">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500" />
       </div>
     );
@@ -324,7 +315,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
 
   if (error || !data) {
     return (
-      <div className="fixed inset-y-0 right-0 w-[500px] bg-gray-900 border-l border-gray-700 shadow-2xl z-50 p-4">
+      <div className="fixed inset-y-0 right-0 w-[520px] bg-gray-900 border-l border-gray-700 shadow-2xl z-50 p-4">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold text-red-400">Error Loading</h2>
           <button onClick={onClose} className="p-1 hover:bg-gray-700 rounded">
@@ -342,30 +333,21 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
   const site = data.site || {};
   const campus = data.campus || {};
   const leaseDetails = data.leaseDetails || {};
-  const remainingLeaseYears = data.remainingLeaseYears ?? 0;
-  const combinedFactor = data.combinedFactor ?? 1;
-
-  // Safe factor details with defaults
   const factorDetails = data.factorDetails || {};
 
-  // Safe valuation with defaults
-  const valuation = data.valuation || {
-    inputs: { capRate: 0.075, exitCapRate: 0.08, terminalGrowthRate: 0.025 },
-    calculation: {},
-    results: { baseValueM: 0, terminalValueM: 0, grossValueM: 0, adjustedValueM: 0 },
-  };
+  const liveValuation = calculateLiveValuation();
 
   return (
     <div className="fixed inset-y-0 right-0 w-[520px] bg-gray-900 border-l border-gray-700 shadow-2xl z-50 flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex-shrink-0 p-4 border-b border-gray-700 bg-gray-800">
+      {/* Header with Building Info */}
+      <div className="flex-shrink-0 p-3 border-b border-gray-700 bg-gray-800">
         <div className="flex justify-between items-start">
           <div>
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-              <Building2 className="h-5 w-5 text-orange-500" />
+            <h2 className="text-base font-semibold text-white flex items-center gap-2">
+              <Building2 className="h-4 w-4 text-orange-500" />
               {building.name || 'Building'}
             </h2>
-            <div className="flex items-center gap-2 mt-1 text-sm text-gray-400">
+            <div className="flex items-center gap-1.5 mt-0.5 text-xs text-gray-400">
               <MapPin className="h-3 w-3" />
               <span>{site.name || 'Site'}</span>
               <span className="text-gray-600">•</span>
@@ -376,24 +358,25 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
             <X className="h-5 w-5 text-gray-400" />
           </button>
         </div>
+      </div>
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-4 gap-3 mt-4">
-          <div className="bg-gray-700/50 rounded px-2 py-1.5">
-            <div className="text-xs text-gray-500">Gross MW</div>
-            <div className="text-sm font-medium text-white">{building.grossMw || '-'}</div>
+      {/* Sticky Valuation Summary */}
+      <div className="flex-shrink-0 p-3 bg-gray-850 border-b border-gray-700 bg-gradient-to-r from-gray-800 to-gray-900">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-orange-500" />
+            <span className="text-sm font-medium text-gray-300">Valuation</span>
+            <span className="text-xs text-gray-500">
+              ({safeToFixed(liveValuation.combinedFactor, 3)}x factor)
+            </span>
           </div>
-          <div className="bg-gray-700/50 rounded px-2 py-1.5">
-            <div className="text-xs text-gray-500">Phase</div>
-            <div className="text-sm font-medium text-white">{building.developmentPhase || '-'}</div>
-          </div>
-          <div className="bg-gray-700/50 rounded px-2 py-1.5">
-            <div className="text-xs text-gray-500">Grid</div>
-            <div className="text-sm font-medium text-white">{building.grid || '-'}</div>
-          </div>
-          <div className="bg-gray-700/50 rounded px-2 py-1.5">
-            <div className="text-xs text-gray-500">Site Total</div>
-            <div className="text-sm font-medium text-white">{Math.round(site.totalMw || 0)} MW</div>
+          <div className="text-right">
+            <div className="text-2xl font-bold text-orange-400">
+              {formatMoney(liveValuation.adjustedValue)}
+            </div>
+            <div className="text-[10px] text-gray-500">
+              Base: {formatMoney(liveValuation.baseValue)} + Terminal: {formatMoney(liveValuation.terminalValue)}
+            </div>
           </div>
         </div>
       </div>
@@ -416,54 +399,50 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
             )}
           </button>
           {expandedSections.lease && (
-            <div className="px-4 pb-4 space-y-2">
-              <div className="grid grid-cols-2 gap-3">
+            <div className="px-4 pb-4">
+              <div className="grid grid-cols-3 gap-x-4 gap-y-2 text-xs">
                 <div>
-                  <div className="text-xs text-gray-500">Tenant</div>
-                  <div className="text-sm text-white">{leaseDetails.tenant || '-'}</div>
+                  <div className="text-gray-500">Tenant</div>
+                  <div className="text-white font-medium">{leaseDetails.tenant || '-'}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">Structure</div>
-                  <div className="text-sm text-white">{leaseDetails.leaseStructure}</div>
+                  <div className="text-gray-500">Structure</div>
+                  <div className="text-white font-medium">{leaseDetails.leaseStructure || 'NNN'}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">Lease Value</div>
-                  <div className="text-sm text-white">{formatMoney(leaseDetails.leaseValueM)}</div>
+                  <div className="text-gray-500">Term</div>
+                  <div className="text-white font-medium">{leaseDetails.leaseYears ? `${leaseDetails.leaseYears} yrs` : '-'}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">Lease Term</div>
-                  <div className="text-sm text-white">{leaseDetails.leaseYears ? `${leaseDetails.leaseYears} yrs` : '-'}</div>
+                  <div className="text-gray-500">Lease Value</div>
+                  <div className="text-white">{formatMoney(leaseDetails.leaseValueM)}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">Annual Revenue</div>
-                  <div className="text-sm text-white">{formatMoney(leaseDetails.annualRevM)}</div>
+                  <div className="text-gray-500">Annual Rev</div>
+                  <div className="text-white">{formatMoney(leaseDetails.annualRevM)}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">NOI %</div>
-                  <div className="text-sm text-white">{leaseDetails.noiPct ? `${(leaseDetails.noiPct * 100).toFixed(1)}%` : '-'}</div>
+                  <div className="text-gray-500">NOI %</div>
+                  <div className="text-white">{leaseDetails.noiPct ? formatPercent(leaseDetails.noiPct) : '-'}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">Annual NOI</div>
-                  <div className="text-sm text-green-400 font-medium">{formatMoney(leaseDetails.noiAnnualM)}</div>
+                  <div className="text-gray-500">Annual NOI</div>
+                  <div className="text-green-400 font-medium">{formatMoney(leaseDetails.noiAnnualM)}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">Remaining Term</div>
-                  <div className="text-sm text-white">{remainingLeaseYears ? `${remainingLeaseYears.toFixed(1)} yrs` : '-'}</div>
+                  <div className="text-gray-500">Start</div>
+                  <div className="text-white">{formatDate(leaseDetails.leaseStart)}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-500">Lease Start</div>
-                  <div className="text-sm text-white">{formatDate(leaseDetails.leaseStart)}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500">Lease End</div>
-                  <div className="text-sm text-white">{formatDate(leaseDetails.leaseEnd)}</div>
+                  <div className="text-gray-500">End</div>
+                  <div className="text-white">{formatDate(leaseDetails.leaseEnd)}</div>
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Factors Section */}
+        {/* Adjustment Factors Section */}
         <div className="border-b border-gray-700">
           <button
             onClick={() => toggleSection('factors')}
@@ -471,173 +450,144 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
           >
             <div className="flex items-center gap-2">
               {expandedSections.factors ? <ChevronDown className="h-4 w-4 text-gray-500" /> : <ChevronRight className="h-4 w-4 text-gray-500" />}
-              <Percent className="h-4 w-4 text-blue-500" />
               <span className="text-sm font-medium text-gray-200">Adjustment Factors</span>
             </div>
-            <span className="text-sm text-blue-400">{safeToFixed(combinedFactor, 4)}x combined</span>
           </button>
           {expandedSections.factors && (
-            <div className="px-2 pb-3">
-              <FactorRow
+            <div className="px-4 pb-4">
+              <SliderRow
                 label="Phase Probability"
                 autoValue={factorDetails.phaseProbability?.auto ?? 0.5}
-                overrideValue={factorOverrides.probabilityOverride}
-                finalValue={factorOverrides.probabilityOverride ?? factorDetails.phaseProbability?.auto ?? 0.5}
-                description={`Based on ${factorDetails.phase || 'unknown'} phase`}
-                onOverrideChange={(v) => handleFactorChange('probabilityOverride', v)}
-                asPercent
+                currentValue={factorOverrides.phaseProbability ?? 0.5}
+                onChange={(v) => handleFactorChange('phaseProbability', v)}
+                min={0}
+                max={1}
+                step={0.01}
+                format={formatPercent}
+                description={factorDetails.phase || 'phase'}
               />
-              <FactorRow
+              <SliderRow
                 label="Regulatory Risk"
                 autoValue={1.0}
-                overrideValue={factorOverrides.regulatoryRisk !== 1.0 ? factorOverrides.regulatoryRisk : null}
-                finalValue={factorOverrides.regulatoryRisk ?? 1.0}
-                description="1.0 = no risk, 0.0 = blocked"
-                onOverrideChange={(v) => handleFactorChange('regulatoryRisk', v ?? 1.0)}
-                asPercent
+                currentValue={factorOverrides.regulatoryRisk ?? 1.0}
+                onChange={(v) => handleFactorChange('regulatoryRisk', v)}
+                min={0.5}
+                max={1.5}
+                step={0.01}
+                format={formatMultiplier}
+                description="0.5x=blocked, 1.5x=favorable"
               />
-              <FactorRow
+              <SliderRow
                 label="Size Multiplier"
                 autoValue={factorDetails.sizeMultiplier?.auto ?? 1.0}
-                overrideValue={factorOverrides.sizeMultOverride}
-                finalValue={factorOverrides.sizeMultOverride ?? factorDetails.sizeMultiplier?.auto ?? 1.0}
-                description={`Site total: ${Math.round(factorDetails.sizeMultiplier?.siteTotalMw ?? 0)} MW`}
-                onOverrideChange={(v) => handleFactorChange('sizeMultOverride', v)}
+                currentValue={factorOverrides.sizeMultiplier ?? 1.0}
+                onChange={(v) => handleFactorChange('sizeMultiplier', v)}
+                min={0.8}
+                max={1.2}
+                step={0.01}
+                format={formatMultiplier}
+                description={`${Math.round(factorDetails.sizeMultiplier?.siteTotalMw ?? 0)} MW site`}
               />
-              <FactorRow
+              <SliderRow
                 label="Power Authority"
                 autoValue={factorDetails.powerAuthority?.auto ?? 1.0}
-                overrideValue={factorOverrides.powerAuthMultOverride}
-                finalValue={factorOverrides.powerAuthMultOverride ?? factorDetails.powerAuthority?.auto ?? 1.0}
-                description={factorDetails.powerAuthority?.grid || 'Unknown grid'}
-                onOverrideChange={(v) => handleFactorChange('powerAuthMultOverride', v)}
+                currentValue={factorOverrides.powerAuthority ?? 1.0}
+                onChange={(v) => handleFactorChange('powerAuthority', v)}
+                min={0.8}
+                max={1.2}
+                step={0.01}
+                format={formatMultiplier}
+                description={factorDetails.powerAuthority?.grid || 'grid'}
               />
-              <FactorRow
+              <SliderRow
                 label="Ownership"
                 autoValue={factorDetails.ownership?.auto ?? 1.0}
-                overrideValue={factorOverrides.ownershipMultOverride}
-                finalValue={factorOverrides.ownershipMultOverride ?? factorDetails.ownership?.auto ?? 1.0}
-                description={factorDetails.ownership?.status || 'Unknown'}
-                onOverrideChange={(v) => handleFactorChange('ownershipMultOverride', v)}
+                currentValue={factorOverrides.ownership ?? 1.0}
+                onChange={(v) => handleFactorChange('ownership', v)}
+                min={0.8}
+                max={1.1}
+                step={0.01}
+                format={formatMultiplier}
+                description={factorDetails.ownership?.status || 'owned'}
               />
-              <FactorRow
+              <SliderRow
                 label="Datacenter Tier"
                 autoValue={factorDetails.datacenterTier?.auto ?? 1.0}
-                overrideValue={factorOverrides.tierMultOverride}
-                finalValue={factorOverrides.tierMultOverride ?? factorDetails.datacenterTier?.auto ?? 1.0}
-                description={factorDetails.datacenterTier?.tier || 'TIER_III'}
-                onOverrideChange={(v) => handleFactorChange('tierMultOverride', v)}
+                currentValue={factorOverrides.datacenterTier ?? 1.0}
+                onChange={(v) => handleFactorChange('datacenterTier', v)}
+                min={0.85}
+                max={1.15}
+                step={0.01}
+                format={formatMultiplier}
+                description={factorDetails.datacenterTier?.tier || 'Tier III'}
               />
-              <FactorRow
+              <SliderRow
                 label="Lease Structure"
                 autoValue={factorDetails.leaseStructure?.auto ?? 1.0}
-                overrideValue={null}
-                finalValue={factorDetails.leaseStructure?.final ?? 1.0}
+                currentValue={factorOverrides.leaseStructure ?? 1.0}
+                onChange={(v) => handleFactorChange('leaseStructure', v)}
+                min={0.9}
+                max={1.05}
+                step={0.01}
+                format={formatMultiplier}
                 description={factorDetails.leaseStructure?.structure || 'NNN'}
-                editable={false}
               />
-              <FactorRow
+              <SliderRow
                 label="Tenant Credit"
                 autoValue={factorDetails.tenantCredit?.auto ?? 1.0}
-                overrideValue={null}
-                finalValue={factorDetails.tenantCredit?.final ?? 1.0}
-                description={factorDetails.tenantCredit?.tenant || 'No tenant'}
-                editable={false}
+                currentValue={factorOverrides.tenantCredit ?? 1.0}
+                onChange={(v) => handleFactorChange('tenantCredit', v)}
+                min={0.85}
+                max={1.05}
+                step={0.01}
+                format={formatMultiplier}
+                description={factorDetails.tenantCredit?.tenant || 'no tenant'}
               />
-              <FactorRow
+              <SliderRow
                 label="Energization"
                 autoValue={factorDetails.energization?.auto ?? 1.0}
-                overrideValue={null}
-                finalValue={factorDetails.energization?.final ?? 1.0}
-                description={factorDetails.energization?.date ? formatDate(factorDetails.energization.date) : 'No date'}
-                editable={false}
+                currentValue={factorOverrides.energization ?? 1.0}
+                onChange={(v) => handleFactorChange('energization', v)}
+                min={0.8}
+                max={1.1}
+                step={0.01}
+                format={formatMultiplier}
+                description={factorDetails.energization?.date ? formatDate(factorDetails.energization.date) : 'no date'}
               />
-              <div className="border-t border-gray-700 mt-2 pt-2">
-                <FactorRow
-                  label="Fidoodle Factor"
+              <div className="mt-3 pt-3 border-t border-gray-700">
+                <SliderRow
+                  label="Custom Adjustment"
                   autoValue={1.0}
-                  overrideValue={factorOverrides.fidoodleFactor !== 1.0 ? factorOverrides.fidoodleFactor : null}
-                  finalValue={factorOverrides.fidoodleFactor ?? 1.0}
-                  description="Custom site-specific adjustment"
-                  onOverrideChange={(v) => handleFactorChange('fidoodleFactor', v ?? 1.0)}
+                  currentValue={factorOverrides.fidoodleFactor ?? 1.0}
+                  onChange={(v) => handleFactorChange('fidoodleFactor', v)}
+                  min={0.5}
+                  max={2.0}
+                  step={0.01}
+                  format={formatMultiplier}
+                  description="manual override"
                 />
               </div>
             </div>
           )}
         </div>
 
-        {/* Valuation Section */}
-        <div className="border-b border-gray-700">
-          <button
-            onClick={() => toggleSection('valuation')}
-            className="w-full flex items-center justify-between p-3 hover:bg-gray-800/50"
-          >
-            <div className="flex items-center gap-2">
-              {expandedSections.valuation ? <ChevronDown className="h-4 w-4 text-gray-500" /> : <ChevronRight className="h-4 w-4 text-gray-500" />}
-              <TrendingUp className="h-4 w-4 text-orange-500" />
-              <span className="text-sm font-medium text-gray-200">Valuation</span>
+        {/* Valuation Methodology (collapsed by default, read-only) */}
+        <div className="px-4 py-3">
+          <div className="text-xs text-gray-500 mb-2">Valuation Methodology</div>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className="bg-gray-800 rounded px-2 py-1.5">
+              <div className="text-gray-500">Cap Rate</div>
+              <div className="text-white">{((data.valuation?.inputs?.capRate ?? 0.075) * 100).toFixed(2)}%</div>
             </div>
-            <span className="text-lg font-bold text-orange-400">{formatMoney(valuation.results?.adjustedValueM ?? 0)}</span>
-          </button>
-          {expandedSections.valuation && (
-            <div className="px-4 pb-4">
-              {/* Inputs */}
-              <div className="mb-3">
-                <div className="text-xs text-gray-500 mb-2">Valuation Inputs</div>
-                <div className="grid grid-cols-3 gap-2 text-xs">
-                  <div className="bg-gray-800 rounded px-2 py-1.5">
-                    <div className="text-gray-500">Cap Rate</div>
-                    <div className="text-white">{((valuation.inputs?.capRate ?? 0.075) * 100).toFixed(2)}%</div>
-                  </div>
-                  <div className="bg-gray-800 rounded px-2 py-1.5">
-                    <div className="text-gray-500">Exit Cap</div>
-                    <div className="text-white">{((valuation.inputs?.exitCapRate ?? 0.08) * 100).toFixed(2)}%</div>
-                  </div>
-                  <div className="bg-gray-800 rounded px-2 py-1.5">
-                    <div className="text-gray-500">Growth</div>
-                    <div className="text-white">{((valuation.inputs?.terminalGrowthRate ?? 0.025) * 100).toFixed(1)}%</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Calculation Steps */}
-              <div className="space-y-2 text-xs">
-                {Object.entries(valuation.calculation || {}).map(([key, step]: [string, any]) => (
-                  <div key={key} className="flex justify-between items-center py-1 border-b border-gray-800">
-                    <div>
-                      <div className="text-gray-300">{step?.description || key}</div>
-                      {step?.formula && <div className="text-gray-500 text-[10px]">{step.formula}</div>}
-                    </div>
-                    <div className="text-right font-mono text-gray-200">
-                      {formatMoney(step?.value ?? 0)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Results Summary */}
-              <div className="mt-4 bg-gray-800 rounded-lg p-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <div className="text-xs text-gray-500">Base Value</div>
-                    <div className="text-lg font-medium text-white">{formatMoney(valuation.results?.baseValueM ?? 0)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500">Terminal Value</div>
-                    <div className="text-lg font-medium text-white">{formatMoney(valuation.results?.terminalValueM ?? 0)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500">Gross Value</div>
-                    <div className="text-lg font-medium text-white">{formatMoney(valuation.results?.grossValueM ?? 0)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500">Adjusted Value</div>
-                    <div className="text-xl font-bold text-orange-400">{formatMoney(valuation.results?.adjustedValueM ?? 0)}</div>
-                  </div>
-                </div>
-              </div>
+            <div className="bg-gray-800 rounded px-2 py-1.5">
+              <div className="text-gray-500">Exit Cap</div>
+              <div className="text-white">{((data.valuation?.inputs?.exitCapRate ?? 0.08) * 100).toFixed(2)}%</div>
             </div>
-          )}
+            <div className="bg-gray-800 rounded px-2 py-1.5">
+              <div className="text-gray-500">Growth</div>
+              <div className="text-white">{((data.valuation?.inputs?.terminalGrowthRate ?? 0.025) * 100).toFixed(1)}%</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -645,11 +595,11 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       {hasChanges && (
         <div className="flex-shrink-0 p-3 border-t border-gray-700 bg-gray-800 flex justify-between items-center">
           <button
-            onClick={handleReset}
+            onClick={handleResetAll}
             className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200"
           >
             <RotateCcw className="h-4 w-4" />
-            Reset
+            Reset All
           </button>
           <button
             onClick={handleSave}
