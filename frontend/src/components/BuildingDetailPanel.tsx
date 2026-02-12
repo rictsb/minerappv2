@@ -329,8 +329,12 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
   const handleSave = () => {
     const fd = data?.factorDetails || {};
 
+    // Calculate Annual Rev from Lease Value / Term
+    const leaseVal = parseFloat(leaseEdits.leaseValueM) || 0;
+    const years = parseFloat(leaseEdits.leaseYears) || 1;
+    const annualRev = leaseVal / Math.max(years, 0.1);
+
     // Calculate NOI from Annual Rev × NOI %
-    const annualRev = parseFloat(leaseEdits.annualRevM) || 0;
     const noiPct = parseFloat(leaseEdits.noiPct) || 0;
     const calculatedNoi = annualRev * (noiPct / 100);
 
@@ -422,15 +426,19 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       (factorOverrides.energization || 1) *
       (factorOverrides.fidoodleFactor || 1);
 
+    // Calculate Annual Rev from Lease Value / Term
+    const leaseVal = parseFloat(leaseEdits.leaseValueM) || 0;
+    const leaseYearsVal = leaseEdits.leaseYears ? parseFloat(leaseEdits.leaseYears) : (data.remainingLeaseYears || 10);
+    const annualRev = leaseVal / Math.max(leaseYearsVal, 0.1);
+
     // Calculate NOI from Annual Rev × NOI %
-    const annualRev = parseFloat(leaseEdits.annualRevM) || 0;
     const noiPct = parseFloat(leaseEdits.noiPct) || 0;
     const noiAnnual = annualRev * (noiPct / 100);
     const capRate = valInputEdits.capRate ? parseFloat(valInputEdits.capRate) / 100 : 0.075;
     const exitCapRate = valInputEdits.exitCapRate ? parseFloat(valInputEdits.exitCapRate) / 100 : 0.08;
     const terminalGrowthRate = valInputEdits.terminalGrowthRate ? parseFloat(valInputEdits.terminalGrowthRate) / 100 : 0.025;
     const discountRate = data.valuation?.inputs?.discountRate || 0.10;
-    const leaseYears = leaseEdits.leaseYears ? parseFloat(leaseEdits.leaseYears) : (data.remainingLeaseYears || 10);
+    const leaseYears = leaseYearsVal;
     const renewalProbability = data.globalFactors?.renewalProbability || 0.75;
 
     // Base Value = NOI / Cap Rate
@@ -575,13 +583,17 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                   type="number"
                   step="0.1"
                 />
-                <EditableField
-                  label="Annual Rev ($M)"
-                  value={leaseEdits.annualRevM}
-                  onChange={(v) => handleLeaseChange('annualRevM', v)}
-                  type="number"
-                  step="0.1"
-                />
+                <div>
+                  <div className="text-[10px] text-gray-500 mb-0.5">Annual Rev ($M) — calculated</div>
+                  <div className="bg-gray-800/50 border border-gray-700 rounded px-2 py-1 text-xs text-blue-400 font-medium">
+                    {(() => {
+                      const leaseVal = parseFloat(leaseEdits.leaseValueM) || 0;
+                      const years = parseFloat(leaseEdits.leaseYears) || 1;
+                      const annualRev = leaseVal / Math.max(years, 0.1);
+                      return `$${annualRev.toFixed(2)}M`;
+                    })()}
+                  </div>
+                </div>
                 <EditableField
                   label="NOI %"
                   value={leaseEdits.noiPct}
@@ -591,12 +603,14 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                   suffix="%"
                 />
                 <div className="col-span-3 bg-gray-800/50 rounded p-2">
-                  <div className="text-[10px] text-gray-500 mb-0.5">Annual NOI ($M) — calculated: Annual Rev × NOI %</div>
+                  <div className="text-[10px] text-gray-500 mb-0.5">Annual NOI ($M) — calculated: (Lease Value ÷ Term) × NOI %</div>
                   <div className="text-lg font-bold text-green-400">
                     {(() => {
-                      const rev = parseFloat(leaseEdits.annualRevM) || 0;
+                      const leaseVal = parseFloat(leaseEdits.leaseValueM) || 0;
+                      const years = parseFloat(leaseEdits.leaseYears) || 1;
+                      const annualRev = leaseVal / Math.max(years, 0.1);
                       const pct = parseFloat(leaseEdits.noiPct) || 0;
-                      const noi = rev * (pct / 100);
+                      const noi = annualRev * (pct / 100);
                       return formatMoney(noi);
                     })()}
                   </div>
