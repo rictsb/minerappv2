@@ -88,7 +88,6 @@ async function main() {
       state: 'Texas',
       latitude: 31.3654,
       longitude: -101.4846,
-      includeInValuation: true,
     },
   });
 
@@ -121,10 +120,8 @@ async function main() {
       tenant: 'MARA (self)',
       startDate: new Date('2023-06-01'),
       isCurrent: true,
-      powerCostKwh: 0.042,
-      curtailmentPct: 0.05,
-      nonpowerOpexMwMo: 4500,
-      efficiencyJth: 20,
+      miningPowerCostKwh: 0.042,
+      miningEfficiencyJth: 20,
     },
   });
 

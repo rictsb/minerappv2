@@ -365,7 +365,7 @@ export default function Projects() {
     setEditingBuilding(row.id);
     setEditFormData({
       developmentPhase: row.phase,
-      probabilityOverride: row.probabilityOverride !== null ? (row.probabilityOverride * 100).toString() : '',
+      probabilityOverride: row.probabilityOverride != null ? (row.probabilityOverride * 100).toString() : '',
       grossMw: row.grossMw?.toString() || '',
       itMw: row.itMw?.toString() || '',
       pue: row.pue?.toString() || '',
