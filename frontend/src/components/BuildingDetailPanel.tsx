@@ -186,17 +186,22 @@ export default function BuildingDetailPanel({ buildingId, onClose }: BuildingDet
 
   useEffect(() => {
     if (data) {
+      const fd = data.factorDetails || {};
+      const gf = data.globalFactors || {};
+      const val = data.valuation || { inputs: {} };
+      const bld = data.building || {};
+
       setFactorOverrides({
-        fidoodleFactor: data.building.fidoodleFactor,
-        probabilityOverride: data.factorDetails.phaseProbability.override,
-        regulatoryRisk: data.factorDetails.regulatoryRisk.value,
-        sizeMultOverride: data.factorDetails.sizeMultiplier.override,
-        powerAuthMultOverride: data.factorDetails.powerAuthority.override,
-        ownershipMultOverride: data.factorDetails.ownership.override,
-        tierMultOverride: data.factorDetails.datacenterTier.override,
-        capRateOverride: data.valuation.inputs.capRate !== data.globalFactors.hpcCapRate ? data.valuation.inputs.capRate : null,
-        exitCapRateOverride: data.valuation.inputs.exitCapRate !== data.globalFactors.hpcExitCapRate ? data.valuation.inputs.exitCapRate : null,
-        terminalGrowthOverride: data.valuation.inputs.terminalGrowthRate !== data.globalFactors.terminalGrowthRate ? data.valuation.inputs.terminalGrowthRate : null,
+        fidoodleFactor: bld.fidoodleFactor ?? 1.0,
+        probabilityOverride: fd.phaseProbability?.override ?? null,
+        regulatoryRisk: fd.regulatoryRisk?.value ?? 1.0,
+        sizeMultOverride: fd.sizeMultiplier?.override ?? null,
+        powerAuthMultOverride: fd.powerAuthority?.override ?? null,
+        ownershipMultOverride: fd.ownership?.override ?? null,
+        tierMultOverride: fd.datacenterTier?.override ?? null,
+        capRateOverride: (val.inputs?.capRate && val.inputs.capRate !== gf.hpcCapRate) ? val.inputs.capRate : null,
+        exitCapRateOverride: (val.inputs?.exitCapRate && val.inputs.exitCapRate !== gf.hpcExitCapRate) ? val.inputs.exitCapRate : null,
+        terminalGrowthOverride: (val.inputs?.terminalGrowthRate && val.inputs.terminalGrowthRate !== gf.terminalGrowthRate) ? val.inputs.terminalGrowthRate : null,
       });
     }
   }, [data]);
@@ -264,11 +269,28 @@ export default function BuildingDetailPanel({ buildingId, onClose }: BuildingDet
           </button>
         </div>
         <p className="text-gray-400">Failed to load building valuation details.</p>
+        {error && <p className="text-red-400 text-xs mt-2">{String(error)}</p>}
       </div>
     );
   }
 
-  const { building, site, campus, leaseDetails, remainingLeaseYears, factorDetails, combinedFactor, valuation } = data;
+  // Safely extract data with defaults
+  const building = data.building || {};
+  const site = data.site || {};
+  const campus = data.campus || {};
+  const leaseDetails = data.leaseDetails || {};
+  const remainingLeaseYears = data.remainingLeaseYears ?? 0;
+  const combinedFactor = data.combinedFactor ?? 1;
+
+  // Safe factor details with defaults
+  const factorDetails = data.factorDetails || {};
+
+  // Safe valuation with defaults
+  const valuation = data.valuation || {
+    inputs: { capRate: 0.075, exitCapRate: 0.08, terminalGrowthRate: 0.025 },
+    calculation: {},
+    results: { baseValueM: 0, terminalValueM: 0, grossValueM: 0, adjustedValueM: 0 },
+  };
 
   return (
     <div className="fixed inset-y-0 right-0 w-[520px] bg-gray-900 border-l border-gray-700 shadow-2xl z-50 flex flex-col overflow-hidden">
@@ -278,13 +300,13 @@ export default function BuildingDetailPanel({ buildingId, onClose }: BuildingDet
           <div>
             <h2 className="text-lg font-semibold text-white flex items-center gap-2">
               <Building2 className="h-5 w-5 text-orange-500" />
-              {building.name}
+              {building.name || 'Building'}
             </h2>
             <div className="flex items-center gap-2 mt-1 text-sm text-gray-400">
               <MapPin className="h-3 w-3" />
-              <span>{site.name}</span>
+              <span>{site.name || 'Site'}</span>
               <span className="text-gray-600">•</span>
-              <span>{campus.name}</span>
+              <span>{campus.name || 'Campus'}</span>
             </div>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-gray-700 rounded">
@@ -300,7 +322,7 @@ export default function BuildingDetailPanel({ buildingId, onClose }: BuildingDet
           </div>
           <div className="bg-gray-700/50 rounded px-2 py-1.5">
             <div className="text-xs text-gray-500">Phase</div>
-            <div className="text-sm font-medium text-white">{building.developmentPhase}</div>
+            <div className="text-sm font-medium text-white">{building.developmentPhase || '-'}</div>
           </div>
           <div className="bg-gray-700/50 rounded px-2 py-1.5">
             <div className="text-xs text-gray-500">Grid</div>
@@ -308,7 +330,7 @@ export default function BuildingDetailPanel({ buildingId, onClose }: BuildingDet
           </div>
           <div className="bg-gray-700/50 rounded px-2 py-1.5">
             <div className="text-xs text-gray-500">Site Total</div>
-            <div className="text-sm font-medium text-white">{Math.round(site.totalMw)} MW</div>
+            <div className="text-sm font-medium text-white">{Math.round(site.totalMw || 0)} MW</div>
           </div>
         </div>
       </div>
@@ -395,10 +417,10 @@ export default function BuildingDetailPanel({ buildingId, onClose }: BuildingDet
             <div className="px-2 pb-3">
               <FactorRow
                 label="Phase Probability"
-                autoValue={factorDetails.phaseProbability.auto}
+                autoValue={factorDetails.phaseProbability?.auto ?? 0.5}
                 overrideValue={factorOverrides.probabilityOverride}
-                finalValue={factorOverrides.probabilityOverride ?? factorDetails.phaseProbability.auto}
-                description={`Based on ${factorDetails.phase} phase`}
+                finalValue={factorOverrides.probabilityOverride ?? factorDetails.phaseProbability?.auto ?? 0.5}
+                description={`Based on ${factorDetails.phase || 'unknown'} phase`}
                 onOverrideChange={(v) => handleFactorChange('probabilityOverride', v)}
                 asPercent
               />
@@ -413,58 +435,58 @@ export default function BuildingDetailPanel({ buildingId, onClose }: BuildingDet
               />
               <FactorRow
                 label="Size Multiplier"
-                autoValue={factorDetails.sizeMultiplier.auto}
+                autoValue={factorDetails.sizeMultiplier?.auto ?? 1.0}
                 overrideValue={factorOverrides.sizeMultOverride}
-                finalValue={factorOverrides.sizeMultOverride ?? factorDetails.sizeMultiplier.auto}
-                description={`Site total: ${Math.round(factorDetails.sizeMultiplier.siteTotalMw)} MW`}
+                finalValue={factorOverrides.sizeMultOverride ?? factorDetails.sizeMultiplier?.auto ?? 1.0}
+                description={`Site total: ${Math.round(factorDetails.sizeMultiplier?.siteTotalMw ?? 0)} MW`}
                 onOverrideChange={(v) => handleFactorChange('sizeMultOverride', v)}
               />
               <FactorRow
                 label="Power Authority"
-                autoValue={factorDetails.powerAuthority.auto}
+                autoValue={factorDetails.powerAuthority?.auto ?? 1.0}
                 overrideValue={factorOverrides.powerAuthMultOverride}
-                finalValue={factorOverrides.powerAuthMultOverride ?? factorDetails.powerAuthority.auto}
-                description={factorDetails.powerAuthority.grid || 'Unknown grid'}
+                finalValue={factorOverrides.powerAuthMultOverride ?? factorDetails.powerAuthority?.auto ?? 1.0}
+                description={factorDetails.powerAuthority?.grid || 'Unknown grid'}
                 onOverrideChange={(v) => handleFactorChange('powerAuthMultOverride', v)}
               />
               <FactorRow
                 label="Ownership"
-                autoValue={factorDetails.ownership.auto}
+                autoValue={factorDetails.ownership?.auto ?? 1.0}
                 overrideValue={factorOverrides.ownershipMultOverride}
-                finalValue={factorOverrides.ownershipMultOverride ?? factorDetails.ownership.auto}
-                description={factorDetails.ownership.status || 'Unknown'}
+                finalValue={factorOverrides.ownershipMultOverride ?? factorDetails.ownership?.auto ?? 1.0}
+                description={factorDetails.ownership?.status || 'Unknown'}
                 onOverrideChange={(v) => handleFactorChange('ownershipMultOverride', v)}
               />
               <FactorRow
                 label="Datacenter Tier"
-                autoValue={factorDetails.datacenterTier.auto}
+                autoValue={factorDetails.datacenterTier?.auto ?? 1.0}
                 overrideValue={factorOverrides.tierMultOverride}
-                finalValue={factorOverrides.tierMultOverride ?? factorDetails.datacenterTier.auto}
-                description={factorDetails.datacenterTier.tier}
+                finalValue={factorOverrides.tierMultOverride ?? factorDetails.datacenterTier?.auto ?? 1.0}
+                description={factorDetails.datacenterTier?.tier || 'TIER_III'}
                 onOverrideChange={(v) => handleFactorChange('tierMultOverride', v)}
               />
               <FactorRow
                 label="Lease Structure"
-                autoValue={factorDetails.leaseStructure.auto}
+                autoValue={factorDetails.leaseStructure?.auto ?? 1.0}
                 overrideValue={null}
-                finalValue={factorDetails.leaseStructure.final}
-                description={factorDetails.leaseStructure.structure}
+                finalValue={factorDetails.leaseStructure?.final ?? 1.0}
+                description={factorDetails.leaseStructure?.structure || 'NNN'}
                 editable={false}
               />
               <FactorRow
                 label="Tenant Credit"
-                autoValue={factorDetails.tenantCredit.auto}
+                autoValue={factorDetails.tenantCredit?.auto ?? 1.0}
                 overrideValue={null}
-                finalValue={factorDetails.tenantCredit.final}
-                description={factorDetails.tenantCredit.tenant || 'No tenant'}
+                finalValue={factorDetails.tenantCredit?.final ?? 1.0}
+                description={factorDetails.tenantCredit?.tenant || 'No tenant'}
                 editable={false}
               />
               <FactorRow
                 label="Energization"
-                autoValue={factorDetails.energization.auto}
+                autoValue={factorDetails.energization?.auto ?? 1.0}
                 overrideValue={null}
-                finalValue={factorDetails.energization.final}
-                description={factorDetails.energization.date ? formatDate(factorDetails.energization.date) : 'No date'}
+                finalValue={factorDetails.energization?.final ?? 1.0}
+                description={factorDetails.energization?.date ? formatDate(factorDetails.energization.date) : 'No date'}
                 editable={false}
               />
               <div className="border-t border-gray-700 mt-2 pt-2">
@@ -492,7 +514,7 @@ export default function BuildingDetailPanel({ buildingId, onClose }: BuildingDet
               <TrendingUp className="h-4 w-4 text-orange-500" />
               <span className="text-sm font-medium text-gray-200">Valuation</span>
             </div>
-            <span className="text-lg font-bold text-orange-400">{formatMoney(valuation.results.adjustedValueM)}</span>
+            <span className="text-lg font-bold text-orange-400">{formatMoney(valuation.results?.adjustedValueM ?? 0)}</span>
           </button>
           {expandedSections.valuation && (
             <div className="px-4 pb-4">
@@ -502,29 +524,29 @@ export default function BuildingDetailPanel({ buildingId, onClose }: BuildingDet
                 <div className="grid grid-cols-3 gap-2 text-xs">
                   <div className="bg-gray-800 rounded px-2 py-1.5">
                     <div className="text-gray-500">Cap Rate</div>
-                    <div className="text-white">{(valuation.inputs.capRate * 100).toFixed(2)}%</div>
+                    <div className="text-white">{((valuation.inputs?.capRate ?? 0.075) * 100).toFixed(2)}%</div>
                   </div>
                   <div className="bg-gray-800 rounded px-2 py-1.5">
                     <div className="text-gray-500">Exit Cap</div>
-                    <div className="text-white">{(valuation.inputs.exitCapRate * 100).toFixed(2)}%</div>
+                    <div className="text-white">{((valuation.inputs?.exitCapRate ?? 0.08) * 100).toFixed(2)}%</div>
                   </div>
                   <div className="bg-gray-800 rounded px-2 py-1.5">
                     <div className="text-gray-500">Growth</div>
-                    <div className="text-white">{(valuation.inputs.terminalGrowthRate * 100).toFixed(1)}%</div>
+                    <div className="text-white">{((valuation.inputs?.terminalGrowthRate ?? 0.025) * 100).toFixed(1)}%</div>
                   </div>
                 </div>
               </div>
 
               {/* Calculation Steps */}
               <div className="space-y-2 text-xs">
-                {Object.entries(valuation.calculation).map(([key, step]: [string, any]) => (
+                {Object.entries(valuation.calculation || {}).map(([key, step]: [string, any]) => (
                   <div key={key} className="flex justify-between items-center py-1 border-b border-gray-800">
                     <div>
-                      <div className="text-gray-300">{step.description}</div>
-                      {step.formula && <div className="text-gray-500 text-[10px]">{step.formula}</div>}
+                      <div className="text-gray-300">{step?.description || key}</div>
+                      {step?.formula && <div className="text-gray-500 text-[10px]">{step.formula}</div>}
                     </div>
                     <div className="text-right font-mono text-gray-200">
-                      {formatMoney(step.value)}
+                      {formatMoney(step?.value ?? 0)}
                     </div>
                   </div>
                 ))}
@@ -535,19 +557,19 @@ export default function BuildingDetailPanel({ buildingId, onClose }: BuildingDet
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <div className="text-xs text-gray-500">Base Value</div>
-                    <div className="text-lg font-medium text-white">{formatMoney(valuation.results.baseValueM)}</div>
+                    <div className="text-lg font-medium text-white">{formatMoney(valuation.results?.baseValueM ?? 0)}</div>
                   </div>
                   <div>
                     <div className="text-xs text-gray-500">Terminal Value</div>
-                    <div className="text-lg font-medium text-white">{formatMoney(valuation.results.terminalValueM)}</div>
+                    <div className="text-lg font-medium text-white">{formatMoney(valuation.results?.terminalValueM ?? 0)}</div>
                   </div>
                   <div>
                     <div className="text-xs text-gray-500">Gross Value</div>
-                    <div className="text-lg font-medium text-white">{formatMoney(valuation.results.grossValueM)}</div>
+                    <div className="text-lg font-medium text-white">{formatMoney(valuation.results?.grossValueM ?? 0)}</div>
                   </div>
                   <div>
                     <div className="text-xs text-gray-500">Adjusted Value</div>
-                    <div className="text-xl font-bold text-orange-400">{formatMoney(valuation.results.adjustedValueM)}</div>
+                    <div className="text-xl font-bold text-orange-400">{formatMoney(valuation.results?.adjustedValueM ?? 0)}</div>
                   </div>
                 </div>
               </div>
