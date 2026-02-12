@@ -665,6 +665,14 @@ app.get('/api/v1/valuation', async (req, res) => {
       },
     });
 
+    // Fetch Mining Valuations and Net Liquid Assets from their dedicated tables
+    const miningValuations = await prisma.miningValuation.findMany();
+    const netLiquidAssets = await prisma.netLiquidAssets.findMany();
+
+    // Create lookup maps by ticker
+    const miningByTicker = new Map(miningValuations.map((mv: any) => [mv.ticker, mv]));
+    const netLiquidByTicker = new Map(netLiquidAssets.map((nla: any) => [nla.ticker, nla]));
+
     // Helper function to get phase probability from factors
     const getPhaseProbability = (phase: string): number => {
       const phaseMap: Record<string, string> = {
@@ -748,10 +756,44 @@ app.get('/api/v1/valuation', async (req, res) => {
     };
 
     const valuations = companies.map((company: any) => {
-      // Net Liquid = Cash + BTC Value + ETH Value - Debt
-      const btcValue = (Number(company.btcCount) || 0) * (factors.btcPrice / 1000000);
-      const ethValue = (Number(company.ethHoldings) || 0);
-      const netLiquid = (Number(company.cashM) || 0) + btcValue + ethValue - (Number(company.debtM) || 0);
+      // Get Net Liquid from the Net Liquid Assets table
+      const nlaRecord = netLiquidByTicker.get(company.ticker);
+      let netLiquid = 0;
+      if (nlaRecord) {
+        const cash = Number(nlaRecord.cashM) || 0;
+        const btcCount = Number(nlaRecord.btcCount) || 0;
+        const ethCount = Number(nlaRecord.ethCount) || 0;
+        const totalDebt = Number(nlaRecord.totalDebtM) || 0;
+        const btcValueM = (btcCount * factors.btcPrice) / 1_000_000;
+        const ethValueM = (ethCount * factors.ethPrice) / 1_000_000;
+        netLiquid = cash + btcValueM + ethValueM - totalDebt;
+      }
+
+      // Get Mining Valuation from the Mining Valuations table
+      const mvRecord = miningByTicker.get(company.ticker);
+      let evMining = 0;
+      if (mvRecord) {
+        const eh = Number(mvRecord.hashrateEh) || 0;
+        const eff = Number(mvRecord.efficiencyJth) || 0;
+        const power = Number(mvRecord.powerCostKwh) || 0;
+        const hostedMw = Number(mvRecord.hostedMw) || 0;
+
+        // Self-mining valuation
+        if (eh > 0) {
+          const annRevM = (eh * factors.dailyRevPerEh * 365) / 1_000_000;
+          const annPowerM = eh * eff * power * 8.76;
+          const poolFeesM = factors.poolFeePct * annRevM;
+          const ebitdaM = annRevM - annPowerM - poolFeesM;
+          const selfMiningValM = Math.max(0, ebitdaM * factors.ebitdaMultiple);
+          evMining += selfMiningValM;
+        }
+
+        // Hosted mining valuation
+        if (hostedMw > 0) {
+          const hostedValM = hostedMw * factors.mwValueBtcMining;
+          evMining += hostedValM;
+        }
+      }
 
       // Calculate total IT MW capacity from all buildings (for display)
       let totalItMw = 0;
@@ -759,7 +801,6 @@ app.get('/api/v1/valuation', async (req, res) => {
       // Calculate MW by category and enterprise value
       let mwHpcContracted = 0;
       let mwHpcPipeline = 0;
-      let evMining = 0;
       let evHpcContracted = 0;
       let evHpcPipeline = 0;
 
@@ -836,19 +877,7 @@ app.get('/api/v1/valuation', async (req, res) => {
         }
       }
 
-      // Calculate mining value from company-level hashrate
-      const hashrate = Number(company.hashrateEh) || 0;
-      const efficiency = Number(company.efficiencyJth) || 20;
-      const powerCost = Number(company.powerCostKwh) || 0.04;
-
-      if (hashrate > 0) {
-        const annualRevenue = hashrate * factors.dailyRevPerEh * 365 / 1000000;
-        const annualPowerCost = hashrate * efficiency * powerCost * 8760 / 1000000;
-        const poolFees = annualRevenue * factors.poolFeePct;
-        const ebitda = annualRevenue - annualPowerCost - poolFees;
-        evMining = Math.max(0, ebitda * factors.ebitdaMultiple);
-      }
-
+      // Mining EV is now calculated from the Mining Valuations table (done above)
       const totalEv = evMining + evHpcContracted + evHpcPipeline;
       const fairValue = netLiquid + totalEv;
 
