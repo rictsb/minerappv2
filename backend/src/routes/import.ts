@@ -28,19 +28,31 @@ const upload = multer({
 // Map spreadsheet Current_Use to UseType enum
 function mapUseType(currentUse: string | null): string {
   if (!currentUse) return 'UNCONTRACTED';
-  const use = currentUse.toLowerCase();
+  const use = currentUse.toLowerCase().trim();
 
-  if (use.includes('hpc') && use.includes('hosting') && !use.includes('planned')) return 'HPC_AI_HOSTING';
-  if (use.includes('hpc') && use.includes('planned')) return 'HPC_AI_PLANNED';
-  if (use.includes('gpu') || use.includes('cloud/ai') || (use.includes('ai') && !use.includes('mining'))) return 'GPU_CLOUD';
-  if (use.includes('btc') && use.includes('hosting')) return 'BTC_MINING_HOSTING';
-  if (use.includes('btc') || use.includes('mining') || use.includes('self-mining')) return 'BTC_MINING';
+  // HPC/AI - check for hpc, ai (but not in "mining"), or "hyperscale"
+  if (use.includes('hpc') || use === 'ai' || use.includes('hpc/ai') || use.includes('hyperscale')) {
+    if (use.includes('planned')) return 'HPC_AI_PLANNED';
+    return 'HPC_AI_HOSTING';
+  }
+
+  // GPU Cloud
+  if (use.includes('gpu') || use.includes('cloud/ai')) return 'GPU_CLOUD';
+
+  // BTC Mining
+  if (use.includes('btc') || use.includes('bitcoin') || use.includes('mining') || use.includes('self-mining')) {
+    if (use.includes('hosting')) return 'BTC_MINING_HOSTING';
+    return 'BTC_MINING';
+  }
+
+  // Other types
   if (use.includes('colocation') || use.includes('colo')) return 'COLOCATION';
   if (use.includes('mixed')) return 'MIXED';
   if (use.includes('rofr')) return 'UNCONTRACTED_ROFR';
   if (use.includes('uncontracted')) return 'UNCONTRACTED';
 
-  return 'BTC_MINING';
+  // Default fallback
+  return 'UNCONTRACTED';
 }
 
 // Map spreadsheet Site_Phase to DevelopmentPhase enum
