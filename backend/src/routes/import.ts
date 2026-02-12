@@ -130,6 +130,32 @@ function mapConfidence(conf: string | null): string {
   return 'MEDIUM';
 }
 
+// Map lease structure to LeaseStructure enum
+function mapLeaseStructure(structure: string | null): string {
+  if (!structure) return 'NNN';
+  const s = String(structure).toLowerCase().trim();
+
+  // Triple Net (NNN)
+  if (s.includes('nnn') || s.includes('triple') || s.includes('net net net')) {
+    return 'NNN';
+  }
+
+  // Modified Gross
+  if (s.includes('modified') || s.includes('mod gross') || s.includes('mod-gross') ||
+      s.includes('mg') || s.includes('modified gross')) {
+    return 'MODIFIED_GROSS';
+  }
+
+  // Full Service Gross
+  if (s.includes('gross') || s.includes('full service') || s.includes('fsg') ||
+      s.includes('full-service')) {
+    return 'GROSS';
+  }
+
+  // Default to NNN for commercial data centers
+  return 'NNN';
+}
+
 // Parse date helper
 function parseDate(dateStr: unknown): Date | null {
   if (!dateStr) return null;
@@ -489,6 +515,8 @@ router.post('/excel', upload.single('file'), async (req: Request, res: Response)
               const currentUse = cleanCol(row, 'Current_Use', 'CurrentUse', 'Use', 'Use_Type', 'UseType') as string | null;
               const useType = mapUseType(currentUse);
               const tenant = cleanCol(row, 'Lessee', 'Tenant', 'Customer', 'Client', 'Counterparty');
+              const leaseStructureRaw = cleanCol(row, 'Lease_Structure', 'LeaseStructure', 'Lease_Type', 'LeaseType', 'Structure');
+              const leaseStructure = mapLeaseStructure(leaseStructureRaw as string | null);
 
               // Delete existing current use periods for this building
               await prisma.usePeriod.deleteMany({
@@ -503,6 +531,7 @@ router.post('/excel', upload.single('file'), async (req: Request, res: Response)
                   startDate: parseDate(cleanCol(row, 'Energization_Date', 'EnergizationDate', 'Start_Date', 'COD')),
                   isCurrent: true,
                   tenant: tenant ? String(tenant).trim() : null,
+                  leaseStructure: leaseStructure as any,
                   leaseValueM: parseNum(cleanCol(row, 'Lease_Value_M', 'LeaseValue', 'Lease_Value', 'Contract_Value')),
                   leaseYears: parseNum(cleanCol(row, 'Lease_Yrs', 'Lease_Years', 'LeaseYears', 'Term', 'Contract_Term')),
                   annualRevM: parseNum(cleanCol(row, 'Annual_Rev_M', 'AnnualRev', 'Annual_Revenue', 'Revenue_$M')),
