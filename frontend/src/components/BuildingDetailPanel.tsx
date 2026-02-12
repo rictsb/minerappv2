@@ -146,6 +146,7 @@ interface SliderRowProps {
   step: number;
   format: (v: number) => string;
   description?: string;
+  variant?: 'default' | 'green';
 }
 
 function SliderRow({
@@ -158,21 +159,24 @@ function SliderRow({
   step,
   format,
   description,
+  variant = 'default',
 }: SliderRowProps) {
   const isOverridden = Math.abs(currentValue - autoValue) > 0.0001;
+  const accentColor = variant === 'green' ? 'accent-green-500' : 'accent-orange-500';
+  const textColor = variant === 'green' ? 'text-green-400' : 'text-orange-400';
 
   return (
     <div className="py-2 border-b border-gray-800 last:border-b-0">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-gray-300">{label}</span>
+          <span className={`text-xs font-medium ${variant === 'green' ? 'text-green-300' : 'text-gray-300'}`}>{label}</span>
           {description && (
             <span className="text-[10px] text-gray-500">({description})</span>
           )}
         </div>
         <div className="flex items-center gap-3 text-xs">
           <span className="text-gray-500 w-16 text-right">Auto: {format(autoValue)}</span>
-          <span className={`font-mono w-16 text-right ${isOverridden ? 'text-orange-400 font-medium' : 'text-white'}`}>
+          <span className={`font-mono w-16 text-right ${isOverridden ? `${textColor} font-medium` : 'text-white'}`}>
             {format(currentValue)}
           </span>
         </div>
@@ -185,7 +189,7 @@ function SliderRow({
           step={step}
           value={currentValue}
           onChange={(e) => onChange(parseFloat(e.target.value))}
-          className="flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
+          className={`flex-1 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer ${accentColor}`}
         />
         <button
           onClick={() => onChange(autoValue)}
@@ -284,7 +288,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         leaseValueM: ld.leaseValueM || '',
         annualRevM: ld.annualRevM || '',
         noiPct: ld.noiPct ? (ld.noiPct * 100).toFixed(1) : '',
-        noiAnnualM: ld.noiAnnualM || '',
       });
 
       setValInputEdits({
@@ -326,6 +329,11 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
   const handleSave = () => {
     const fd = data?.factorDetails || {};
 
+    // Calculate NOI from Annual Rev × NOI %
+    const annualRev = parseFloat(leaseEdits.annualRevM) || 0;
+    const noiPct = parseFloat(leaseEdits.noiPct) || 0;
+    const calculatedNoi = annualRev * (noiPct / 100);
+
     updateMutation.mutate({
       // Lease details
       lease: {
@@ -333,9 +341,9 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         leaseStructure: leaseEdits.leaseStructure,
         leaseYears: leaseEdits.leaseYears ? parseFloat(leaseEdits.leaseYears) : null,
         leaseValueM: leaseEdits.leaseValueM ? parseFloat(leaseEdits.leaseValueM) : null,
-        annualRevM: leaseEdits.annualRevM ? parseFloat(leaseEdits.annualRevM) : null,
-        noiPct: leaseEdits.noiPct ? parseFloat(leaseEdits.noiPct) / 100 : null,
-        noiAnnualM: leaseEdits.noiAnnualM ? parseFloat(leaseEdits.noiAnnualM) : null,
+        annualRevM: annualRev || null,
+        noiPct: noiPct ? noiPct / 100 : null,
+        noiAnnualM: calculatedNoi || null,
       },
       // Valuation inputs (cap rates)
       valuation: {
@@ -369,7 +377,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         leaseValueM: ld.leaseValueM || '',
         annualRevM: ld.annualRevM || '',
         noiPct: ld.noiPct ? (ld.noiPct * 100).toFixed(1) : '',
-        noiAnnualM: ld.noiAnnualM || '',
       });
 
       setValInputEdits({
@@ -415,8 +422,10 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       (factorOverrides.energization || 1) *
       (factorOverrides.fidoodleFactor || 1);
 
-    // Use edited NOI for live calculation
-    const noiAnnual = leaseEdits.noiAnnualM ? parseFloat(leaseEdits.noiAnnualM) : 0;
+    // Calculate NOI from Annual Rev × NOI %
+    const annualRev = parseFloat(leaseEdits.annualRevM) || 0;
+    const noiPct = parseFloat(leaseEdits.noiPct) || 0;
+    const noiAnnual = annualRev * (noiPct / 100);
     const capRate = valInputEdits.capRate ? parseFloat(valInputEdits.capRate) / 100 : 0.075;
     const exitCapRate = valInputEdits.exitCapRate ? parseFloat(valInputEdits.exitCapRate) / 100 : 0.08;
     const terminalGrowthRate = valInputEdits.terminalGrowthRate ? parseFloat(valInputEdits.terminalGrowthRate) / 100 : 0.025;
@@ -503,7 +512,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
           <div className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-orange-500" />
             <span className="text-sm font-medium text-gray-300">Valuation</span>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-orange-400 font-medium">
               ({safeToFixed(liveValuation.combinedFactor, 3)}x)
             </span>
           </div>
@@ -581,14 +590,16 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                   step="1"
                   suffix="%"
                 />
-                <div className="col-span-3">
-                  <EditableField
-                    label="Annual NOI ($M) — used for valuation"
-                    value={leaseEdits.noiAnnualM}
-                    onChange={(v) => handleLeaseChange('noiAnnualM', v)}
-                    type="number"
-                    step="0.1"
-                  />
+                <div className="col-span-3 bg-gray-800/50 rounded p-2">
+                  <div className="text-[10px] text-gray-500 mb-0.5">Annual NOI ($M) — calculated: Annual Rev × NOI %</div>
+                  <div className="text-lg font-bold text-green-400">
+                    {(() => {
+                      const rev = parseFloat(leaseEdits.annualRevM) || 0;
+                      const pct = parseFloat(leaseEdits.noiPct) || 0;
+                      const noi = rev * (pct / 100);
+                      return formatMoney(noi);
+                    })()}
+                  </div>
                 </div>
               </div>
             </div>
@@ -652,6 +663,21 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
           </button>
           {expandedSections.factors && (
             <div className="px-4 pb-4">
+              {/* Fidoodle Factor - first and green */}
+              <div className="mb-3 pb-3 border-b border-gray-700">
+                <SliderRow
+                  label="Fidoodle Factor"
+                  autoValue={1.0}
+                  currentValue={factorOverrides.fidoodleFactor ?? 1.0}
+                  onChange={(v) => handleFactorChange('fidoodleFactor', v)}
+                  min={0.5}
+                  max={2.0}
+                  step={0.01}
+                  format={formatMultiplier}
+                  description="manual override"
+                  variant="green"
+                />
+              </div>
               <SliderRow
                 label="Phase Probability"
                 autoValue={factorDetails.phaseProbability?.auto ?? 0.5}
@@ -750,19 +776,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 step={0.01}
                 format={formatMultiplier}
               />
-              <div className="mt-3 pt-3 border-t border-gray-700">
-                <SliderRow
-                  label="Custom Adjustment"
-                  autoValue={1.0}
-                  currentValue={factorOverrides.fidoodleFactor ?? 1.0}
-                  onChange={(v) => handleFactorChange('fidoodleFactor', v)}
-                  min={0.5}
-                  max={2.0}
-                  step={0.01}
-                  format={formatMultiplier}
-                  description="manual override"
-                />
-              </div>
             </div>
           )}
         </div>
