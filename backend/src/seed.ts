@@ -10,12 +10,14 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Seeding database...');
 
-  // Clear existing data
-  await prisma.tenancy.deleteMany();
-  await prisma.phase.deleteMany();
+  // Clear existing data in correct order (respecting foreign keys)
+  await prisma.usePeriod.deleteMany();
+  await prisma.building.deleteMany();
+  await prisma.campus.deleteMany();
+  await prisma.site.deleteMany();
+  await prisma.debt.deleteMany();
   await prisma.siteFactor.deleteMany();
   await prisma.companyFactor.deleteMany();
-  await prisma.site.deleteMany();
   await prisma.company.deleteMany();
   await prisma.globalFactor.deleteMany();
 
@@ -31,7 +33,9 @@ async function main() {
     { category: 'valuation', key: 'ig_credit_spread', value: 0.012, description: 'Investment grade spread (1.2%)' },
     { category: 'valuation', key: 'hy_credit_spread', value: 0.035, description: 'High yield spread (3.5%)' },
     { category: 'valuation', key: 'datacenter_cap_rate', value: 0.065, description: 'Datacenter cap rate (6.5%)' },
-    { category: 'valuation', key: 'hpc_revenue_multiple', value: 12, description: 'HPC revenue multiple' },
+    { category: 'valuation', key: 'noi_multiple', value: 12, description: 'NOI multiple for contracted HPC' },
+    { category: 'valuation', key: 'mw_value_hpc_contracted', value: 30, description: 'MW value for contracted HPC ($M/MW)' },
+    { category: 'valuation', key: 'mw_value_hpc_uncontracted', value: 15, description: 'MW value for uncontracted/pipeline HPC ($M/MW)' },
 
     // Operations
     { category: 'operations', key: 'default_pue', value: 1.25, description: 'Default PUE if not specified' },
@@ -39,9 +43,12 @@ async function main() {
     { category: 'operations', key: 'default_nonpower_opex_mw_mo', value: 4500, description: 'Default non-power OpEx $/MW/mo' },
     { category: 'operations', key: 'default_efficiency_jth', value: 22, description: 'Default miner efficiency J/TH' },
 
-    // Energization
-    { category: 'energization', key: 'base_year', value: 2025, description: 'Base year for energization discount' },
-    { category: 'energization', key: 'decay_rate', value: 0.15, description: 'Annual decay rate (15%)' },
+    // Phase Probabilities
+    { category: 'probability', key: 'operational', value: 1.0, description: 'Probability for operational phase (100%)' },
+    { category: 'probability', key: 'construction', value: 0.9, description: 'Probability for construction phase (90%)' },
+    { category: 'probability', key: 'development', value: 0.7, description: 'Probability for development phase (70%)' },
+    { category: 'probability', key: 'exclusivity', value: 0.5, description: 'Probability for exclusivity phase (50%)' },
+    { category: 'probability', key: 'diligence', value: 0.3, description: 'Probability for diligence phase (30%)' },
   ];
 
   for (const factor of globalFactors) {
@@ -67,7 +74,6 @@ async function main() {
       fdSharesM: 327,
       stockPrice: 18.75,
       hashrateEh: 50,
-      hashrateType: 'SELF',
       irPageUrl: 'https://ir.mara.com/',
       twitterAccounts: ['@MarathonDH'],
     },
@@ -82,47 +88,49 @@ async function main() {
       state: 'Texas',
       latitude: 31.3654,
       longitude: -101.4846,
-      powerAuthority: 'ERCOT',
-      grid: 'ERCOT',
-      ownershipStatus: 'OWNED',
-      datacenterTier: 'TIER_II',
       includeInValuation: true,
-      confidence: 'HIGH',
     },
   });
 
-  // Create sample phase
-  const phase1 = await prisma.phase.create({
+  // Create sample campus
+  const campus1 = await prisma.campus.create({
     data: {
       siteId: gardenCity.id,
-      name: 'Phase 1',
-      status: 'OPERATIONAL',
+      name: 'Main Campus',
+    },
+  });
+
+  // Create sample building
+  const building1 = await prisma.building.create({
+    data: {
+      campusId: campus1.id,
+      name: 'Building 1',
+      developmentPhase: 'OPERATIONAL',
       grossMw: 200,
       itMw: 160,
       pue: 1.2,
       energizationDate: new Date('2023-06-01'),
-      energizationActual: true,
-      currentUse: 'BTC_MINING',
     },
   });
 
-  // Create sample tenancy (self-mining)
-  await prisma.tenancy.create({
+  // Create sample use period (self-mining)
+  await prisma.usePeriod.create({
     data: {
-      phaseId: phase1.id,
-      tenant: 'MARA (self)',
+      buildingId: building1.id,
       useType: 'BTC_MINING',
-      miningPowerCostKwh: 0.042,
-      miningCurtailmentPct: 0.05,
-      miningNonpowerOpexMwMo: 4500,
-      miningEfficiencyJth: 20,
-      fidoodle: 1.0,
+      tenant: 'MARA (self)',
+      startDate: new Date('2023-06-01'),
+      isCurrent: true,
+      powerCostKwh: 0.042,
+      curtailmentPct: 0.05,
+      nonpowerOpexMwMo: 4500,
+      efficiencyJth: 20,
     },
   });
 
   console.log('✅ Created sample company: MARA');
   console.log('✅ Created sample site: Garden City');
-  console.log('✅ Created sample phase and tenancy');
+  console.log('✅ Created sample campus, building, and use period');
 
   // Create a second company (CLSK as example)
   await prisma.company.create({
@@ -135,7 +143,6 @@ async function main() {
       fdSharesM: 258,
       stockPrice: 12.50,
       hashrateEh: 25,
-      hashrateType: 'SELF',
       irPageUrl: 'https://ir.cleanspark.com/',
       twitterAccounts: ['@CleanSpark_Inc'],
     },
