@@ -7,9 +7,10 @@ interface ImportResult {
   results: {
     companies: number;
     sites: number;
-    phases: number;
-    tenancies: number;
-    factors: number;
+    campuses: number;
+    buildings: number;
+    usePeriods: number;
+    debts: number;
     errors: string[];
   };
 }
@@ -68,7 +69,7 @@ export default function Settings() {
       console.log('Response data:', data);
 
       if (!response.ok) {
-        throw new Error(data.message || data.error || 'Import failed');
+        throw new Error(data.details || data.message || data.error || 'Import failed');
       }
 
       setImportResult(data);
@@ -96,7 +97,10 @@ export default function Settings() {
 
           <p className="text-sm text-gray-400 mb-4">
             Upload your Excel file to import company, site, and project data.
-            The importer will look for sheets named "Project List" and "Factors".
+            The importer will look for sheets named <span className="text-orange-400">"Sites"</span>,
+            <span className="text-orange-400"> "Debt"</span>,
+            <span className="text-orange-400"> "Net Liquid Assets"</span>, and
+            <span className="text-orange-400"> "Mining Valuation"</span>.
           </p>
 
           {/* Hidden file input */}
@@ -165,19 +169,23 @@ export default function Settings() {
                   <span className="font-semibold text-white">{importResult.results.sites}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400">Phases:</span>
-                  <span className="font-semibold text-white">{importResult.results.phases}</span>
+                  <span className="text-gray-400">Campuses:</span>
+                  <span className="font-semibold text-white">{importResult.results.campuses}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400">Tenancies:</span>
-                  <span className="font-semibold text-white">{importResult.results.tenancies}</span>
+                  <span className="text-gray-400">Buildings:</span>
+                  <span className="font-semibold text-white">{importResult.results.buildings}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400">Factors:</span>
-                  <span className="font-semibold text-white">{importResult.results.factors}</span>
+                  <span className="text-gray-400">Use Periods:</span>
+                  <span className="font-semibold text-white">{importResult.results.usePeriods}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Debts:</span>
+                  <span className="font-semibold text-white">{importResult.results.debts}</span>
                 </div>
               </div>
-              {importResult.results.errors.length > 0 && (
+              {importResult.results.errors && importResult.results.errors.length > 0 && (
                 <div className="mt-3 pt-3 border-t border-green-700">
                   <p className="text-sm font-medium text-yellow-400 mb-1">Warnings:</p>
                   <ul className="text-xs text-yellow-500 list-disc list-inside">
@@ -195,14 +203,34 @@ export default function Settings() {
             <summary className="cursor-pointer text-gray-400 hover:text-gray-200">
               Expected column names
             </summary>
-            <div className="mt-2 p-3 bg-gray-700/50 rounded text-xs font-mono">
-              <p className="font-semibold text-gray-300 mb-1">Project List sheet:</p>
-              <p className="text-gray-400 mb-2">
-                Ticker, Company, Site_Name, Site_Phase, Status, Gross_MW, IT_MW, PUE,
-                Energization_Date, Current_Use, Country, State, Latitude, Longitude...
-              </p>
-              <p className="font-semibold text-gray-300 mb-1">Factors sheet:</p>
-              <p className="text-gray-400">Category, Key, Value, Description</p>
+            <div className="mt-2 p-3 bg-gray-700/50 rounded text-xs font-mono space-y-3">
+              <div>
+                <p className="font-semibold text-orange-400 mb-1">Sites sheet:</p>
+                <p className="text-gray-400">
+                  Ticker, Site_Name, Campus_Name, Building_Name, Site_Phase, Country, State,
+                  Gross_MW, IT_MW, PUE, Grid, Energization_Date, Current_Use, Lessee,
+                  Lease_Value_M, NOI_Annual_M, Confidence, Notes, Source_URL, Latitude, Longitude
+                </p>
+              </div>
+              <div>
+                <p className="font-semibold text-orange-400 mb-1">Debt sheet:</p>
+                <p className="text-gray-400">
+                  Ticker, Instrument, Type, Issuer, Principal_$M, Maturity, Coupon_%,
+                  Secured, Collateral, Convertible, Conv_Price_$, Status, Confidence
+                </p>
+              </div>
+              <div>
+                <p className="font-semibold text-orange-400 mb-1">Net Liquid Assets sheet:</p>
+                <p className="text-gray-400">
+                  Ticker, Cash_$M, BTC_Count, BTC_Value_$M, ETH_Value_$M, Total_Debt_$M
+                </p>
+              </div>
+              <div>
+                <p className="font-semibold text-orange-400 mb-1">Mining Valuation sheet:</p>
+                <p className="text-gray-400">
+                  Ticker, EH/s, Eff (J/TH), Power ($/kWh)
+                </p>
+              </div>
             </div>
           </details>
         </div>
@@ -251,7 +279,7 @@ export default function Settings() {
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-500">Version</span>
-              <span className="font-mono text-gray-300">10.0.0</span>
+              <span className="font-mono text-gray-300">11.0.0</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Database</span>
