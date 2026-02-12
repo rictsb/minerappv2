@@ -1000,18 +1000,18 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
       },
     };
 
-    // Calculate combined adjustment factor
+    // Calculate combined adjustment factor (use || 1 to protect against NaN/undefined)
     const combinedFactor =
-      factorDetails.phaseProbability.final *
-      factorDetails.regulatoryRisk.value *
-      factorDetails.sizeMultiplier.final *
-      factorDetails.powerAuthority.final *
-      factorDetails.ownership.final *
-      factorDetails.datacenterTier.final *
-      factorDetails.leaseStructure.final *
-      factorDetails.tenantCredit.final *
-      factorDetails.energization.final *
-      factorDetails.fidoodleFactor.value;
+      (factorDetails.phaseProbability.final || 1) *
+      (factorDetails.regulatoryRisk.value || 1) *
+      (factorDetails.sizeMultiplier.final || 1) *
+      (factorDetails.powerAuthority.final || 1) *
+      (factorDetails.ownership.final || 1) *
+      (factorDetails.datacenterTier.final || 1) *
+      (factorDetails.leaseStructure.final || 1) *
+      (factorDetails.tenantCredit.final || 1) *
+      (factorDetails.energization.final || 1) *
+      (factorDetails.fidoodleFactor.value || 1);
 
     // HPC/AI Valuation Calculation
     const noiAnnual = leaseDetails.noiAnnualM || 0;
@@ -1031,8 +1031,10 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
     // Calculate terminal value at end of lease, discounted to present
     // Terminal NOI = Current NOI * (1 + g)^leaseYears
     const terminalNoi = noiAnnual * Math.pow(1 + terminalGrowthRate, leaseYears);
-    const terminalValueAtEnd = terminalNoi / (exitCapRate - terminalGrowthRate);
-    const terminalValuePV = terminalValueAtEnd / Math.pow(1 + discountRate, leaseYears) * renewalProbability;
+    // Protect against division by zero (if exitCapRate == terminalGrowthRate)
+    const capRateDiff = Math.max(exitCapRate - terminalGrowthRate, 0.001);
+    const terminalValueAtEnd = terminalNoi / capRateDiff;
+    const terminalValuePV = terminalValueAtEnd / Math.pow(1 + discountRate, leaseYears) * (renewalProbability || 0.75);
 
     // Gross Value = Base Value + Terminal Value PV
     const grossValue = baseValue + terminalValuePV;
@@ -1094,12 +1096,12 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         },
       },
 
-      // Final results
+      // Final results (protect against NaN/Infinity)
       results: {
-        baseValueM: Math.round(baseValue * 10) / 10,
-        terminalValueM: Math.round(terminalValuePV * 10) / 10,
-        grossValueM: Math.round(grossValue * 10) / 10,
-        adjustedValueM: Math.round(adjustedValue * 10) / 10,
+        baseValueM: isFinite(baseValue) ? Math.round(baseValue * 10) / 10 : 0,
+        terminalValueM: isFinite(terminalValuePV) ? Math.round(terminalValuePV * 10) / 10 : 0,
+        grossValueM: isFinite(grossValue) ? Math.round(grossValue * 10) / 10 : 0,
+        adjustedValueM: isFinite(adjustedValue) ? Math.round(adjustedValue * 10) / 10 : 0,
       },
     };
 
