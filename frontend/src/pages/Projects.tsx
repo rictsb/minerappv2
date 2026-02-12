@@ -64,6 +64,7 @@ interface Building {
   energizationDate: string | null;
   confidence: string;
   probabilityOverride: string | null;
+  regulatoryRisk: string | null;
   ownershipStatus: string | null;
   notes: string | null;
   usePeriods: UsePeriod[];
@@ -126,6 +127,7 @@ export default function Projects() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['valuation'] });
       setEditingBuilding(null);
       setEditFormData({});
     },
@@ -187,6 +189,7 @@ export default function Projects() {
     pue?: number;
     probability?: number;
     probabilityOverride?: number | null;
+    regulatoryRisk?: number;
     leaseValueM?: number;
     noiAnnualM?: number;
     energizationDate?: string;
@@ -288,6 +291,7 @@ export default function Projects() {
                   pue: building.pue ? parseFloat(building.pue) : undefined,
                   probability: probOverride ?? defaultProb,
                   probabilityOverride: probOverride,
+                  regulatoryRisk: building.regulatoryRisk ? parseFloat(building.regulatoryRisk) : 1.0,
                   leaseValueM: currentUse?.leaseValueM ? parseFloat(currentUse.leaseValueM) : undefined,
                   noiAnnualM: currentUse?.noiAnnualM ? parseFloat(currentUse.noiAnnualM) : undefined,
                   energizationDate: building.energizationDate || undefined,
@@ -366,6 +370,7 @@ export default function Projects() {
     setEditFormData({
       developmentPhase: row.phase,
       probabilityOverride: typeof row.probabilityOverride === 'number' ? (row.probabilityOverride * 100).toString() : '',
+      regulatoryRisk: typeof row.regulatoryRisk === 'number' ? (row.regulatoryRisk * 100).toString() : '100',
       grossMw: row.grossMw?.toString() || '',
       itMw: row.itMw?.toString() || '',
       pue: row.pue?.toString() || '',
@@ -377,12 +382,16 @@ export default function Projects() {
     const probOverride = editFormData.probabilityOverride
       ? parseFloat(editFormData.probabilityOverride) / 100
       : null;
+    const regRisk = editFormData.regulatoryRisk
+      ? parseFloat(editFormData.regulatoryRisk) / 100
+      : 1.0;
 
     updateBuildingMutation.mutate({
       id: editingBuilding,
       data: {
         developmentPhase: editFormData.developmentPhase,
         probabilityOverride: probOverride,
+        regulatoryRisk: regRisk,
         grossMw: editFormData.grossMw ? parseFloat(editFormData.grossMw) : null,
         itMw: editFormData.itMw ? parseFloat(editFormData.itMw) : null,
         pue: editFormData.pue ? parseFloat(editFormData.pue) : null,
@@ -507,6 +516,7 @@ export default function Projects() {
                 <th className="px-3 py-3 text-left text-xs font-medium text-gray-400 uppercase w-32">Tenant</th>
                 <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase w-16">MW</th>
                 <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase w-16">Prob</th>
+                <th className="px-3 py-3 text-right text-xs font-medium text-red-400 uppercase w-16" title="Regulatory Risk Factor">Reg Risk</th>
                 <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase w-20">NOI/Yr</th>
                 <th className="px-3 py-3 text-right text-xs font-medium text-gray-400 uppercase w-24">Energized</th>
                 <th className="px-3 py-3 text-center text-xs font-medium text-gray-400 uppercase w-20">Actions</th>
@@ -615,6 +625,25 @@ export default function Projects() {
                         ) : (
                           <span className={row.probabilityOverride !== null ? 'text-orange-400' : 'text-gray-400'}>
                             {Math.round((row.probability || 0) * 100)}%
+                          </span>
+                        )
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono">
+                      {row.type === 'building' && (
+                        isEditing ? (
+                          <input
+                            type="number"
+                            placeholder="100"
+                            value={editFormData.regulatoryRisk || '100'}
+                            onChange={(e) => setEditFormData({ ...editFormData, regulatoryRisk: e.target.value })}
+                            className="w-16 bg-gray-700 border border-red-600/50 text-white rounded px-2 py-1 text-xs text-right"
+                            min="0"
+                            max="100"
+                          />
+                        ) : (
+                          <span className={(row.regulatoryRisk || 1) < 1 ? 'text-red-400' : 'text-gray-500'}>
+                            {Math.round((row.regulatoryRisk || 1) * 100)}%
                           </span>
                         )
                       )}
