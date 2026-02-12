@@ -753,9 +753,10 @@ app.get('/api/v1/valuation', async (req, res) => {
       const ethValue = (Number(company.ethHoldings) || 0);
       const netLiquid = (Number(company.cashM) || 0) + btcValue + ethValue - (Number(company.debtM) || 0);
 
+      // Calculate total IT MW capacity from all buildings (for display)
+      let totalItMw = 0;
+
       // Calculate MW by category and enterprise value
-      let mwMiningOperational = 0;
-      let mwHpcOperational = 0;
       let mwHpcContracted = 0;
       let mwHpcPipeline = 0;
       let evMining = 0;
@@ -768,6 +769,8 @@ app.get('/api/v1/valuation', async (req, res) => {
         for (const campus of site.campuses) {
           for (const building of campus.buildings) {
             siteTotalMw += Number(building.grossMw) || 0;
+            // Accumulate IT MW for all buildings
+            totalItMw += Number(building.itMw) || 0;
           }
         }
         const sizeMultiplier = getSizeMultiplier(siteTotalMw);
@@ -808,16 +811,10 @@ app.get('/api/v1/valuation', async (req, res) => {
             // Combined adjustment factor
             const adjFactor = prob * regRisk * energizationMult * paMult * ownershipMult * sizeMultiplier;
 
-            // Categorize and value
+            // Categorize and value based on use type
             if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-              if (phase === 'OPERATIONAL') {
-                mwMiningOperational += mw;
-              }
-              // Mining value based on EBITDA (calculated at company level)
+              // Mining value based on EBITDA (calculated at company level from hashrate)
             } else if (useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') {
-              if (phase === 'OPERATIONAL') {
-                mwHpcOperational += mw;
-              }
               if (hasLease) {
                 mwHpcContracted += mw;
                 // Value from NOI if available, otherwise from lease value
@@ -860,8 +857,7 @@ app.get('/api/v1/valuation', async (req, res) => {
         name: company.name,
         stockPrice: Number(company.stockPrice) || null,
         netLiquid: Math.round(netLiquid * 10) / 10,
-        mwMining: Math.round(mwMiningOperational),
-        mwHpc: Math.round(mwHpcOperational + mwHpcContracted),
+        totalMw: Math.round(totalItMw),  // Total IT MW capacity from Projects
         evMining: Math.round(evMining),
         evHpcContracted: Math.round(evHpcContracted),
         evHpcPipeline: Math.round(evHpcPipeline),

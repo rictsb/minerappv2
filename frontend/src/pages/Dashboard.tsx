@@ -16,8 +16,7 @@ interface Valuation {
   name: string;
   stockPrice: number | null;
   netLiquid: number;
-  mwMining: number;
-  mwHpc: number;
+  totalMw: number;
   evMining: number;
   evHpcContracted: number;
   evHpcPipeline: number;
@@ -169,9 +168,7 @@ export default function Dashboard() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Ticker</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Price</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Net Liquid</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider" colSpan={2}>
-                  MW Capacity
-                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">IT MW</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-orange-500 uppercase tracking-wider" colSpan={4}>
                   Enterprise Value ($M)
                 </th>
@@ -182,8 +179,7 @@ export default function Dashboard() {
                 <th className="px-4 py-2"></th>
                 <th className="px-4 py-2"></th>
                 <th className="px-4 py-2"></th>
-                <th className="px-4 py-2 text-right text-xs font-normal text-gray-500">Mining</th>
-                <th className="px-4 py-2 text-right text-xs font-normal text-gray-500">HPC</th>
+                <th className="px-4 py-2"></th>
                 <th className="px-4 py-2 text-right text-xs font-normal text-orange-400/70">Mining</th>
                 <th className="px-4 py-2 text-right text-xs font-normal text-purple-400/70">Contracted</th>
                 <th className="px-4 py-2 text-right text-xs font-normal text-purple-300/70">Pipeline</th>
@@ -213,11 +209,8 @@ export default function Dashboard() {
                     <td className={`px-4 py-3 text-right font-mono ${v.netLiquid >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                       {formatNumber(v.netLiquid, 0)}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-gray-300">
-                      {v.mwMining > 0 ? formatNumber(v.mwMining, 0) : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-gray-300">
-                      {v.mwHpc > 0 ? formatNumber(v.mwHpc, 0) : '-'}
+                    <td className="px-4 py-3 text-right font-mono text-cyan-400">
+                      {v.totalMw > 0 ? formatNumber(v.totalMw, 0) : '-'}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-orange-400">
                       {v.evMining > 0 ? formatNumber(v.evMining, 0) : '-'}
@@ -255,7 +248,7 @@ export default function Dashboard() {
               })}
               {valuations.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="text-center py-8 text-gray-500">
+                  <td colSpan={10} className="text-center py-8 text-gray-500">
                     No companies found. Import data to get started.
                   </td>
                 </tr>
