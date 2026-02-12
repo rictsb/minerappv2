@@ -121,6 +121,7 @@ model Building {
   // Valuation Control
   confidence          Confidence @default(MEDIUM)
   probabilityOverride Decimal?   @db.Decimal(3, 2)  // Manual override (0.00-1.00)
+  regulatoryRisk      Decimal    @default(1.0) @db.Decimal(3, 2)  // 1.0 = no risk, 0.0 = blocked
   includeInValuation  Boolean    @default(true)
 
   // Notes & Source

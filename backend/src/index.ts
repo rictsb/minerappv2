@@ -479,16 +479,25 @@ app.get('/api/v1/valuation', async (req, res) => {
       for (const site of company.sites) {
         for (const campus of site.campuses) {
           for (const building of campus.buildings) {
+            // Skip buildings excluded from valuation
+            if (!building.includeInValuation) continue;
+
             const mw = Number(building.grossMw) || 0;
             const phase = building.developmentPhase;
             const prob = building.probabilityOverride
               ? Number(building.probabilityOverride)
               : (factors.phaseProbabilities as any)[phase] || 0.5;
 
+            // Regulatory risk multiplier (1.0 = no risk, 0.0 = blocked)
+            const regRisk = Number(building.regulatoryRisk) ?? 1.0;
+
             const currentUse = building.usePeriods[0];
             const useType = currentUse?.useType || 'UNCONTRACTED';
             const hasLease = currentUse?.tenant && currentUse?.leaseValueM;
             const noiAnnual = Number(currentUse?.noiAnnualM) || 0;
+
+            // Combined adjustment factor (probability × regulatory risk)
+            const adjFactor = prob * regRisk;
 
             // Categorize and value
             if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
@@ -504,18 +513,18 @@ app.get('/api/v1/valuation', async (req, res) => {
                 mwHpcContracted += mw;
                 // Value from NOI if available, otherwise from lease value
                 if (noiAnnual > 0) {
-                  evHpcContracted += noiAnnual * factors.noiMultiple * prob;
+                  evHpcContracted += noiAnnual * factors.noiMultiple * adjFactor;
                 } else {
-                  evHpcContracted += Number(currentUse?.leaseValueM) || 0;
+                  evHpcContracted += (Number(currentUse?.leaseValueM) || 0) * adjFactor;
                 }
               } else {
-                mwHpcPipeline += mw * prob;
-                evHpcPipeline += mw * factors.mwValueHpcUncontracted * prob;
+                mwHpcPipeline += mw * adjFactor;
+                evHpcPipeline += mw * factors.mwValueHpcUncontracted * adjFactor;
               }
             } else if (useType === 'HPC_AI_PLANNED' || useType === 'UNCONTRACTED' || useType === 'UNCONTRACTED_ROFR') {
               // Pipeline - uncontracted capacity
-              mwHpcPipeline += mw * prob;
-              evHpcPipeline += mw * factors.mwValueHpcUncontracted * prob;
+              mwHpcPipeline += mw * adjFactor;
+              evHpcPipeline += mw * factors.mwValueHpcUncontracted * adjFactor;
             }
           }
         }
