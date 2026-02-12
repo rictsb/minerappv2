@@ -9,7 +9,7 @@ services:
     region: oregon
     plan: starter
     buildCommand: cd backend && npm install --include=dev && npm run db:generate && npm run build
-    startCommand: cd backend && npm run db:migrate && npm start
+    startCommand: cd backend && npm run db:push && npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
