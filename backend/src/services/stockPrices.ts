@@ -138,7 +138,7 @@ async function fetchSofrRate(): Promise<number | null> {
  * Update a setting in the database
  */
 async function updateSetting(key: string, value: number): Promise<void> {
-  await prisma.setting.upsert({
+  await prisma.settings.upsert({
     where: { key },
     update: { value: value.toString(), updatedAt: new Date() },
     create: { key, value: value.toString() },
