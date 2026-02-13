@@ -140,6 +140,20 @@ app.get('/api/v1/companies/:ticker', async (req, res) => {
   }
 });
 
+// PUT update company (for updating FD shares, stock price, etc.)
+app.put('/api/v1/companies/:ticker', async (req, res) => {
+  try {
+    const company = await prisma.company.update({
+      where: { ticker: req.params.ticker },
+      data: req.body,
+    });
+    res.json(company);
+  } catch (error) {
+    console.error('Error updating company:', error);
+    res.status(500).json({ error: 'Failed to update company' });
+  }
+});
+
 // ===========================================
 // SITES API
 // ===========================================

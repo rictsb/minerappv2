@@ -22,6 +22,13 @@ interface NetLiquidAsset {
   notes: string | null;
 }
 
+interface Company {
+  ticker: string;
+  name: string;
+  fdSharesM: string | null;
+  stockPrice: string | null;
+}
+
 const emptyRow: Partial<NetLiquidAsset> = {
   ticker: '',
   cashM: '',
@@ -63,6 +70,23 @@ export default function NetLiquidAssets() {
     },
   });
 
+  // Fetch companies for FD shares and stock price
+  const { data: companies = [] } = useQuery({
+    queryKey: ['companies'],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/api/v1/companies`);
+      if (!res.ok) throw new Error('Failed to fetch companies');
+      return res.json() as Promise<Company[]>;
+    },
+  });
+
+  // Create a map of ticker to company data for quick lookup
+  const companyMap = useMemo(() => {
+    const map = new Map<string, Company>();
+    companies.forEach((c) => map.set(c.ticker, c));
+    return map;
+  }, [companies]);
+
   const saveMutation = useMutation({
     mutationFn: async (data: Partial<NetLiquidAsset>) => {
       const res = await fetch(`${getApiUrl()}/api/v1/net-liquid-assets`, {
@@ -93,6 +117,27 @@ export default function NetLiquidAssets() {
       queryClient.invalidateQueries({ queryKey: ['net-liquid-assets'] });
     },
   });
+
+  // Mutation to update FD shares in companies table
+  const updateFdSharesMutation = useMutation({
+    mutationFn: async ({ ticker, fdSharesM }: { ticker: string; fdSharesM: number }) => {
+      const res = await fetch(`${getApiUrl()}/api/v1/companies/${ticker}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fdSharesM }),
+      });
+      if (!res.ok) throw new Error('Failed to update FD shares');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['valuation'] });
+    },
+  });
+
+  // State for editing FD shares inline
+  const [editingFdShares, setEditingFdShares] = useState<string | null>(null);
+  const [fdSharesValue, setFdSharesValue] = useState<string>('');
 
   // Calculate derived values for each row
   const calculatedData = useMemo(() => {
@@ -212,6 +257,7 @@ export default function NetLiquidAssets() {
                   <th className="px-3 py-3 text-right text-cyan-400">Total Liquid ($M)</th>
                   <th className="px-3 py-3 text-right bg-red-900/20">Total Debt ($M)</th>
                   <th className="px-3 py-3 text-right text-yellow-400 font-bold">Net Liquid ($M)</th>
+                  <th className="px-3 py-3 text-right bg-green-900/20">FD Shares (M)</th>
                   <th className="px-3 py-3 text-center">Actions</th>
                 </tr>
               </thead>
@@ -238,6 +284,7 @@ export default function NetLiquidAssets() {
                       <input type="number" value={newRow.totalDebtM || ''} onChange={(e) => setNewRow({ ...newRow, totalDebtM: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
                     </td>
                     <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
+                    <td className="px-3 py-2 text-gray-400 text-center text-xs">-</td>
                     <td className="px-3 py-2 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <button onClick={saveNew} className="p-1 bg-green-600 rounded hover:bg-green-700"><Save className="h-3 w-3" /></button>
@@ -269,6 +316,7 @@ export default function NetLiquidAssets() {
                           <input type="number" value={editForm.totalDebtM || ''} onChange={(e) => setEditForm({ ...editForm, totalDebtM: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
                         </td>
                         <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
+                        <td className="px-3 py-2 text-gray-400 text-center text-xs">-</td>
                         <td className="px-3 py-2 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <button onClick={saveEdit} className="p-1 bg-green-600 rounded hover:bg-green-700"><Save className="h-3 w-3" /></button>
@@ -288,6 +336,43 @@ export default function NetLiquidAssets() {
                         <td className="px-3 py-2 text-right font-mono text-red-400">${formatNum(row.totalDebtM)}</td>
                         <td className={`px-3 py-2 text-right font-mono font-bold ${row.netLiquidM >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                           ${formatNum(row.netLiquidM, 1)}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          {editingFdShares === row.ticker ? (
+                            <div className="flex items-center justify-end gap-1">
+                              <input
+                                type="number"
+                                value={fdSharesValue}
+                                onChange={(e) => setFdSharesValue(e.target.value)}
+                                className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
+                                autoFocus
+                              />
+                              <button
+                                onClick={() => {
+                                  updateFdSharesMutation.mutate({ ticker: row.ticker, fdSharesM: parseFloat(fdSharesValue) || 0 });
+                                  setEditingFdShares(null);
+                                }}
+                                className="p-1 bg-green-600 rounded hover:bg-green-700"
+                              >
+                                <Save className="h-3 w-3" />
+                              </button>
+                              <button onClick={() => setEditingFdShares(null)} className="p-1 bg-gray-600 rounded hover:bg-gray-500">
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <span
+                              onClick={() => {
+                                const company = companyMap.get(row.ticker);
+                                setEditingFdShares(row.ticker);
+                                setFdSharesValue(company?.fdSharesM || '');
+                              }}
+                              className="font-mono text-green-400 cursor-pointer hover:bg-green-900/30 px-2 py-1 rounded"
+                              title="Click to edit FD shares"
+                            >
+                              {companyMap.get(row.ticker)?.fdSharesM ? formatNum(companyMap.get(row.ticker)!.fdSharesM, 1) : '-'}
+                            </span>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-center">
                           <div className="flex items-center justify-center gap-1">
@@ -315,12 +400,13 @@ export default function NetLiquidAssets() {
                       ${formatNum(totals.netLiquidM, 0)}
                     </td>
                     <td className="px-3 py-3"></td>
+                    <td className="px-3 py-3"></td>
                   </tr>
                 )}
 
                 {assets.length === 0 && !showAddForm && (
                   <tr>
-                    <td colSpan={10} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={11} className="px-4 py-8 text-center text-gray-500">
                       No net liquid assets yet. Click "Add Company" to get started.
                     </td>
                   </tr>
@@ -331,12 +417,12 @@ export default function NetLiquidAssets() {
         </div>
 
         {/* Legend */}
-        <div className="mt-4 text-[10px] text-gray-500 flex gap-6">
+        <div className="mt-4 text-[10px] text-gray-500 flex gap-6 flex-wrap">
           <span><span className="text-blue-300">Blue</span> = Cash input</span>
           <span><span className="text-orange-400">Orange</span> = BTC holdings</span>
           <span><span className="text-purple-400">Purple</span> = ETH holdings</span>
           <span><span className="text-red-400">Red</span> = Debt</span>
-          <span><span className="text-green-400">Green</span> / <span className="text-red-400">Red</span> = Net Liquid (positive/negative)</span>
+          <span><span className="text-green-400">Green</span> = FD Shares (click to edit)</span>
         </div>
       </div>
     </div>
