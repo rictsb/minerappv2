@@ -147,7 +147,7 @@ const columns: ColumnDef[] = [
   { key: 'useType', label: 'Use', sortable: true, width: '90px', minWidth: '70px', align: 'left' },
   { key: 'tenant', label: 'Tenant', sortable: true, width: '120px', minWidth: '80px', align: 'left' },
   { key: 'itMw', label: 'IT MW', sortable: true, width: '65px', minWidth: '55px', align: 'right' },
-  { key: 'noiAnnualM', label: 'NOI/Yr', sortable: true, width: '70px', minWidth: '60px', align: 'right' },
+  { key: 'noiAnnualM', label: 'Value', sortable: true, width: '80px', minWidth: '70px', align: 'right' },
   { key: 'energizationDate', label: 'Energized', sortable: true, width: '85px', minWidth: '70px', align: 'right' },
   { key: 'actions', label: 'Edit', sortable: false, width: '60px', minWidth: '60px', align: 'center' },
 ];
@@ -179,6 +179,55 @@ export default function Projects() {
       return res.json() as Promise<Company[]>;
     },
   });
+
+  // Fetch settings for valuation factors
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: async () => {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/settings`);
+      if (!res.ok) throw new Error('Failed to fetch settings');
+      return res.json();
+    },
+  });
+
+  // Valuation factors with defaults
+  const factors = useMemo(() => ({
+    noiMultiple: settings?.noiMultiple ?? 10,
+    mwValueHpcContracted: settings?.mwValueHpcContracted ?? 25,
+    mwValueHpcUncontracted: settings?.mwValueHpcUncontracted ?? 8,
+    mwValueBtcMining: settings?.mwValueBtcMining ?? 0.3,
+  }), [settings]);
+
+  // Calculate building valuation
+  const calcValuation = useCallback((row: FlatBuilding) => {
+    const itMw = row.itMw || 0;
+    const prob = row.probability;
+    const useType = row.useType;
+
+    // If has NOI, use NOI × multiple
+    if (row.noiAnnualM && row.noiAnnualM > 0) {
+      return row.noiAnnualM * factors.noiMultiple * prob;
+    }
+
+    // HPC/AI contracted with lease value but no NOI
+    if ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && row.leaseValueM) {
+      return row.leaseValueM * prob;
+    }
+
+    // Pipeline / uncontracted HPC
+    if (useType === 'HPC_AI_PLANNED' || useType === 'UNCONTRACTED' || useType === 'UNCONTRACTED_ROFR' ||
+        ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && !row.leaseValueM && !row.noiAnnualM)) {
+      return itMw * factors.mwValueHpcUncontracted * prob;
+    }
+
+    // BTC Mining
+    if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
+      return itMw * factors.mwValueBtcMining * prob;
+    }
+
+    return null;
+  }, [factors]);
 
   const updateBuildingMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Record<string, any> }) => {
@@ -672,11 +721,13 @@ export default function Projects() {
                         )}
                       </td>
                       <td className="px-2 py-1.5 text-right font-mono">
-                        {row.noiAnnualM !== null ? (
-                          <span className="text-green-400 text-xs">{formatMoney(row.noiAnnualM)}</span>
-                        ) : (
-                          <span className="text-gray-600 text-xs">-</span>
-                        )}
+                        {(() => {
+                          const val = calcValuation(row);
+                          if (val !== null && val > 0) {
+                            return <span className="text-green-400 text-xs">{formatMoney(Math.round(val))}</span>;
+                          }
+                          return <span className="text-gray-600 text-xs">-</span>;
+                        })()}
                       </td>
                       <td className="px-2 py-1.5 text-right text-xs text-gray-400">
                         {formatDate(row.energizationDate)}
