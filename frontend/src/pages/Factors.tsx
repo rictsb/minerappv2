@@ -28,6 +28,7 @@ const FACTOR_CONFIGS: Record<string, FactorConfig[]> = {
   market: [
     { key: 'btcPrice', label: 'BTC Price', min: 10000, max: 250000, step: 1000, format: (v) => `$${v.toLocaleString()}`, defaultValue: 97000 },
     { key: 'ethPrice', label: 'ETH Price', min: 500, max: 10000, step: 50, format: (v) => `$${v.toLocaleString()}`, defaultValue: 2500 },
+    { key: 'sofrRate', label: 'SOFR Rate', min: 0, max: 10, step: 0.05, format: (v) => `${v.toFixed(2)}%`, defaultValue: 4.3 },
   ],
   hpc: [
     { key: 'hpcCapRate', label: 'Cap Rate', min: 0.04, max: 0.15, step: 0.0025, format: (v) => `${(v * 100).toFixed(2)}%`, defaultValue: 0.075 },
@@ -103,9 +104,6 @@ const FACTOR_CONFIGS: Record<string, FactorConfig[]> = {
     { key: 'size100to249', label: '100-249 MW', min: 0.5, max: 1.5, step: 0.05, format: (v) => `${v.toFixed(2)}x`, defaultValue: 0.95 },
     { key: 'sizeLt100', label: '<100 MW', min: 0.5, max: 1.5, step: 0.05, format: (v) => `${v.toFixed(2)}x`, defaultValue: 0.85 },
   ],
-  sofr: [
-    { key: 'sofrRate', label: 'SOFR Base Rate', min: 0, max: 10, step: 0.1, format: (v) => `${v.toFixed(1)}%`, defaultValue: 4.3 },
-  ],
 };
 
 // Section metadata for collapsible panels
@@ -119,7 +117,6 @@ const SECTIONS = [
   { id: 'leaseStructure', title: 'Lease Structure', color: 'teal', configs: FACTOR_CONFIGS.leaseStructure },
   { id: 'energization', title: 'Energization Discount', color: 'yellow', configs: FACTOR_CONFIGS.energization, hasChart: true },
   { id: 'powerAuthority', title: 'Power Authority', color: 'red', configs: FACTOR_CONFIGS.powerAuthority },
-  { id: 'sofr', title: 'Base Rate', color: 'emerald', configs: FACTOR_CONFIGS.sofr },
   { id: 'tenantCredit', title: 'Tenant Credit Spreads', color: 'indigo', configs: FACTOR_CONFIGS.tenantCredit },
   { id: 'siteSize', title: 'Site Size', color: 'amber', configs: FACTOR_CONFIGS.siteSize },
 ];
@@ -238,21 +235,38 @@ export default function Factors() {
   const [fetchingPrices, setFetchingPrices] = useState(false);
   const saveTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  // Fetch live crypto prices from CoinGecko
+  // Fetch live crypto prices from CoinGecko and SOFR from NY Fed
   const fetchLivePrices = async () => {
     setFetchingPrices(true);
     try {
-      const res = await fetch(
+      // Fetch crypto prices
+      const cryptoRes = await fetch(
         'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd'
       );
-      if (!res.ok) throw new Error('Failed to fetch prices');
-      const data = await res.json();
-
-      if (data.bitcoin?.usd) {
-        handleFactorChange('btcPrice', Math.round(data.bitcoin.usd));
+      if (cryptoRes.ok) {
+        const data = await cryptoRes.json();
+        if (data.bitcoin?.usd) {
+          handleFactorChange('btcPrice', Math.round(data.bitcoin.usd));
+        }
+        if (data.ethereum?.usd) {
+          handleFactorChange('ethPrice', Math.round(data.ethereum.usd));
+        }
       }
-      if (data.ethereum?.usd) {
-        handleFactorChange('ethPrice', Math.round(data.ethereum.usd));
+
+      // Fetch SOFR rate from NY Fed
+      try {
+        const sofrRes = await fetch(
+          'https://markets.newyorkfed.org/api/rates/secured/sofr/last/1.json'
+        );
+        if (sofrRes.ok) {
+          const sofrData = await sofrRes.json();
+          const rate = sofrData.refRates?.[0]?.percentRate;
+          if (rate) {
+            handleFactorChange('sofrRate', Math.round(rate * 100) / 100);
+          }
+        }
+      } catch (sofrError) {
+        console.error('Error fetching SOFR rate:', sofrError);
       }
     } catch (error) {
       console.error('Error fetching live prices:', error);
