@@ -41,6 +41,10 @@ export default function Dashboard() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(() => {
+    const saved = localStorage.getItem('lastPriceRefresh');
+    return saved ? new Date(saved) : null;
+  });
 
   const { data: valData, isLoading, error } = useQuery({
     queryKey: ['valuation'],
@@ -63,6 +67,9 @@ export default function Dashboard() {
     },
     onSuccess: (data) => {
       setRefreshMessage(`Updated ${data.updated} prices`);
+      const now = new Date();
+      setLastRefresh(now);
+      localStorage.setItem('lastPriceRefresh', now.toISOString());
       queryClient.invalidateQueries({ queryKey: ['valuation'] });
       queryClient.invalidateQueries({ queryKey: ['companies'] });
       setTimeout(() => setRefreshMessage(null), 3000);
@@ -128,6 +135,13 @@ export default function Dashboard() {
           {refreshMessage && (
             <span className={`text-sm ${refreshMessage.includes('Error') ? 'text-red-400' : 'text-green-400'}`}>
               {refreshMessage}
+            </span>
+          )}
+          {lastRefresh && !refreshMessage && (
+            <span className="text-xs text-gray-500">
+              Updated {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {' · '}
+              {lastRefresh.toLocaleDateString([], { month: 'short', day: 'numeric' })}
             </span>
           )}
           <button
