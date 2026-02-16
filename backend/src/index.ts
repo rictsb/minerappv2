@@ -323,6 +323,17 @@ app.get('/api/v1/companies', async (req, res) => {
               const pipelineVal = buildingMw * (f.mwValueHpcUncontracted ?? 8) * bFactor * timeVal;
               (bld as any).computedValuationM = isFinite(pipelineVal) ? pipelineVal : 0;
             }
+
+            // For split buildings with unallocated remainder, add synthetic entry
+            if (currentUses.length > 0) {
+              const unallocMw = Math.max(0, buildingMw - explicitAlloc);
+              if (unallocMw > 0) {
+                const timeVal = helpers.getTimeValueMult(null, bld.energizationDate);
+                const pipelineVal = unallocMw * (f.mwValueHpcUncontracted ?? 8) * bFactor * timeVal;
+                (bld as any).unallocatedMw = unallocMw;
+                (bld as any).unallocatedValuationM = isFinite(pipelineVal) ? pipelineVal : 0;
+              }
+            }
           }
         }
       }
@@ -1144,6 +1155,16 @@ app.get('/api/v1/valuation', async (req, res) => {
                 }
 
                 periodValuations.push({ buildingId: building.id, usePeriodId: currentUse.id, valuationM: result.valuationM });
+              }
+
+              // Add unallocated remainder as pipeline
+              const unallocMw = Math.max(0, buildingMw - explicitlyAllocated);
+              if (unallocMw > 0) {
+                const timeVal = helpers.getTimeValueMult(null, building.energizationDate);
+                const pipelineVal = unallocMw * (factors.mwValueHpcUncontracted ?? 8) * bFactor * timeVal;
+                mwHpcPipeline += unallocMw;
+                evHpcPipeline += pipelineVal;
+                periodValuations.push({ buildingId: building.id, usePeriodId: null, valuationM: pipelineVal });
               }
             }
           }

@@ -332,23 +332,34 @@ export default function Projects() {
             const currentUses = (building.usePeriods || []).filter(up => up.isCurrent);
 
             // Create one row per use period for split buildings
-            const periods = currentUses.length > 0 ? currentUses : [null];
+            const periods: (UsePeriod | null)[] = currentUses.length > 0 ? currentUses : [null];
             // Calculate explicitly allocated MW for remainder calculation
             const buildingItMw = building.itMw ? parseFloat(building.itMw) : 0;
             const explicitlyAllocated = currentUses.reduce((sum, up) => sum + (up.mwAllocation ? parseFloat(up.mwAllocation) : 0), 0);
 
+            // Add synthetic unallocated row for split buildings with remaining MW
+            const unallocMw = currentUses.length > 0 ? Math.max(0, buildingItMw - explicitlyAllocated) : 0;
+            if (unallocMw > 0) {
+              periods.push(null); // null signals the unallocated remainder row
+            }
+
             for (const currentUse of periods) {
-              const useType = currentUse?.useType || 'UNCONTRACTED';
-              const tenant = currentUse?.tenant || null;
+              // Determine if this is the synthetic unallocated remainder row
+              const isUnallocatedRow = currentUse === null && currentUses.length > 0;
+
+              const useType = isUnallocatedRow ? 'UNCONTRACTED' : (currentUse?.useType || 'UNCONTRACTED');
+              const tenant = isUnallocatedRow ? 'Unallocated Pipeline' : (currentUse?.tenant || null);
 
               if (filterUseType && useType !== filterUseType) continue;
               if (filterTenant && (tenant || '') !== filterTenant) continue;
 
               rowNum++;
               // For split buildings use mwAllocation; for unsplit use building itMw
-              // For unallocated periods in splits, compute remainder
+              // For unallocated remainder row, use the unallocated MW
               let periodMw: number | null;
-              if (currentUse?.mwAllocation) {
+              if (isUnallocatedRow) {
+                periodMw = unallocMw;
+              } else if (currentUse?.mwAllocation) {
                 periodMw = parseFloat(currentUse.mwAllocation);
               } else if (currentUses.length > 1) {
                 // Split building: this period gets the remainder
@@ -394,7 +405,9 @@ export default function Projects() {
                 energizationDate: building.energizationDate || null,
                 ownershipStatus: building.ownershipStatus || null,
                 includeInValuation: building.includeInValuation ?? true,
-                computedValuationM: currentUse?.computedValuationM ?? building.computedValuationM ?? null,
+                computedValuationM: isUnallocatedRow
+                  ? ((building as any).unallocatedValuationM ?? null)
+                  : (currentUse?.computedValuationM ?? building.computedValuationM ?? null),
                 building,
               });
             }
