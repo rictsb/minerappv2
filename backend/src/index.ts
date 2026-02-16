@@ -951,6 +951,9 @@ app.get('/api/v1/valuation', async (req, res) => {
       const hpcSites: { siteName: string; buildingName: string; tenant: string; mw: number; leaseValueM: number; noiAnnualM: number; valuation: number; phase: string }[] = [];
       let totalLeaseValueM = 0;
 
+      // Per-period valuations for Projects table
+      const periodValuations: { buildingId: string; usePeriodId: string | null; valuationM: number }[] = [];
+
       for (const site of company.sites) {
         // Calculate total site MW for size multiplier
         let siteTotalMw = 0;
@@ -992,8 +995,10 @@ app.get('/api/v1/valuation', async (req, res) => {
               // No use periods — treat as unallocated pipeline
               const timeValueMult = getTimeValueMultiplier(null, building.energizationDate);
               const adjFactor = prob * regRisk * timeValueMult * paMult * ownershipMult * sizeMultiplier;
+              const pipelineVal = buildingMw * factors.mwValueHpcUncontracted * adjFactor;
               mwHpcPipeline += buildingMw * adjFactor;
-              evHpcPipeline += buildingMw * factors.mwValueHpcUncontracted * adjFactor;
+              evHpcPipeline += pipelineVal;
+              periodValuations.push({ buildingId: building.id, usePeriodId: null, valuationM: pipelineVal });
             } else {
               // Calculate explicitly allocated MW to determine remainder
               const explicitlyAllocated = currentUses.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
@@ -1025,14 +1030,15 @@ app.get('/api/v1/valuation', async (req, res) => {
                 // Combined adjustment factor
                 const adjFactor = prob * regRisk * timeValueMult * paMult * ownershipMult * sizeMultiplier;
 
+                let periodVal = 0;
+
                 // Categorize and value based on use type
                 if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-                  // Mining value based on EBITDA (calculated at company level from hashrate)
+                  periodVal = mw * factors.mwValueBtcMining * adjFactor;
                 } else if (useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') {
                   if (hasLease) {
                     mwHpcContracted += mw;
                     totalLeaseValueM += leaseValM;
-                    let periodVal = 0;
                     // DCF valuation: cap rate + terminal value (matches side panel)
                     if (noiAnnual > 0) {
                       const capRate = factors.hpcCapRate ?? 0.075;
@@ -1064,14 +1070,18 @@ app.get('/api/v1/valuation', async (req, res) => {
                       phase,
                     });
                   } else {
+                    periodVal = mw * factors.mwValueHpcUncontracted * adjFactor;
                     mwHpcPipeline += mw * adjFactor;
-                    evHpcPipeline += mw * factors.mwValueHpcUncontracted * adjFactor;
+                    evHpcPipeline += periodVal;
                   }
                 } else if (useType === 'HPC_AI_PLANNED' || useType === 'UNCONTRACTED' || useType === 'UNCONTRACTED_ROFR') {
                   // Pipeline - uncontracted capacity
+                  periodVal = mw * factors.mwValueHpcUncontracted * adjFactor;
                   mwHpcPipeline += mw * adjFactor;
-                  evHpcPipeline += mw * factors.mwValueHpcUncontracted * adjFactor;
+                  evHpcPipeline += periodVal;
                 }
+
+                periodValuations.push({ buildingId: building.id, usePeriodId: currentUse.id, valuationM: periodVal });
               }
             }
           }
@@ -1103,6 +1113,7 @@ app.get('/api/v1/valuation', async (req, res) => {
         // Drill-down details
         totalLeaseValueM: Math.round(totalLeaseValueM),
         hpcSites: hpcSites.sort((a, b) => b.valuation - a.valuation),
+        periodValuations,
       };
     });
 

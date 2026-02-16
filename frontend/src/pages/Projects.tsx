@@ -216,87 +216,38 @@ export default function Projects() {
     },
   });
 
-  // Fetch settings for valuation factors
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
+  // Fetch backend-computed valuations (single source of truth)
+  const { data: valuationData } = useQuery({
+    queryKey: ['valuation'],
     queryFn: async () => {
       const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/settings`);
-      if (!res.ok) throw new Error('Failed to fetch settings');
+      const res = await fetch(`${apiUrl}/api/v1/valuation`);
+      if (!res.ok) throw new Error('Failed to fetch valuations');
       return res.json();
     },
   });
 
-  // Valuation factors with defaults
-  const factors = useMemo(() => ({
-    noiMultiple: settings?.noiMultiple ?? 10,
-    mwValueHpcContracted: settings?.mwValueHpcContracted ?? 25,
-    mwValueHpcUncontracted: settings?.mwValueHpcUncontracted ?? 8,
-    mwValueBtcMining: settings?.mwValueBtcMining ?? 0.3,
-    hpcCapRate: settings?.hpcCapRate ?? 0.075,
-    hpcExitCapRate: settings?.hpcExitCapRate ?? 0.08,
-    terminalGrowthRate: settings?.terminalGrowthRate ?? 0.025,
-    discountRate: settings?.discountRate ?? 0.10,
-    leaseRenewalProbability: settings?.leaseRenewalProbability ?? 0.75,
-  }), [settings]);
-
-  // Calculate building valuation using DCF (matches backend/side panel)
-  const calcValuation = useCallback((row: FlatBuilding) => {
-    const itMw = row.itMw || 0;
-    const prob = row.probability;
-    const regRisk = row.regulatoryRisk || 1.0;
-    const useType = row.useType;
-    const adjFactor = prob * regRisk;
-
-    // Compute NOI: use stored noiAnnualM, or compute from lease data
-    let noiAnnual = row.noiAnnualM || 0;
-    let leaseYears = row.leaseYears || 10;
-    if (!noiAnnual && row.leaseValueM && row.noiPct) {
-      const noiPctVal = row.noiPct <= 1 ? row.noiPct : row.noiPct / 100;
-      const annualRev = row.leaseValueM / Math.max(leaseYears, 0.1);
-      noiAnnual = annualRev * noiPctVal;
-    }
-
-    const hasLease = row.tenant && (noiAnnual > 0 || (row.leaseValueM && row.leaseValueM > 0));
-
-    // HPC/AI contracted with lease — use DCF (cap rate + terminal value)
-    if ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && hasLease) {
-      if (noiAnnual > 0) {
-        const capRate = factors.hpcCapRate;
-        const exitCapRate = factors.hpcExitCapRate;
-        const terminalGrowthRate = factors.terminalGrowthRate;
-        const discountRate = factors.discountRate;
-        const renewalProbability = factors.leaseRenewalProbability;
-
-        // Base value: NOI / cap rate
-        const baseValue = capRate > 0 ? noiAnnual / capRate : 0;
-
-        // Terminal value: NOI grown, then discounted to PV
-        const terminalNoi = noiAnnual * Math.pow(1 + terminalGrowthRate, leaseYears);
-        const capRateDiff = Math.max(exitCapRate - terminalGrowthRate, 0.001);
-        const terminalValueAtEnd = terminalNoi / capRateDiff;
-        const terminalValuePV = terminalValueAtEnd / Math.pow(1 + discountRate, leaseYears) * renewalProbability;
-
-        const grossValue = baseValue + terminalValuePV;
-        return grossValue * adjFactor;
+  // Build a lookup map: "buildingId:usePeriodId" -> valuationM
+  const valuationMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    if (valuationData?.valuations) {
+      for (const companyVal of valuationData.valuations) {
+        for (const pv of (companyVal.periodValuations || [])) {
+          const key = `${pv.buildingId}:${pv.usePeriodId || 'none'}`;
+          map[key] = pv.valuationM;
+        }
       }
-      // Lease value but no NOI derivable
-      return (row.leaseValueM || 0) * adjFactor;
     }
+    return map;
+  }, [valuationData]);
 
-    // Pipeline / uncontracted HPC
-    if (useType === 'HPC_AI_PLANNED' || useType === 'UNCONTRACTED' || useType === 'UNCONTRACTED_ROFR' ||
-        ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && !hasLease)) {
-      return itMw * factors.mwValueHpcUncontracted * adjFactor;
-    }
-
-    // BTC Mining
-    if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-      return itMw * factors.mwValueBtcMining * adjFactor;
-    }
-
+  // Look up backend-computed valuation for each row
+  const calcValuation = useCallback((row: FlatBuilding) => {
+    const key = `${row.buildingId}:${row.usePeriodId || 'none'}`;
+    const val = valuationMap[key];
+    if (val !== undefined) return val;
     return null;
-  }, [factors]);
+  }, [valuationMap]);
 
   const updateBuildingMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Record<string, any> }) => {
