@@ -453,9 +453,16 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  // Calculate live valuation
+  // Calculate live valuation with full breakdown
   const calculateLiveValuation = () => {
-    if (!data) return { combinedFactor: 1, adjustedValue: 0, baseValue: 0, terminalValue: 0, grossValue: 0 };
+    const empty = {
+      method: 'NONE' as const,
+      combinedFactor: 1, adjustedValue: 0, baseValue: 0, terminalValue: 0, grossValue: 0,
+      leaseVal: 0, leaseYearsVal: 0, annualRev: 0, noiPct: 0, noiAnnual: 0,
+      capRate: 0, exitCapRate: 0, terminalGrowthRate: 0, discountRate: 0, renewalProbability: 0,
+      itMw: 0, mwRate: 0, useType: '' as string,
+    };
+    if (!data) return empty;
 
     const combinedFactor =
       (factorOverrides.phaseProbability || 1) *
@@ -469,39 +476,69 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       (factorOverrides.energization || 1) *
       (factorOverrides.fidoodleFactor || 1);
 
-    // Calculate Annual Rev from Lease Value / Term
+    const currentUse = (data.usePeriods || []).find((up: any) => up.isCurrent);
+    const useType = currentUse?.useType || 'UNCONTRACTED';
+    const itMw = data.building?.itMw || 0;
+
+    // BTC Mining — simple $/MW
+    if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
+      const mwRate = 0.3; // $M per MW for mining
+      const grossValue = itMw * mwRate;
+      const adjustedValue = grossValue * combinedFactor;
+      return {
+        ...empty, method: 'MW_VALUE' as const,
+        combinedFactor: isFinite(combinedFactor) ? combinedFactor : 1,
+        adjustedValue: isFinite(adjustedValue) ? adjustedValue : 0,
+        grossValue: isFinite(grossValue) ? grossValue : 0,
+        itMw, mwRate, useType,
+      };
+    }
+
+    // HPC uncontracted / pipeline — $/MW uncontracted
+    const hasLease = currentUse?.tenant && (parseFloat(leaseEdits.leaseValueM) || currentUse?.leaseValueM);
+    if (!hasLease && (useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD' || useType === 'HPC_AI_PLANNED' || useType === 'UNCONTRACTED' || useType === 'UNCONTRACTED_ROFR')) {
+      const mwRate = 8; // $M per MW uncontracted
+      const grossValue = itMw * mwRate;
+      const adjustedValue = grossValue * combinedFactor;
+      return {
+        ...empty, method: 'MW_PIPELINE' as const,
+        combinedFactor: isFinite(combinedFactor) ? combinedFactor : 1,
+        adjustedValue: isFinite(adjustedValue) ? adjustedValue : 0,
+        grossValue: isFinite(grossValue) ? grossValue : 0,
+        itMw, mwRate, useType,
+      };
+    }
+
+    // HPC/AI with lease — full DCF
     const leaseVal = parseFloat(leaseEdits.leaseValueM) || 0;
     const leaseYearsVal = leaseEdits.leaseYears ? parseFloat(leaseEdits.leaseYears) : (data.remainingLeaseYears || 10);
     const annualRev = leaseVal / Math.max(leaseYearsVal, 0.1);
-
-    // Calculate NOI from Annual Rev × NOI %
     const noiPct = parseFloat(leaseEdits.noiPct) || 0;
     const noiAnnual = annualRev * (noiPct / 100);
     const capRate = valInputEdits.capRate ? parseFloat(valInputEdits.capRate) / 100 : 0.075;
     const exitCapRate = valInputEdits.exitCapRate ? parseFloat(valInputEdits.exitCapRate) / 100 : 0.08;
     const terminalGrowthRate = valInputEdits.terminalGrowthRate ? parseFloat(valInputEdits.terminalGrowthRate) / 100 : 0.025;
     const discountRate = data.valuation?.inputs?.discountRate || 0.10;
-    const leaseYears = leaseYearsVal;
     const renewalProbability = data.globalFactors?.renewalProbability || 0.75;
 
-    // Base Value = NOI / Cap Rate
     const baseValue = noiAnnual > 0 && capRate > 0 ? noiAnnual / capRate : 0;
-
-    // Terminal Value calculation
     const capRateDiff = Math.max(exitCapRate - terminalGrowthRate, 0.001);
-    const terminalNoi = noiAnnual * Math.pow(1 + terminalGrowthRate, leaseYears);
+    const terminalNoi = noiAnnual * Math.pow(1 + terminalGrowthRate, leaseYearsVal);
     const terminalValueAtEnd = terminalNoi / capRateDiff;
-    const terminalValue = terminalValueAtEnd / Math.pow(1 + discountRate, leaseYears) * renewalProbability;
-
+    const terminalValue = terminalValueAtEnd / Math.pow(1 + discountRate, leaseYearsVal) * renewalProbability;
     const grossValue = baseValue + terminalValue;
     const adjustedValue = grossValue * combinedFactor;
 
     return {
+      method: 'DCF' as const,
       combinedFactor: isFinite(combinedFactor) ? combinedFactor : 1,
       adjustedValue: isFinite(adjustedValue) ? adjustedValue : 0,
       baseValue: isFinite(baseValue) ? baseValue : 0,
       terminalValue: isFinite(terminalValue) ? terminalValue : 0,
       grossValue: isFinite(grossValue) ? grossValue : 0,
+      leaseVal, leaseYearsVal, annualRev, noiPct, noiAnnual,
+      capRate, exitCapRate, terminalGrowthRate, discountRate, renewalProbability,
+      itMw, mwRate: 0, useType,
     };
   };
 
@@ -557,24 +594,98 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         </div>
       </div>
 
-      {/* Sticky Valuation Summary */}
-      <div className="flex-shrink-0 p-3 border-b border-gray-700 bg-gradient-to-r from-gray-800 to-gray-900">
-        <div className="flex items-center justify-between">
+      {/* Sticky Valuation Summary + Waterfall */}
+      <div className="flex-shrink-0 border-b border-gray-700 bg-gradient-to-r from-gray-800 to-gray-900">
+        {/* Headline */}
+        <div className="flex items-center justify-between p-3 pb-0">
           <div className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-orange-500" />
             <span className="text-sm font-medium text-gray-300">Valuation</span>
-            <span className="text-xs text-orange-400 font-medium">
-              ({safeToFixed(liveValuation.combinedFactor, 3)}x)
-            </span>
           </div>
-          <div className="text-right">
-            <div className="text-2xl font-bold text-orange-400">
-              {formatMoney(liveValuation.adjustedValue)}
-            </div>
-            <div className="text-[10px] text-gray-500">
-              Base: {formatMoney(liveValuation.baseValue)} + Terminal: {formatMoney(liveValuation.terminalValue)}
-            </div>
+          <div className="text-2xl font-bold text-orange-400">
+            {formatMoney(liveValuation.adjustedValue)}
           </div>
+        </div>
+
+        {/* Method-specific waterfall */}
+        <div className="px-3 pb-3 pt-2">
+          {liveValuation.method === 'DCF' ? (
+            <div className="text-[11px] font-mono space-y-0.5">
+              {/* Revenue line */}
+              <div className="flex justify-between text-gray-500">
+                <span>Lease Value ÷ Term</span>
+                <span>{formatMoney(liveValuation.leaseVal)} ÷ {safeToFixed(liveValuation.leaseYearsVal, 1)}yr = <span className="text-gray-400">{formatMoney(liveValuation.annualRev)}/yr</span></span>
+              </div>
+              {/* NOI line */}
+              <div className="flex justify-between text-gray-500">
+                <span>× NOI Margin</span>
+                <span>× {safeToFixed(liveValuation.noiPct, 0)}% = <span className="text-green-400 font-medium">{formatMoney(liveValuation.noiAnnual)}/yr NOI</span></span>
+              </div>
+              {/* Divider */}
+              <div className="border-t border-gray-700 my-1" />
+              {/* Capitalized value */}
+              <div className="flex justify-between">
+                <span className="text-gray-500">Capitalized Value</span>
+                <span className="text-gray-400">NOI ÷ {safeToFixed(liveValuation.capRate * 100, 1)}% = <span className="text-blue-400">{formatMoney(liveValuation.baseValue)}</span></span>
+              </div>
+              {/* Terminal value */}
+              <div className="flex justify-between">
+                <span className="text-gray-500">Terminal Value (PV)</span>
+                <span className="text-purple-400">{formatMoney(liveValuation.terminalValue)}</span>
+              </div>
+              {/* Gross */}
+              <div className="border-t border-gray-700 my-1" />
+              <div className="flex justify-between">
+                <span className="text-gray-400">Gross Value</span>
+                <span className="text-white font-medium">{formatMoney(liveValuation.grossValue)}</span>
+              </div>
+              {/* Factor */}
+              <div className="flex justify-between">
+                <span className="text-gray-500">× Adj Factor</span>
+                <span className="text-orange-400 font-medium">× {safeToFixed(liveValuation.combinedFactor, 3)}x</span>
+              </div>
+              {/* Final */}
+              <div className="border-t border-dashed border-orange-500/30 my-1" />
+              <div className="flex justify-between text-sm">
+                <span className="text-orange-400 font-bold">Adjusted Value</span>
+                <span className="text-orange-400 font-bold">{formatMoney(liveValuation.adjustedValue)}</span>
+              </div>
+            </div>
+          ) : liveValuation.method === 'MW_VALUE' ? (
+            <div className="text-[11px] font-mono space-y-0.5">
+              <div className="flex justify-between text-gray-500">
+                <span>BTC Mining $/MW</span>
+                <span>{safeToFixed(liveValuation.itMw, 0)} MW × ${safeToFixed(liveValuation.mwRate, 1)}M = <span className="text-white">{formatMoney(liveValuation.grossValue)}</span></span>
+              </div>
+              <div className="flex justify-between text-gray-500">
+                <span>× Adj Factor</span>
+                <span className="text-orange-400 font-medium">× {safeToFixed(liveValuation.combinedFactor, 3)}x</span>
+              </div>
+              <div className="border-t border-dashed border-orange-500/30 my-1" />
+              <div className="flex justify-between text-sm">
+                <span className="text-orange-400 font-bold">Adjusted Value</span>
+                <span className="text-orange-400 font-bold">{formatMoney(liveValuation.adjustedValue)}</span>
+              </div>
+            </div>
+          ) : liveValuation.method === 'MW_PIPELINE' ? (
+            <div className="text-[11px] font-mono space-y-0.5">
+              <div className="flex justify-between text-gray-500">
+                <span>Pipeline $/MW (uncontracted)</span>
+                <span>{safeToFixed(liveValuation.itMw, 0)} MW × ${safeToFixed(liveValuation.mwRate, 0)}M = <span className="text-white">{formatMoney(liveValuation.grossValue)}</span></span>
+              </div>
+              <div className="flex justify-between text-gray-500">
+                <span>× Adj Factor</span>
+                <span className="text-orange-400 font-medium">× {safeToFixed(liveValuation.combinedFactor, 3)}x</span>
+              </div>
+              <div className="border-t border-dashed border-orange-500/30 my-1" />
+              <div className="flex justify-between text-sm">
+                <span className="text-orange-400 font-bold">Adjusted Value</span>
+                <span className="text-orange-400 font-bold">{formatMoney(liveValuation.adjustedValue)}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-[11px] text-gray-600 italic">No valuation method applied — add lease details or set a use type</div>
+          )}
         </div>
       </div>
 
