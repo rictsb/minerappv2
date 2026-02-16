@@ -625,7 +625,7 @@ const DEFAULT_TENANTS: { key: string; name: string; defaultSpread: number }[] = 
 app.get('/api/v1/tenants', async (req, res) => {
   try {
     const settings = await prisma.settings.findMany();
-    const settingsMap: Record<string, string> = {};
+    const settingsMap: Record<string, any> = {};
     for (const s of settings) {
       settingsMap[s.key] = s.value;
     }
