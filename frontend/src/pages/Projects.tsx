@@ -749,7 +749,7 @@ export default function Projects() {
 
                   return (
                     <tr
-                      key={row.buildingId}
+                      key={row.usePeriodId ? `${row.buildingId}-${row.usePeriodId}` : `${row.buildingId}-${row.tenant || 'default'}`}
                       className={`hover:bg-gray-700/30 transition cursor-pointer ${
                         selectedBuildingId === row.buildingId ? 'bg-orange-900/20 border-l-2 border-orange-500' : ''
                       } ${!row.includeInValuation ? 'opacity-40' : ''}`}
