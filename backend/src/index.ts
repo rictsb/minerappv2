@@ -623,11 +623,11 @@ app.post('/api/v1/use-periods', async (req, res) => {
 
 app.patch('/api/v1/use-periods/:id', async (req, res) => {
   try {
-    const data = { ...req.body };
+    const body = req.body;
 
     // Validate lease start date >= energization date
-    if (data.leaseStart || data.startDate) {
-      const leaseStartStr = data.leaseStart || data.startDate;
+    const leaseStartStr = body.leaseStart || body.startDate;
+    if (leaseStartStr) {
       const usePeriod = await prisma.usePeriod.findUnique({
         where: { id: req.params.id },
         include: { building: true },
@@ -643,26 +643,44 @@ app.patch('/api/v1/use-periods/:id', async (req, res) => {
       }
     }
 
+    // Build a clean update object with only known Prisma fields
+    const data: Record<string, any> = {};
+    if (body.useType !== undefined) data.useType = body.useType;
+    if (body.tenant !== undefined) data.tenant = body.tenant;
+    if (body.mwAllocation !== undefined) data.mwAllocation = body.mwAllocation;
+    if (body.leaseValueM !== undefined) data.leaseValueM = body.leaseValueM;
+    if (body.leaseYears !== undefined) data.leaseYears = body.leaseYears;
+    if (body.noiPct !== undefined) data.noiPct = body.noiPct;
+    if (body.leaseStructure !== undefined) data.leaseStructure = body.leaseStructure;
+    if (body.leaseStart !== undefined) data.leaseStart = body.leaseStart ? new Date(body.leaseStart) : null;
+    if (body.leaseEnd !== undefined) data.leaseEnd = body.leaseEnd ? new Date(body.leaseEnd) : null;
+    if (body.startDate !== undefined) data.startDate = body.startDate ? new Date(body.startDate) : null;
+    if (body.endDate !== undefined) data.endDate = body.endDate ? new Date(body.endDate) : null;
+    if (body.isCurrent !== undefined) data.isCurrent = body.isCurrent;
+    if (body.annualRevM !== undefined) data.annualRevM = body.annualRevM;
+    if (body.noiAnnualM !== undefined) data.noiAnnualM = body.noiAnnualM;
+
     // Recompute noiAnnualM if lease data changed
-    if (data.leaseValueM !== undefined || data.leaseYears !== undefined || data.noiPct !== undefined) {
+    if (body.leaseValueM !== undefined || body.leaseYears !== undefined || body.noiPct !== undefined) {
       const existing = await prisma.usePeriod.findUnique({ where: { id: req.params.id } });
       if (existing) {
-        const leaseVal = Number(data.leaseValueM ?? existing.leaseValueM) || 0;
-        const leaseYrs = Number(data.leaseYears ?? existing.leaseYears) || 10;
-        const noiPctFrac = Number(data.noiPct ?? existing.noiPct) || 0;
+        const leaseVal = Number(body.leaseValueM ?? existing.leaseValueM) || 0;
+        const leaseYrs = Number(body.leaseYears ?? existing.leaseYears) || 10;
+        const noiPctFrac = Number(body.noiPct ?? existing.noiPct) || 0;
         if (leaseVal > 0 && noiPctFrac > 0) {
           data.noiAnnualM = (leaseVal / Math.max(leaseYrs, 0.1)) * noiPctFrac;
         }
       }
     }
+
     const usePeriod = await prisma.usePeriod.update({
       where: { id: req.params.id },
       data,
     });
     res.json(usePeriod);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error updating use period:', error);
-    res.status(500).json({ error: 'Failed to update use period' });
+    res.status(500).json({ error: error.message || 'Failed to update use period' });
   }
 });
 
