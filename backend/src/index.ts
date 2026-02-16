@@ -330,6 +330,15 @@ app.post('/api/v1/use-periods', async (req, res) => {
   try {
     const { isSplit, ...data } = req.body;
 
+    // Compute noiAnnualM from lease data if not provided
+    if (!data.noiAnnualM && data.leaseValueM && data.noiPct) {
+      const leaseVal = Number(data.leaseValueM) || 0;
+      const leaseYrs = Number(data.leaseYears) || 10;
+      const noiPctVal = Number(data.noiPct) || 0; // stored as 0-1 fraction
+      const annualRev = leaseVal / Math.max(leaseYrs, 0.1);
+      data.noiAnnualM = annualRev * noiPctVal;
+    }
+
     // If it's a SPLIT, we want multiple concurrent periods (don't mark others as not current)
     // If it's a TRANSITION (not a split), mark old periods as ended
     if (data.isCurrent && data.buildingId && !isSplit) {

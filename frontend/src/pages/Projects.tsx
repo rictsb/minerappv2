@@ -124,6 +124,8 @@ interface FlatBuilding {
   probabilityOverride: number | null;
   regulatoryRisk: number;
   leaseValueM: number | null;
+  leaseYears: number | null;
+  noiPct: number | null;
   noiAnnualM: number | null;
   energizationDate: string | null;
   ownershipStatus: string | null;
@@ -237,27 +239,39 @@ export default function Projects() {
   const calcValuation = useCallback((row: FlatBuilding) => {
     const itMw = row.itMw || 0;
     const prob = row.probability;
+    const regRisk = row.regulatoryRisk || 1.0;
     const useType = row.useType;
+    const adjFactor = prob * regRisk;
 
-    // If has NOI, use NOI × multiple
-    if (row.noiAnnualM && row.noiAnnualM > 0) {
-      return row.noiAnnualM * factors.noiMultiple * prob;
+    // Compute NOI: use stored noiAnnualM, or compute from lease data
+    let noiAnnual = row.noiAnnualM || 0;
+    if (!noiAnnual && row.leaseValueM && row.noiPct) {
+      const leaseYrs = row.leaseYears || 10;
+      const noiPctVal = row.noiPct <= 1 ? row.noiPct : row.noiPct / 100;
+      const annualRev = row.leaseValueM / Math.max(leaseYrs, 0.1);
+      noiAnnual = annualRev * noiPctVal;
     }
 
-    // HPC/AI contracted with lease value but no NOI
-    if ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && row.leaseValueM) {
-      return row.leaseValueM * prob;
+    const hasLease = row.tenant && (noiAnnual > 0 || (row.leaseValueM && row.leaseValueM > 0));
+
+    // HPC/AI contracted with NOI — use NOI × multiple
+    if ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && hasLease) {
+      if (noiAnnual > 0) {
+        return noiAnnual * factors.noiMultiple * adjFactor;
+      }
+      // Lease value but no NOI derivable
+      return (row.leaseValueM || 0) * adjFactor;
     }
 
     // Pipeline / uncontracted HPC
     if (useType === 'HPC_AI_PLANNED' || useType === 'UNCONTRACTED' || useType === 'UNCONTRACTED_ROFR' ||
-        ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && !row.leaseValueM && !row.noiAnnualM)) {
-      return itMw * factors.mwValueHpcUncontracted * prob;
+        ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && !hasLease)) {
+      return itMw * factors.mwValueHpcUncontracted * adjFactor;
     }
 
     // BTC Mining
     if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-      return itMw * factors.mwValueBtcMining * prob;
+      return itMw * factors.mwValueBtcMining * adjFactor;
     }
 
     return null;
@@ -372,6 +386,10 @@ export default function Projects() {
 
             // Create one row per use period for split buildings
             const periods = currentUses.length > 0 ? currentUses : [null];
+            // Calculate explicitly allocated MW for remainder calculation
+            const buildingItMw = building.itMw ? parseFloat(building.itMw) : 0;
+            const explicitlyAllocated = currentUses.reduce((sum, up) => sum + (up.mwAllocation ? parseFloat(up.mwAllocation) : 0), 0);
+
             for (const currentUse of periods) {
               const useType = currentUse?.useType || 'UNCONTRACTED';
               const tenant = currentUse?.tenant || null;
@@ -381,9 +399,27 @@ export default function Projects() {
 
               rowNum++;
               // For split buildings use mwAllocation; for unsplit use building itMw
-              const periodMw = currentUse?.mwAllocation
-                ? parseFloat(currentUse.mwAllocation)
-                : building.itMw ? parseFloat(building.itMw) : null;
+              // For unallocated periods in splits, compute remainder
+              let periodMw: number | null;
+              if (currentUse?.mwAllocation) {
+                periodMw = parseFloat(currentUse.mwAllocation);
+              } else if (currentUses.length > 1) {
+                // Split building: this period gets the remainder
+                periodMw = Math.max(buildingItMw - explicitlyAllocated, 0);
+              } else {
+                periodMw = buildingItMw || null;
+              }
+
+              // Compute noiAnnualM from lease data if not stored
+              let noiAnnualM = currentUse?.noiAnnualM ? parseFloat(currentUse.noiAnnualM) : null;
+              if (!noiAnnualM && currentUse?.leaseValueM && currentUse?.noiPct) {
+                const leaseVal = parseFloat(currentUse.leaseValueM) || 0;
+                const leaseYrs = currentUse.leaseYears ? parseFloat(currentUse.leaseYears) : 10;
+                const noiPctRaw = parseFloat(currentUse.noiPct) || 0;
+                const noiPct = noiPctRaw <= 1 ? noiPctRaw : noiPctRaw / 100;
+                const annualRev = leaseVal / Math.max(leaseYrs, 0.1);
+                noiAnnualM = annualRev * noiPct;
+              }
 
               rows.push({
                 rowNum,
@@ -405,7 +441,9 @@ export default function Projects() {
                 probabilityOverride: probOverride,
                 regulatoryRisk: building.regulatoryRisk ? parseFloat(building.regulatoryRisk) : 1.0,
                 leaseValueM: currentUse?.leaseValueM ? parseFloat(currentUse.leaseValueM) : null,
-                noiAnnualM: currentUse?.noiAnnualM ? parseFloat(currentUse.noiAnnualM) : null,
+                leaseYears: currentUse?.leaseYears ? parseFloat(currentUse.leaseYears) : null,
+                noiPct: currentUse?.noiPct ? parseFloat(currentUse.noiPct) : null,
+                noiAnnualM,
                 energizationDate: building.energizationDate || null,
                 ownershipStatus: building.ownershipStatus || null,
                 includeInValuation: building.includeInValuation ?? true,
