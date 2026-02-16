@@ -44,7 +44,7 @@ class PanelErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryStat
   render() {
     if (this.state.hasError) {
       return (
-        <div className="fixed inset-y-0 right-0 w-[520px] bg-gray-900 border-l border-gray-700 shadow-2xl z-50 p-4">
+        <div className="fixed inset-y-0 right-0 w-[520px] bg-gray-900 border-l border-gray-700 shadow-2xl z-50 p-4 translate-x-0 transition-transform duration-300">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold text-red-400 flex items-center gap-2">
               <AlertTriangle className="h-5 w-5" />
@@ -245,6 +245,8 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
 
   // Editable lease details
   const [leaseEdits, setLeaseEdits] = useState<Record<string, any>>({});
+  // Per-split lease edits: keyed by usePeriodId
+  const [splitLeaseEdits, setSplitLeaseEdits] = useState<Record<string, Record<string, any>>>({});
   // Factor overrides
   const [factorOverrides, setFactorOverrides] = useState<Record<string, number>>({});
   const [hasChanges, setHasChanges] = useState(false);
@@ -343,6 +345,18 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     },
   });
 
+  // Slide-in animation state
+  const [isVisible, setIsVisible] = useState(false);
+  useEffect(() => {
+    // Trigger slide-in after mount
+    requestAnimationFrame(() => setIsVisible(true));
+  }, []);
+
+  const handleClose = () => {
+    setIsVisible(false);
+    setTimeout(onClose, 300); // Wait for slide-out animation
+  };
+
   // Initialize state from data
   useEffect(() => {
     if (data) {
@@ -358,6 +372,26 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         annualRevM: ld.annualRevM || '',
         noiPct: ld.noiPct ? (ld.noiPct * 100).toFixed(1) : '',
       });
+
+      // Initialize per-split lease edits
+      const periodVals: any[] = data.periodValuations || [];
+      if (periodVals.length > 1) {
+        const edits: Record<string, Record<string, any>> = {};
+        for (const pv of periodVals) {
+          if (pv.usePeriodId) {
+            edits[pv.usePeriodId] = {
+              tenant: pv.tenant || '',
+              leaseValueM: pv.leaseValueM?.toString() || '',
+              leaseYears: pv.leaseYears?.toString() || '',
+              noiPct: pv.noiPct ? (pv.noiPct <= 1 ? (pv.noiPct * 100).toFixed(0) : pv.noiPct.toFixed(0)) : '',
+              leaseStart: pv.leaseStart ? pv.leaseStart.split('T')[0] : '',
+              mwAllocation: pv.mw?.toString() || '',
+              useType: pv.useType || 'HPC_AI_HOSTING',
+            };
+          }
+        }
+        setSplitLeaseEdits(edits);
+      }
 
       setFactorOverrides({
         phaseProbability: fd.phaseProbability?.final ?? fd.phaseProbability?.auto ?? 0.5,
@@ -384,7 +418,12 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     setHasChanges(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    // If split building, save per-split lease edits first
+    if (isSplitBuilding && Object.keys(splitLeaseEdits).length > 0) {
+      await handleSaveSplitLeases();
+    }
+
     const fd = data?.factorDetails || {};
 
     // Calculate Annual Rev from Lease Value / Term
@@ -397,8 +436,8 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     const calculatedNoi = annualRev * (noiPct / 100);
 
     updateMutation.mutate({
-      // Lease details
-      lease: {
+      // Lease details (only for single-period buildings)
+      lease: isSplitBuilding ? undefined : {
         tenant: leaseEdits.tenant || null,
         leaseStructure: leaseEdits.leaseStructure,
         leaseYears: leaseEdits.leaseYears ? parseFloat(leaseEdits.leaseYears) : null,
@@ -451,13 +490,73 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     }
   };
 
+  // Save per-split lease edits
+  const handleSaveSplitLeases = async () => {
+    const apiUrl = getApiUrl();
+    const energizationDate = data?.building?.energizationDate;
+
+    for (const [usePeriodId, edits] of Object.entries(splitLeaseEdits)) {
+      // Validate lease start date
+      if (edits.leaseStart && energizationDate) {
+        const energDate = energizationDate.split('T')[0];
+        if (edits.leaseStart < energDate) {
+          alert(`Lease start date for ${edits.tenant || 'split'} cannot be before energization date (${energDate})`);
+          return;
+        }
+      }
+
+      const noiPctVal = edits.noiPct ? parseFloat(edits.noiPct) : null;
+      const payload: Record<string, any> = {
+        tenant: edits.tenant || null,
+        leaseValueM: edits.leaseValueM ? parseFloat(edits.leaseValueM) : null,
+        leaseYears: edits.leaseYears ? parseFloat(edits.leaseYears) : null,
+        noiPct: noiPctVal != null ? (noiPctVal > 1 ? noiPctVal / 100 : noiPctVal) : null,
+        leaseStart: edits.leaseStart || null,
+        startDate: edits.leaseStart || null,
+        mwAllocation: edits.mwAllocation ? parseFloat(edits.mwAllocation) : null,
+        useType: edits.useType || undefined,
+      };
+
+      try {
+        const res = await fetch(`${apiUrl}/api/v1/use-periods/${usePeriodId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          alert(body.error || `Failed to save split ${edits.tenant || usePeriodId}`);
+          return;
+        }
+      } catch (err) {
+        console.error('Error saving split lease:', err);
+        alert('Error saving split lease data');
+        return;
+      }
+    }
+
+    // Refresh all data
+    queryClient.invalidateQueries({ queryKey: ['building-valuation', buildingId] });
+    queryClient.invalidateQueries({ queryKey: ['companies'] });
+    queryClient.invalidateQueries({ queryKey: ['valuation'] });
+    setHasChanges(false);
+  };
+
+  const handleSplitLeaseChange = (usePeriodId: string, key: string, value: string) => {
+    setSplitLeaseEdits(prev => ({
+      ...prev,
+      [usePeriodId]: { ...prev[usePeriodId], [key]: value },
+    }));
+    setHasChanges(true);
+  };
+
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
   if (isLoading) {
     return (
-      <div className="fixed inset-y-0 right-0 w-[520px] bg-gray-900 border-l border-gray-700 shadow-2xl flex items-center justify-center z-50">
+      <div className={`fixed inset-y-0 right-0 w-[520px] bg-gray-900 border-l border-gray-700 shadow-2xl flex items-center justify-center z-50 transition-transform duration-300 ease-in-out ${isVisible ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500" />
       </div>
     );
@@ -465,10 +564,10 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
 
   if (error || !data) {
     return (
-      <div className="fixed inset-y-0 right-0 w-[520px] bg-gray-900 border-l border-gray-700 shadow-2xl z-50 p-4">
+      <div className={`fixed inset-y-0 right-0 w-[520px] bg-gray-900 border-l border-gray-700 shadow-2xl z-50 p-4 transition-transform duration-300 ease-in-out ${isVisible ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold text-red-400">Error Loading</h2>
-          <button onClick={onClose} className="p-1 hover:bg-gray-700 rounded">
+          <button onClick={handleClose} className="p-1 hover:bg-gray-700 rounded">
             <X className="h-5 w-5 text-gray-400" />
           </button>
         </div>
@@ -490,7 +589,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
   const isSplitBuilding = periodValuations.length > 1;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-[520px] bg-gray-900 border-l border-gray-700 shadow-2xl z-50 flex flex-col overflow-hidden">
+    <div className={`fixed inset-y-0 right-0 w-[520px] bg-gray-900 border-l border-gray-700 shadow-2xl z-50 flex flex-col overflow-hidden transition-transform duration-300 ease-in-out ${isVisible ? 'translate-x-0' : 'translate-x-full'}`}>
       {/* Header */}
       <div className="flex-shrink-0 p-3 border-b border-gray-700 bg-gray-800">
         <div className="flex justify-between items-start">
@@ -506,7 +605,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
               <span>{campus.name || 'Campus'}</span>
             </div>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-gray-700 rounded">
+          <button onClick={handleClose} className="p-1 hover:bg-gray-700 rounded">
             <X className="h-5 w-5 text-gray-400" />
           </button>
         </div>
@@ -810,34 +909,115 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
           </button>
           {expandedSections.lease && (() => {
             if (isSplitBuilding) {
-              // Per-period lease summary for split buildings
+              // Per-period editable lease details for split buildings
+              const energDate = data?.building?.energizationDate ? data.building.energizationDate.split('T')[0] : '';
               return (
                 <div className="px-4 pb-4 space-y-2">
-                  <div className="text-[10px] text-gray-500 mb-1">Each split period has its own lease. Edit via the split modal.</div>
+                  <div className="text-[10px] text-gray-500 mb-1">Edit lease details per split below.</div>
                   {periodValuations.map((pv: any, idx: number) => {
-                    const noiPctDisplay = pv.noiPct ? (pv.noiPct <= 1 ? pv.noiPct * 100 : pv.noiPct) : 0;
+                    const upId = pv.usePeriodId;
+                    const edits = upId ? splitLeaseEdits[upId] : null;
+                    if (!edits) {
+                      // Read-only fallback for unallocated
+                      return (
+                        <div key={upId || idx} className="bg-gray-800/30 border border-gray-700 rounded p-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium text-cyan-400">{pv.tenant || 'Uncontracted'}</span>
+                            <span className="text-[10px] text-gray-500">{safeToFixed(pv.mw, 0)} MW</span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-x-3 gap-y-0.5 text-[10px]">
+                            <span className="text-gray-500">NOI</span>
+                            <span className="text-green-400 col-span-2">{pv.noiAnnual > 0 ? formatMoney(pv.noiAnnual) : '—'}</span>
+                          </div>
+                        </div>
+                      );
+                    }
                     return (
-                      <div key={pv.usePeriodId || idx} className="bg-gray-800/30 border border-gray-700 rounded p-2">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-medium text-cyan-400">{pv.tenant || 'Uncontracted'}</span>
-                          <span className="text-[10px] text-gray-500">{safeToFixed(pv.mw, 0)} MW</span>
+                      <div key={upId} className="bg-gray-800/30 border border-gray-700 rounded p-2.5">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-medium text-cyan-400">{edits.tenant || 'Uncontracted'}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                            edits.useType === 'HPC_AI_HOSTING' ? 'bg-purple-900/50 text-purple-400' :
+                            edits.useType === 'BTC_MINING' ? 'bg-orange-900/50 text-orange-400' :
+                            'bg-gray-700 text-gray-400'
+                          }`}>
+                            {edits.useType === 'HPC_AI_HOSTING' ? 'HPC/AI' : edits.useType === 'BTC_MINING' ? 'BTC' : edits.useType}
+                          </span>
                         </div>
-                        <div className="grid grid-cols-3 gap-x-3 gap-y-0.5 text-[10px]">
-                          {pv.leaseStart && (
-                            <>
-                              <span className="text-gray-500">Lease Start</span>
-                              <span className="text-gray-400 col-span-2">{new Date(pv.leaseStart).toLocaleDateString()}</span>
-                            </>
-                          )}
-                          <span className="text-gray-500">Lease Value</span>
-                          <span className="text-gray-300 col-span-2">{pv.leaseValueM > 0 ? formatMoney(pv.leaseValueM) : '—'}</span>
-                          <span className="text-gray-500">Term</span>
-                          <span className="text-gray-300 col-span-2">{pv.leaseYears > 0 ? `${pv.leaseYears} yr` : '—'}</span>
-                          <span className="text-gray-500">NOI %</span>
-                          <span className="text-gray-300 col-span-2">{noiPctDisplay > 0 ? `${noiPctDisplay.toFixed(0)}%` : '—'}</span>
-                          <span className="text-gray-500">Annual NOI</span>
-                          <span className="text-green-400 col-span-2 font-medium">{pv.noiAnnual > 0 ? formatMoney(pv.noiAnnual) : '—'}</span>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <label className="text-[10px] text-gray-500 block mb-0.5">Tenant</label>
+                            <input
+                              type="text"
+                              value={edits.tenant}
+                              onChange={(e) => handleSplitLeaseChange(upId, 'tenant', e.target.value)}
+                              className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white"
+                              placeholder="Tenant"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-gray-500 block mb-0.5">MW</label>
+                            <input
+                              type="number"
+                              value={edits.mwAllocation}
+                              onChange={(e) => handleSplitLeaseChange(upId, 'mwAllocation', e.target.value)}
+                              className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-gray-500 block mb-0.5">Lease Start</label>
+                            <input
+                              type="date"
+                              value={edits.leaseStart}
+                              min={energDate}
+                              onChange={(e) => handleSplitLeaseChange(upId, 'leaseStart', e.target.value)}
+                              className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white"
+                            />
+                            {edits.leaseStart && energDate && edits.leaseStart < energDate && (
+                              <span className="text-red-400 text-[9px]">Before energization!</span>
+                            )}
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-gray-500 block mb-0.5">Lease $M</label>
+                            <input
+                              type="number"
+                              value={edits.leaseValueM}
+                              onChange={(e) => handleSplitLeaseChange(upId, 'leaseValueM', e.target.value)}
+                              className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white"
+                              step="0.1"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-gray-500 block mb-0.5">Years</label>
+                            <input
+                              type="number"
+                              value={edits.leaseYears}
+                              onChange={(e) => handleSplitLeaseChange(upId, 'leaseYears', e.target.value)}
+                              className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white"
+                              step="0.5"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-gray-500 block mb-0.5">NOI %</label>
+                            <input
+                              type="number"
+                              value={edits.noiPct}
+                              onChange={(e) => handleSplitLeaseChange(upId, 'noiPct', e.target.value)}
+                              className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white"
+                              placeholder="e.g. 85"
+                            />
+                          </div>
                         </div>
+                        {/* Calculated NOI preview */}
+                        {edits.leaseValueM && edits.leaseYears && edits.noiPct && (
+                          <div className="mt-1.5 pt-1.5 border-t border-gray-700/50 flex justify-between text-[10px]">
+                            <span className="text-gray-500">Calculated NOI</span>
+                            <span className="text-green-400 font-medium">
+                              {formatMoney((parseFloat(edits.leaseValueM) / Math.max(parseFloat(edits.leaseYears), 0.1)) * (parseFloat(edits.noiPct) / 100))}
+                              /yr
+                            </span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}

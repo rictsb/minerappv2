@@ -277,40 +277,6 @@ export default function Projects() {
     },
   });
 
-  const updateUsePeriodMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Record<string, any> }) => {
-      const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/use-periods/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error('Failed to update use period');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['companies'] });
-      queryClient.invalidateQueries({ queryKey: ['valuation'] });
-    },
-  });
-
-  const createUsePeriodMutation = useMutation({
-    mutationFn: async (data: Record<string, any>) => {
-      const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/use-periods`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error('Failed to create use period');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['companies'] });
-      queryClient.invalidateQueries({ queryKey: ['valuation'] });
-    },
-  });
-
   // Flatten all buildings into a single list
   const flatBuildings = useMemo(() => {
     if (!companies) return [];
@@ -598,6 +564,13 @@ export default function Projects() {
 
   const saveBuilding = async () => {
     if (!editingBuilding) return;
+
+    // Validate lease start date
+    if (editFormData.leaseStart && editFormData.energizationDate && editFormData.leaseStart < editFormData.energizationDate) {
+      alert(`Lease start date cannot be before energization date (${editFormData.energizationDate})`);
+      return;
+    }
+
     const probOverride = editFormData.probabilityOverride
       ? parseFloat(editFormData.probabilityOverride) / 100
       : null;
@@ -605,43 +578,65 @@ export default function Projects() {
       ? parseFloat(editFormData.regulatoryRisk) / 100
       : 1.0;
 
-    // Update building data
-    updateBuildingMutation.mutate({
-      id: editingBuilding,
-      data: {
-        developmentPhase: editFormData.developmentPhase,
-        probabilityOverride: probOverride,
-        regulatoryRisk: regRisk,
-        grossMw: editFormData.grossMw ? parseFloat(editFormData.grossMw) : null,
-        itMw: editFormData.itMw ? parseFloat(editFormData.itMw) : null,
-        pue: editFormData.pue ? parseFloat(editFormData.pue) : null,
-      },
-    });
+    const apiUrl = getApiUrl();
 
-    // Update use period fields (use type, tenant, lease data, MW allocation)
-    if (editFormData.editingUsePeriodId) {
-      const noiPctVal = editFormData.noiPct ? parseFloat(editFormData.noiPct) : null;
-      const usePeriodData: Record<string, any> = {
-        useType: editFormData.useType,
-        tenant: editFormData.tenant || null,
-        mwAllocation: editFormData.mwAllocation ? parseFloat(editFormData.mwAllocation) : null,
-        leaseValueM: editFormData.leaseValueM ? parseFloat(editFormData.leaseValueM) : null,
-        leaseYears: editFormData.leaseYears ? parseFloat(editFormData.leaseYears) : null,
-        noiPct: noiPctVal != null ? (noiPctVal > 1 ? noiPctVal / 100 : noiPctVal) : null,
-        leaseStart: editFormData.leaseStart || null,
-        startDate: editFormData.leaseStart || null,
-      };
-      updateUsePeriodMutation.mutate({
-        id: editFormData.editingUsePeriodId,
-        data: usePeriodData,
+    try {
+      // Update building data
+      await fetch(`${apiUrl}/api/v1/buildings/${editingBuilding}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          developmentPhase: editFormData.developmentPhase,
+          probabilityOverride: probOverride,
+          regulatoryRisk: regRisk,
+          grossMw: editFormData.grossMw ? parseFloat(editFormData.grossMw) : null,
+          itMw: editFormData.itMw ? parseFloat(editFormData.itMw) : null,
+          pue: editFormData.pue ? parseFloat(editFormData.pue) : null,
+        }),
       });
-    } else if (editFormData.useType !== editFormData.originalUseType && !editFormData.isUnallocatedRow) {
-      // Create new use period if use type changed on a building with no period
-      createUsePeriodMutation.mutate({
-        buildingId: editingBuilding,
-        useType: editFormData.useType,
-        isCurrent: true,
-      });
+
+      // Update use period fields (use type, tenant, lease data, MW allocation)
+      if (editFormData.editingUsePeriodId) {
+        const noiPctVal = editFormData.noiPct ? parseFloat(editFormData.noiPct) : null;
+        const usePeriodData: Record<string, any> = {
+          useType: editFormData.useType,
+          tenant: editFormData.tenant || null,
+          mwAllocation: editFormData.mwAllocation ? parseFloat(editFormData.mwAllocation) : null,
+          leaseValueM: editFormData.leaseValueM ? parseFloat(editFormData.leaseValueM) : null,
+          leaseYears: editFormData.leaseYears ? parseFloat(editFormData.leaseYears) : null,
+          noiPct: noiPctVal != null ? (noiPctVal > 1 ? noiPctVal / 100 : noiPctVal) : null,
+          leaseStart: editFormData.leaseStart || null,
+          startDate: editFormData.leaseStart || null,
+        };
+        const res = await fetch(`${apiUrl}/api/v1/use-periods/${editFormData.editingUsePeriodId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(usePeriodData),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          alert(body.error || 'Failed to save use period');
+          return;
+        }
+      } else if (editFormData.useType !== editFormData.originalUseType && !editFormData.isUnallocatedRow) {
+        await fetch(`${apiUrl}/api/v1/use-periods`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            buildingId: editingBuilding,
+            useType: editFormData.useType,
+            isCurrent: true,
+          }),
+        });
+      }
+
+      // Refresh data and clear edit state
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['valuation'] });
+      setEditingBuilding(null);
+      setEditFormData({});
+    } catch (err) {
+      console.error('Save error:', err);
     }
   };
 
