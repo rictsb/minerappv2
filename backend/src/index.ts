@@ -868,6 +868,10 @@ app.get('/api/v1/valuation', async (req, res) => {
       let evHpcContracted = 0;
       let evHpcPipeline = 0;
 
+      // Collect contracted HPC site details for drill-down
+      const hpcSites: { siteName: string; buildingName: string; tenant: string; mw: number; leaseValueM: number; noiAnnualM: number; valuation: number; phase: string }[] = [];
+      let totalLeaseValueM = 0;
+
       for (const site of company.sites) {
         // Calculate total site MW for size multiplier
         let siteTotalMw = 0;
@@ -922,12 +926,27 @@ app.get('/api/v1/valuation', async (req, res) => {
             } else if (useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') {
               if (hasLease) {
                 mwHpcContracted += mw;
+                const leaseValM = Number(currentUse?.leaseValueM) || 0;
+                totalLeaseValueM += leaseValM;
+                let buildingVal = 0;
                 // Value from NOI if available, otherwise from lease value
                 if (noiAnnual > 0) {
-                  evHpcContracted += noiAnnual * factors.noiMultiple * adjFactor * tenantMult;
+                  buildingVal = noiAnnual * factors.noiMultiple * adjFactor * tenantMult;
+                  evHpcContracted += buildingVal;
                 } else {
-                  evHpcContracted += (Number(currentUse?.leaseValueM) || 0) * adjFactor * tenantMult;
+                  buildingVal = leaseValM * adjFactor * tenantMult;
+                  evHpcContracted += buildingVal;
                 }
+                hpcSites.push({
+                  siteName: site.name,
+                  buildingName: building.name,
+                  tenant: currentUse?.tenant || '',
+                  mw: Number(building.itMw) || mw,
+                  leaseValueM: leaseValM,
+                  noiAnnualM: noiAnnual,
+                  valuation: Math.round(buildingVal),
+                  phase,
+                });
               } else {
                 mwHpcPipeline += mw * adjFactor;
                 evHpcPipeline += mw * factors.mwValueHpcUncontracted * adjFactor;
@@ -963,6 +982,9 @@ app.get('/api/v1/valuation', async (req, res) => {
         totalEv: Math.round(totalEv),
         totalValueM: Math.round(totalValueM),
         fairValuePerShare: fairValuePerShare !== null ? Math.round(fairValuePerShare * 100) / 100 : null,
+        // Drill-down details
+        totalLeaseValueM: Math.round(totalLeaseValueM),
+        hpcSites: hpcSites.sort((a, b) => b.valuation - a.valuation),
       };
     });
 

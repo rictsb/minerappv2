@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { RefreshCw, TrendingUp, TrendingDown, ChevronDown, ChevronRight } from 'lucide-react';
+
 
 function getApiUrl(): string {
   let apiUrl = import.meta.env.VITE_API_URL || '';
@@ -9,6 +9,17 @@ function getApiUrl(): string {
     apiUrl = `https://${apiUrl}`;
   }
   return apiUrl;
+}
+
+interface HpcSite {
+  siteName: string;
+  buildingName: string;
+  tenant: string;
+  mw: number;
+  leaseValueM: number;
+  noiAnnualM: number;
+  valuation: number;
+  phase: string;
 }
 
 interface Valuation {
@@ -25,6 +36,8 @@ interface Valuation {
   totalEv: number;
   totalValueM: number;
   fairValuePerShare: number | null;
+  totalLeaseValueM: number;
+  hpcSites: HpcSite[];
 }
 
 interface ValuationResponse {
@@ -39,8 +52,8 @@ interface ValuationResponse {
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
+  const [expandedTickers, setExpandedTickers] = useState<Set<string>>(new Set());
   const [lastRefresh, setLastRefresh] = useState<Date | null>(() => {
     const saved = localStorage.getItem('lastPriceRefresh');
     return saved ? new Date(saved) : null;
@@ -210,57 +223,155 @@ export default function Dashboard() {
                 const upside = v.stockPrice && v.stockPrice > 0 && v.fairValuePerShare
                   ? ((v.fairValuePerShare / v.stockPrice) - 1) * 100
                   : null;
+                const isExpanded = expandedTickers.has(v.ticker);
+                const toggleExpand = (e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  setExpandedTickers(prev => {
+                    const next = new Set(prev);
+                    if (next.has(v.ticker)) next.delete(v.ticker);
+                    else next.add(v.ticker);
+                    return next;
+                  });
+                };
 
                 return (
-                  <tr
-                    key={v.ticker}
-                    className="hover:bg-gray-700/50 cursor-pointer transition"
-                    onClick={() => navigate('/projects')}
-                  >
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-orange-500">{v.ticker}</span>
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-green-400">
-                      {v.stockPrice ? formatMoney(v.stockPrice) : '-'}
-                    </td>
-                    <td className={`px-4 py-3 text-right font-mono ${v.netLiquid >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {formatNumber(v.netLiquid, 0)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-cyan-400">
-                      {v.totalMw > 0 ? formatNumber(v.totalMw, 0) : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-orange-400">
-                      {v.evMining > 0 ? formatNumber(v.evMining, 0) : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-purple-400">
-                      {v.evHpcContracted > 0 ? formatNumber(v.evHpcContracted, 0) : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-purple-300">
-                      {v.evHpcPipeline > 0 ? formatNumber(v.evHpcPipeline, 0) : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-blue-400">
-                      {v.evGpu > 0 ? formatNumber(v.evGpu, 0) : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-orange-500 font-semibold">
-                      {v.fairValuePerShare ? formatMoney(v.fairValuePerShare) : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {upside !== null ? (
-                        <div className="flex items-center justify-end gap-1">
-                          {upside >= 0 ? (
-                            <TrendingUp className="w-4 h-4 text-green-400" />
+                  <React.Fragment key={v.ticker}>
+                    <tr
+                      className="hover:bg-gray-700/50 cursor-pointer transition"
+                      onClick={toggleExpand}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1">
+                          {isExpanded ? (
+                            <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />
                           ) : (
-                            <TrendingDown className="w-4 h-4 text-red-400" />
+                            <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
                           )}
-                          <span className={`font-mono font-semibold ${upside >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                            {upside >= 0 ? '+' : ''}{formatNumber(upside, 0)}%
-                          </span>
+                          <span className="font-medium text-orange-500">{v.ticker}</span>
                         </div>
-                      ) : (
-                        <span className="text-gray-600">-</span>
-                      )}
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-green-400">
+                        {v.stockPrice ? formatMoney(v.stockPrice) : '-'}
+                      </td>
+                      <td className={`px-4 py-3 text-right font-mono ${v.netLiquid >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {formatNumber(v.netLiquid, 0)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-cyan-400">
+                        {v.totalMw > 0 ? formatNumber(v.totalMw, 0) : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-orange-400">
+                        {v.evMining > 0 ? formatNumber(v.evMining, 0) : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-purple-400">
+                        {v.evHpcContracted > 0 ? formatNumber(v.evHpcContracted, 0) : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-purple-300">
+                        {v.evHpcPipeline > 0 ? formatNumber(v.evHpcPipeline, 0) : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-blue-400">
+                        {v.evGpu > 0 ? formatNumber(v.evGpu, 0) : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-orange-500 font-semibold">
+                        {v.fairValuePerShare ? formatMoney(v.fairValuePerShare) : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {upside !== null ? (
+                          <div className="flex items-center justify-end gap-1">
+                            {upside >= 0 ? (
+                              <TrendingUp className="w-4 h-4 text-green-400" />
+                            ) : (
+                              <TrendingDown className="w-4 h-4 text-red-400" />
+                            )}
+                            <span className={`font-mono font-semibold ${upside >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {upside >= 0 ? '+' : ''}{formatNumber(upside, 0)}%
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-gray-600">-</span>
+                        )}
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="bg-gray-850">
+                        <td colSpan={10} className="px-6 py-4 bg-gray-800/60">
+                          {/* Summary stats */}
+                          <div className="flex items-center gap-8 mb-3 text-xs">
+                            <div>
+                              <span className="text-gray-500">FD Shares:</span>{' '}
+                              <span className="font-mono text-gray-300">
+                                {v.fdSharesM ? `${formatNumber(v.fdSharesM, 1)}M` : '-'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Total Lease Value:</span>{' '}
+                              <span className="font-mono text-purple-400">
+                                {v.totalLeaseValueM > 0 ? `$${formatNumber(v.totalLeaseValueM, 0)}M` : '-'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Total Value:</span>{' '}
+                              <span className="font-mono text-orange-500">
+                                ${formatNumber(v.totalValueM, 0)}M
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Net Liquidity:</span>{' '}
+                              <span className={`font-mono ${v.netLiquid >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                ${formatNumber(v.netLiquid, 0)}M
+                              </span>
+                            </div>
+                          </div>
+                          {/* HPC Sites detail table */}
+                          {v.hpcSites && v.hpcSites.length > 0 ? (
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="border-b border-gray-700">
+                                  <th className="py-1.5 text-left text-gray-500 font-medium">Site</th>
+                                  <th className="py-1.5 text-left text-gray-500 font-medium">Building</th>
+                                  <th className="py-1.5 text-left text-gray-500 font-medium">Tenant</th>
+                                  <th className="py-1.5 text-left text-gray-500 font-medium">Phase</th>
+                                  <th className="py-1.5 text-right text-gray-500 font-medium">MW</th>
+                                  <th className="py-1.5 text-right text-gray-500 font-medium">Lease Value ($M)</th>
+                                  <th className="py-1.5 text-right text-gray-500 font-medium">NOI ($M/yr)</th>
+                                  <th className="py-1.5 text-right text-gray-500 font-medium">Valuation ($M)</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-700/50">
+                                {v.hpcSites.map((site, i) => (
+                                  <tr key={i} className="hover:bg-gray-700/30">
+                                    <td className="py-1.5 text-gray-300">{site.siteName}</td>
+                                    <td className="py-1.5 text-gray-400">{site.buildingName}</td>
+                                    <td className="py-1.5 text-cyan-400">{site.tenant || '-'}</td>
+                                    <td className="py-1.5">
+                                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                        site.phase === 'Operating' ? 'bg-green-900/50 text-green-400' :
+                                        site.phase === 'Under Construction' ? 'bg-yellow-900/50 text-yellow-400' :
+                                        'bg-gray-700 text-gray-400'
+                                      }`}>
+                                        {site.phase}
+                                      </span>
+                                    </td>
+                                    <td className="py-1.5 text-right font-mono text-gray-300">{formatNumber(site.mw, 0)}</td>
+                                    <td className="py-1.5 text-right font-mono text-purple-400">
+                                      {site.leaseValueM > 0 ? formatNumber(site.leaseValueM, 0) : '-'}
+                                    </td>
+                                    <td className="py-1.5 text-right font-mono text-gray-300">
+                                      {site.noiAnnualM > 0 ? formatNumber(site.noiAnnualM, 1) : '-'}
+                                    </td>
+                                    <td className="py-1.5 text-right font-mono text-orange-400">
+                                      {formatNumber(site.valuation, 0)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          ) : (
+                            <p className="text-xs text-gray-500 italic">No contracted HPC sites</p>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
               {valuations.length === 0 && (
