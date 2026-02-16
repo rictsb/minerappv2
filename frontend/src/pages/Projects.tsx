@@ -333,12 +333,18 @@ export default function Projects() {
 
             // Create one row per use period for split buildings
             const periods: (UsePeriod | null)[] = currentUses.length > 0 ? currentUses : [null];
-            // Calculate explicitly allocated MW for remainder calculation
+            // Calculate MW allocation: explicit + remainder assignments
             const buildingItMw = building.itMw ? parseFloat(building.itMw) : 0;
             const explicitlyAllocated = currentUses.reduce((sum, up) => sum + (up.mwAllocation ? parseFloat(up.mwAllocation) : 0), 0);
+            // Compute effective total: each period gets explicit MW or remainder
+            let effectiveAllocated = 0;
+            for (const up of currentUses) {
+              const mw = up.mwAllocation ? parseFloat(up.mwAllocation) : 0;
+              effectiveAllocated += mw || (currentUses.length === 1 ? buildingItMw : Math.max(buildingItMw - explicitlyAllocated, 0));
+            }
 
             // Add synthetic unallocated row for split buildings with remaining MW
-            const unallocMw = currentUses.length > 0 ? Math.max(0, buildingItMw - explicitlyAllocated) : 0;
+            const unallocMw = currentUses.length > 0 ? Math.max(0, buildingItMw - effectiveAllocated) : 0;
             if (unallocMw > 0) {
               periods.push(null); // null signals the unallocated remainder row
             }

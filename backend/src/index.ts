@@ -250,6 +250,16 @@ function computePeriodMw(up: any, buildingItMw: number, currentUses: any[], expl
   return mw;
 }
 
+// Compute effective total MW allocated across all use periods (explicit + remainder assignments)
+function computeEffectiveAllocated(currentUses: any[], buildingItMw: number): number {
+  const explicitlyAllocated = currentUses.reduce((s: number, up: any) => s + (Number(up.mwAllocation) || 0), 0);
+  let total = 0;
+  for (const up of currentUses) {
+    total += computePeriodMw(up, buildingItMw, currentUses, explicitlyAllocated);
+  }
+  return total;
+}
+
 // Load merged factors from settings + defaults
 async function loadFactors(): Promise<Record<string, any>> {
   const settingsRows = await prisma.settings.findMany();
@@ -326,7 +336,8 @@ app.get('/api/v1/companies', async (req, res) => {
 
             // For split buildings with unallocated remainder, add synthetic entry
             if (currentUses.length > 0) {
-              const unallocMw = Math.max(0, buildingMw - explicitAlloc);
+              const effectiveAlloc = computeEffectiveAllocated(currentUses, buildingMw);
+              const unallocMw = Math.max(0, buildingMw - effectiveAlloc);
               if (unallocMw > 0) {
                 const timeVal = helpers.getTimeValueMult(null, bld.energizationDate);
                 const pipelineVal = unallocMw * (f.mwValueHpcUncontracted ?? 8) * bFactor * timeVal;
@@ -1158,7 +1169,8 @@ app.get('/api/v1/valuation', async (req, res) => {
               }
 
               // Add unallocated remainder as pipeline
-              const unallocMw = Math.max(0, buildingMw - explicitlyAllocated);
+              const effectiveAlloc = computeEffectiveAllocated(currentUses, buildingMw);
+              const unallocMw = Math.max(0, buildingMw - effectiveAlloc);
               if (unallocMw > 0) {
                 const timeVal = helpers.getTimeValueMult(null, building.energizationDate);
                 const pipelineVal = unallocMw * (factors.mwValueHpcUncontracted ?? 8) * bFactor * timeVal;
@@ -1255,8 +1267,10 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
     const currentUse = currentUsePeriods[0];
     const useType = currentUse?.useType || 'UNCONTRACTED';
 
-    const allocatedMw = currentUsePeriods.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
-    const unallocatedMw = Math.max(0, itMw - allocatedMw);
+    const explicitAllocatedMw = currentUsePeriods.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
+    const effectiveAllocatedMw = computeEffectiveAllocated(currentUsePeriods, itMw);
+    const allocatedMw = explicitAllocatedMw; // For display: what's explicitly set
+    const unallocatedMw = Math.max(0, itMw - effectiveAllocatedMw);
 
     // Lease details from primary current use period
     const leaseDetails = {
@@ -1485,7 +1499,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
       })),
       capacityAllocation: {
         totalItMw: itMw,
-        allocatedMw,
+        allocatedMw: effectiveAllocatedMw,
         unallocatedMw,
         currentSplits: currentUsePeriods.length,
       },
