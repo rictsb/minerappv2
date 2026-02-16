@@ -570,7 +570,9 @@ app.get('/api/v1/settings', async (req, res) => {
     const settings = await prisma.settings.findMany();
     const settingsMap: Record<string, any> = {};
     for (const s of settings) {
-      settingsMap[s.key] = s.value;
+      // Parse numeric strings to numbers for frontend consumption
+      const num = Number(s.value);
+      settingsMap[s.key] = isNaN(num) ? s.value : num;
     }
     res.json(settingsMap);
   } catch (error) {

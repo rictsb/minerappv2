@@ -215,7 +215,8 @@ export default function Factors() {
   useEffect(() => {
     const initial: Record<string, number> = {};
     Object.values(FACTOR_CONFIGS).flat().forEach((config) => {
-      initial[config.key] = savedFactors?.[config.key] ?? config.defaultValue;
+      const saved = savedFactors?.[config.key];
+      initial[config.key] = saved != null ? Number(saved) : config.defaultValue;
     });
     setFactors(initial);
   }, [savedFactors]);
