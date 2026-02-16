@@ -36,8 +36,8 @@ interface Valuation {
   totalEv: number;
   totalValueM: number;
   fairValuePerShare: number | null;
-  totalLeaseValueM: number;
-  hpcSites: HpcSite[];
+  totalLeaseValueM?: number;
+  hpcSites?: HpcSite[];
 }
 
 interface ValuationResponse {
@@ -124,11 +124,13 @@ export default function Dashboard() {
     );
   }
 
-  const formatNumber = (num: number, decimals = 0) => {
+  const formatNumber = (num: number | null | undefined, decimals = 0) => {
+    if (num == null || isNaN(num)) return '-';
     return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
   };
 
-  const formatMoney = (num: number, decimals = 2) => {
+  const formatMoney = (num: number | null | undefined, decimals = 2) => {
+    if (num == null || isNaN(num)) return '-';
     return `$${formatNumber(num, decimals)}`;
   };
 
@@ -305,24 +307,24 @@ export default function Dashboard() {
                             <div>
                               <span className="text-gray-500">Total Lease Value:</span>{' '}
                               <span className="font-mono text-purple-400">
-                                {v.totalLeaseValueM > 0 ? `$${formatNumber(v.totalLeaseValueM, 0)}M` : '-'}
+                                {(v.totalLeaseValueM ?? 0) > 0 ? `$${formatNumber(v.totalLeaseValueM, 0)}M` : '-'}
                               </span>
                             </div>
                             <div>
                               <span className="text-gray-500">Total Value:</span>{' '}
                               <span className="font-mono text-orange-500">
-                                ${formatNumber(v.totalValueM, 0)}M
+                                {v.totalValueM != null ? `$${formatNumber(v.totalValueM, 0)}M` : '-'}
                               </span>
                             </div>
                             <div>
                               <span className="text-gray-500">Net Liquidity:</span>{' '}
-                              <span className={`font-mono ${v.netLiquid >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                ${formatNumber(v.netLiquid, 0)}M
+                              <span className={`font-mono ${(v.netLiquid ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {v.netLiquid != null ? `$${formatNumber(v.netLiquid, 0)}M` : '-'}
                               </span>
                             </div>
                           </div>
                           {/* HPC Sites detail table */}
-                          {v.hpcSites && v.hpcSites.length > 0 ? (
+                          {Array.isArray(v.hpcSites) && v.hpcSites.length > 0 ? (
                             <table className="w-full text-xs">
                               <thead>
                                 <tr className="border-b border-gray-700">
