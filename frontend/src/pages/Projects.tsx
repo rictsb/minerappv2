@@ -53,8 +53,10 @@ const editableUseTypes = [
 
 interface UsePeriod {
   id: string;
+  isCurrent: boolean;
   useType: string;
   tenant: string | null;
+  mwAllocation: string | null;
   leaseValueM: string | null;
   annualRevM: string | null;
   noiAnnualM: string | null;
@@ -358,44 +360,58 @@ export default function Projects() {
         for (const campus of site.campuses || []) {
           for (const building of campus.buildings || []) {
             if (filterPhase && building.developmentPhase !== filterPhase) continue;
-
-            const currentUse = building.usePeriods?.[0];
-            if (filterUseType && currentUse?.useType !== filterUseType) continue;
-            if (filterTenant && (currentUse?.tenant || '') !== filterTenant) continue;
             if (filterEv === 'included' && !building.includeInValuation) continue;
             if (filterEv === 'excluded' && building.includeInValuation) continue;
 
-            rowNum++;
             const phase = building.developmentPhase || 'DILIGENCE';
             const defaultProb = phaseConfig[phase]?.prob || 0.5;
             const probOverride = building.probabilityOverride ? parseFloat(building.probabilityOverride) : null;
 
-            rows.push({
-              rowNum,
-              ticker: company.ticker,
-              companyName: company.name,
-              siteName: site.name,
-              campusName: campus.name,
-              buildingId: building.id,
-              buildingName: building.name,
-              phase,
-              useType: currentUse?.useType || 'UNCONTRACTED',
-              usePeriodId: currentUse?.id || null,
-              tenant: currentUse?.tenant || null,
-              grossMw: building.grossMw ? parseFloat(building.grossMw) : null,
-              itMw: building.itMw ? parseFloat(building.itMw) : null,
-              pue: building.pue ? parseFloat(building.pue) : null,
-              grid: building.grid || null,
-              probability: probOverride ?? defaultProb,
-              probabilityOverride: probOverride,
-              regulatoryRisk: building.regulatoryRisk ? parseFloat(building.regulatoryRisk) : 1.0,
-              leaseValueM: currentUse?.leaseValueM ? parseFloat(currentUse.leaseValueM) : null,
-              noiAnnualM: currentUse?.noiAnnualM ? parseFloat(currentUse.noiAnnualM) : null,
-              energizationDate: building.energizationDate || null,
-              ownershipStatus: building.ownershipStatus || null,
-              includeInValuation: building.includeInValuation ?? true,
-              building,
-            });
+            // Get current use periods (supports splits)
+            const currentUses = (building.usePeriods || []).filter(up => up.isCurrent);
+
+            // Create one row per use period for split buildings
+            const periods = currentUses.length > 0 ? currentUses : [null];
+            for (const currentUse of periods) {
+              const useType = currentUse?.useType || 'UNCONTRACTED';
+              const tenant = currentUse?.tenant || null;
+
+              if (filterUseType && useType !== filterUseType) continue;
+              if (filterTenant && (tenant || '') !== filterTenant) continue;
+
+              rowNum++;
+              // For split buildings use mwAllocation; for unsplit use building itMw
+              const periodMw = currentUse?.mwAllocation
+                ? parseFloat(currentUse.mwAllocation)
+                : building.itMw ? parseFloat(building.itMw) : null;
+
+              rows.push({
+                rowNum,
+                ticker: company.ticker,
+                companyName: company.name,
+                siteName: site.name,
+                campusName: campus.name,
+                buildingId: building.id,
+                buildingName: building.name,
+                phase,
+                useType,
+                usePeriodId: currentUse?.id || null,
+                tenant,
+                grossMw: building.grossMw ? parseFloat(building.grossMw) : null,
+                itMw: periodMw,
+                pue: building.pue ? parseFloat(building.pue) : null,
+                grid: building.grid || null,
+                probability: probOverride ?? defaultProb,
+                probabilityOverride: probOverride,
+                regulatoryRisk: building.regulatoryRisk ? parseFloat(building.regulatoryRisk) : 1.0,
+                leaseValueM: currentUse?.leaseValueM ? parseFloat(currentUse.leaseValueM) : null,
+                noiAnnualM: currentUse?.noiAnnualM ? parseFloat(currentUse.noiAnnualM) : null,
+                energizationDate: building.energizationDate || null,
+                ownershipStatus: building.ownershipStatus || null,
+                includeInValuation: building.includeInValuation ?? true,
+                building,
+              });
+            }
           }
         }
       }

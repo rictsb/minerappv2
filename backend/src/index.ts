@@ -594,6 +594,68 @@ app.post('/api/v1/settings', async (req, res) => {
   }
 });
 
+// Delete a setting (used for removing custom tenants)
+app.delete('/api/v1/settings/:key', async (req, res) => {
+  try {
+    await prisma.settings.delete({ where: { key: req.params.key } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting setting:', error);
+    res.status(500).json({ error: 'Failed to delete setting' });
+  }
+});
+
+// Tenant list derived from tc* settings keys + defaults
+const DEFAULT_TENANTS: { key: string; name: string; defaultSpread: number }[] = [
+  { key: 'tcGoogle', name: 'Google', defaultSpread: -1.00 },
+  { key: 'tcMicrosoft', name: 'Microsoft', defaultSpread: -1.00 },
+  { key: 'tcAmazon', name: 'Amazon/AWS', defaultSpread: -1.00 },
+  { key: 'tcMeta', name: 'Meta', defaultSpread: -0.75 },
+  { key: 'tcOracle', name: 'Oracle', defaultSpread: -0.50 },
+  { key: 'tcCoreweave', name: 'CoreWeave', defaultSpread: 0.00 },
+  { key: 'tcAnthropic', name: 'Anthropic', defaultSpread: 0.00 },
+  { key: 'tcOpenai', name: 'OpenAI', defaultSpread: 0.00 },
+  { key: 'tcXai', name: 'xAI', defaultSpread: 0.25 },
+  { key: 'tcOther', name: 'Other', defaultSpread: 1.00 },
+  { key: 'tcSelf', name: 'Self (No Tenant)', defaultSpread: 3.00 },
+];
+
+app.get('/api/v1/tenants', async (req, res) => {
+  try {
+    const settings = await prisma.settings.findMany();
+    const settingsMap: Record<string, string> = {};
+    for (const s of settings) {
+      settingsMap[s.key] = s.value;
+    }
+
+    const tenants = DEFAULT_TENANTS.map(t => ({
+      key: t.key,
+      name: t.name,
+      spread: settingsMap[t.key] !== undefined ? Number(settingsMap[t.key]) : t.defaultSpread,
+      isDefault: true,
+    }));
+
+    // Add any custom tc* keys from settings that aren't in defaults
+    const defaultKeys = new Set(DEFAULT_TENANTS.map(t => t.key));
+    for (const s of settings) {
+      if (s.key.startsWith('tc') && !defaultKeys.has(s.key)) {
+        const name = s.key.replace(/^tc/, '');
+        tenants.push({
+          key: s.key,
+          name,
+          spread: Number(s.value) || 0,
+          isDefault: false,
+        });
+      }
+    }
+
+    res.json(tenants);
+  } catch (error) {
+    console.error('Error fetching tenants:', error);
+    res.status(500).json({ error: 'Failed to fetch tenants' });
+  }
+});
+
 // ===========================================
 // VALUATION API
 // ===========================================
@@ -895,7 +957,7 @@ app.get('/api/v1/valuation', async (req, res) => {
             // Skip buildings excluded from valuation
             if (!building.includeInValuation) continue;
 
-            const mw = Number(building.grossMw) || 0;
+            const buildingMw = Number(building.grossMw) || 0;
             const phase = building.developmentPhase;
 
             // Get base probability from phase or override
@@ -906,61 +968,75 @@ app.get('/api/v1/valuation', async (req, res) => {
             // Regulatory risk multiplier (1.0 = no risk, 0.0 = blocked)
             const regRisk = Number(building.regulatoryRisk) ?? 1.0;
 
-            const currentUse = building.usePeriods[0];
-            const useType = currentUse?.useType || 'UNCONTRACTED';
-            const hasLease = currentUse?.tenant && currentUse?.leaseValueM;
-            const noiAnnual = Number(currentUse?.noiAnnualM) || 0;
-
-            // Time-value discount: lease start date if available, otherwise energization date
-            const timeValueMult = getTimeValueMultiplier(currentUse?.leaseStart ?? null, building.energizationDate);
-
             // Power authority multiplier
             const paMult = getPowerAuthorityMultiplier(building.grid);
 
             // Ownership multiplier
             const ownershipMult = getOwnershipMultiplier(building.ownershipStatus);
 
-            // Tenant credit multiplier
-            const tenantMult = getTenantCreditMultiplier(currentUse?.tenant ?? null);
+            // Loop over ALL current use periods (supports splits)
+            const currentUses = building.usePeriods.filter((up: any) => up.isCurrent);
 
-            // Combined adjustment factor
-            const adjFactor = prob * regRisk * timeValueMult * paMult * ownershipMult * sizeMultiplier;
+            if (currentUses.length === 0) {
+              // No use periods — treat as unallocated pipeline
+              const timeValueMult = getTimeValueMultiplier(null, building.energizationDate);
+              const adjFactor = prob * regRisk * timeValueMult * paMult * ownershipMult * sizeMultiplier;
+              mwHpcPipeline += buildingMw * adjFactor;
+              evHpcPipeline += buildingMw * factors.mwValueHpcUncontracted * adjFactor;
+            } else {
+              for (const currentUse of currentUses) {
+                // Use allocated MW for this period, fallback to building MW for unsplit buildings
+                const mw = Number(currentUse.mwAllocation) || buildingMw;
+                const useType = currentUse.useType || 'UNCONTRACTED';
+                const hasLease = currentUse.tenant && currentUse.leaseValueM;
+                const noiAnnual = Number(currentUse.noiAnnualM) || 0;
 
-            // Categorize and value based on use type
-            if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-              // Mining value based on EBITDA (calculated at company level from hashrate)
-            } else if (useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') {
-              if (hasLease) {
-                mwHpcContracted += mw;
-                const leaseValM = Number(currentUse?.leaseValueM) || 0;
-                totalLeaseValueM += leaseValM;
-                let buildingVal = 0;
-                // Value from NOI if available, otherwise from lease value
-                if (noiAnnual > 0) {
-                  buildingVal = noiAnnual * factors.noiMultiple * adjFactor * tenantMult;
-                  evHpcContracted += buildingVal;
-                } else {
-                  buildingVal = leaseValM * adjFactor * tenantMult;
-                  evHpcContracted += buildingVal;
+                // Time-value discount per use period
+                const timeValueMult = getTimeValueMultiplier(currentUse.leaseStart ?? null, building.energizationDate);
+
+                // Tenant credit multiplier per use period
+                const tenantMult = getTenantCreditMultiplier(currentUse.tenant ?? null);
+
+                // Combined adjustment factor
+                const adjFactor = prob * regRisk * timeValueMult * paMult * ownershipMult * sizeMultiplier;
+
+                // Categorize and value based on use type
+                if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
+                  // Mining value based on EBITDA (calculated at company level from hashrate)
+                } else if (useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') {
+                  if (hasLease) {
+                    mwHpcContracted += mw;
+                    const leaseValM = Number(currentUse.leaseValueM) || 0;
+                    totalLeaseValueM += leaseValM;
+                    let periodVal = 0;
+                    // Value from NOI if available, otherwise from lease value
+                    if (noiAnnual > 0) {
+                      periodVal = noiAnnual * factors.noiMultiple * adjFactor * tenantMult;
+                      evHpcContracted += periodVal;
+                    } else {
+                      periodVal = leaseValM * adjFactor * tenantMult;
+                      evHpcContracted += periodVal;
+                    }
+                    hpcSites.push({
+                      siteName: site.name,
+                      buildingName: building.name,
+                      tenant: currentUse.tenant || '',
+                      mw: Number(currentUse.mwAllocation) || Number(building.itMw) || mw,
+                      leaseValueM: leaseValM,
+                      noiAnnualM: noiAnnual,
+                      valuation: Math.round(periodVal),
+                      phase,
+                    });
+                  } else {
+                    mwHpcPipeline += mw * adjFactor;
+                    evHpcPipeline += mw * factors.mwValueHpcUncontracted * adjFactor;
+                  }
+                } else if (useType === 'HPC_AI_PLANNED' || useType === 'UNCONTRACTED' || useType === 'UNCONTRACTED_ROFR') {
+                  // Pipeline - uncontracted capacity
+                  mwHpcPipeline += mw * adjFactor;
+                  evHpcPipeline += mw * factors.mwValueHpcUncontracted * adjFactor;
                 }
-                hpcSites.push({
-                  siteName: site.name,
-                  buildingName: building.name,
-                  tenant: currentUse?.tenant || '',
-                  mw: Number(building.itMw) || mw,
-                  leaseValueM: leaseValM,
-                  noiAnnualM: noiAnnual,
-                  valuation: Math.round(buildingVal),
-                  phase,
-                });
-              } else {
-                mwHpcPipeline += mw * adjFactor;
-                evHpcPipeline += mw * factors.mwValueHpcUncontracted * adjFactor;
               }
-            } else if (useType === 'HPC_AI_PLANNED' || useType === 'UNCONTRACTED' || useType === 'UNCONTRACTED_ROFR') {
-              // Pipeline - uncontracted capacity
-              mwHpcPipeline += mw * adjFactor;
-              evHpcPipeline += mw * factors.mwValueHpcUncontracted * adjFactor;
             }
           }
         }

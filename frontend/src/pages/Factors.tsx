@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { Save, Loader2, RotateCcw, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
+import { Save, Loader2, RotateCcw, ChevronDown, ChevronRight, RefreshCw, Plus, Trash2 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 function getApiUrl(): string {
@@ -67,9 +67,9 @@ const FACTOR_CONFIGS: Record<string, FactorConfig[]> = {
     { key: 'modifiedGrossMult', label: 'Modified Gross', min: 0.5, max: 1.5, step: 0.05, format: (v) => `${v.toFixed(2)}x`, defaultValue: 0.95 },
     { key: 'grossMult', label: 'Gross Lease', min: 0.5, max: 1.5, step: 0.05, format: (v) => `${v.toFixed(2)}x`, defaultValue: 0.90 },
   ],
-  energization: [
-    { key: 'energizationDecayRate', label: 'Annual Decay Rate', min: 0.05, max: 0.30, step: 0.01, format: (v) => `${(v * 100).toFixed(0)}%`, defaultValue: 0.15 },
-    { key: 'energizationBaseYear', label: 'Base Year (1.0x)', min: 2024, max: 2030, step: 1, format: (v) => `${v}`, defaultValue: 2025 },
+  timeValue: [
+    // Time-value discount now uses discountRate from HPC section via PV formula: 1/(1+r)^t
+    // These legacy settings are kept for reference but the PV discount is automatic
   ],
   powerAuthority: [
     { key: 'paErcot', label: 'ERCOT (Texas)', min: 0, max: 1.5, step: 0.05, format: (v) => `${v.toFixed(2)}x`, defaultValue: 1.05 },
@@ -115,7 +115,7 @@ const SECTIONS = [
   { id: 'datacenterTier', title: 'Datacenter Tier', color: 'cyan', configs: FACTOR_CONFIGS.datacenterTier },
   { id: 'ownership', title: 'Site Ownership', color: 'green', configs: FACTOR_CONFIGS.ownership },
   { id: 'leaseStructure', title: 'Lease Structure', color: 'teal', configs: FACTOR_CONFIGS.leaseStructure },
-  { id: 'energization', title: 'Energization Discount', color: 'yellow', configs: FACTOR_CONFIGS.energization, hasChart: true },
+  { id: 'timeValue', title: 'Time Value Discount', color: 'yellow', configs: FACTOR_CONFIGS.timeValue },
   { id: 'powerAuthority', title: 'Power Authority', color: 'red', configs: FACTOR_CONFIGS.powerAuthority },
   { id: 'tenantCredit', title: 'Tenant Credit Spreads', color: 'indigo', configs: FACTOR_CONFIGS.tenantCredit },
   { id: 'siteSize', title: 'Site Size', color: 'amber', configs: FACTOR_CONFIGS.siteSize },
@@ -150,89 +150,14 @@ const dotColorClasses: Record<string, string> = {
   emerald: 'bg-emerald-400',
 };
 
-// Energization decay chart component
-function EnergizationChart({ decayRate, baseYear }: { decayRate: number; baseYear: number }) {
-  const years = [2024, 2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032];
-  const multipliers = years.map((year) => Math.exp(-decayRate * (year - baseYear)));
-
-  const maxMult = Math.max(...multipliers, 1.2);
-  const chartHeight = 120;
-  const chartWidth = 280;
-  const padding = { top: 10, right: 10, bottom: 25, left: 35 };
-  const plotWidth = chartWidth - padding.left - padding.right;
-  const plotHeight = chartHeight - padding.top - padding.bottom;
-
-  const points = years.map((year, i) => {
-    const x = padding.left + (i / (years.length - 1)) * plotWidth;
-    const y = padding.top + plotHeight - (multipliers[i] / maxMult) * plotHeight;
-    return { x, y, year, mult: multipliers[i] };
-  });
-
-  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-
-  return (
-    <div className="mt-3 bg-gray-900/50 rounded p-3">
-      <svg width={chartWidth} height={chartHeight} className="w-full">
-        {/* Grid lines */}
-        {[0, 0.25, 0.5, 0.75, 1.0].map((v) => {
-          const y = padding.top + plotHeight - (v / maxMult) * plotHeight;
-          return (
-            <g key={v}>
-              <line x1={padding.left} y1={y} x2={chartWidth - padding.right} y2={y} stroke="#374151" strokeWidth="1" />
-              <text x={padding.left - 5} y={y + 4} fill="#6b7280" fontSize="9" textAnchor="end">
-                {v.toFixed(2)}
-              </text>
-            </g>
-          );
-        })}
-
-        {/* Base year marker */}
-        {(() => {
-          const baseIdx = years.indexOf(baseYear);
-          if (baseIdx >= 0) {
-            const x = padding.left + (baseIdx / (years.length - 1)) * plotWidth;
-            return (
-              <line x1={x} y1={padding.top} x2={x} y2={chartHeight - padding.bottom} stroke="#f59e0b" strokeWidth="1" strokeDasharray="4,2" />
-            );
-          }
-          return null;
-        })()}
-
-        {/* Decay curve */}
-        <path d={pathD} fill="none" stroke="#f97316" strokeWidth="2" />
-
-        {/* Data points */}
-        {points.map((p) => (
-          <circle key={p.year} cx={p.x} cy={p.y} r="4" fill={p.year === baseYear ? '#f59e0b' : '#f97316'} />
-        ))}
-
-        {/* Year labels */}
-        {points.map((p, i) => (
-          <text key={p.year} x={p.x} y={chartHeight - 5} fill="#9ca3af" fontSize="8" textAnchor="middle">
-            {i % 2 === 0 ? p.year : ''}
-          </text>
-        ))}
-      </svg>
-
-      {/* Legend table */}
-      <div className="mt-2 grid grid-cols-5 gap-1 text-xs">
-        {points.slice(0, 5).map((p) => (
-          <div key={p.year} className={`text-center ${p.year === baseYear ? 'text-yellow-400' : 'text-gray-400'}`}>
-            <div className="font-medium">{p.year}</div>
-            <div className="text-gray-500">{p.mult.toFixed(3)}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export default function Factors() {
   const queryClient = useQueryClient();
   const [factors, setFactors] = useState<Record<string, number>>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [fetchingPrices, setFetchingPrices] = useState(false);
+  const [showAddTenant, setShowAddTenant] = useState(false);
+  const [newTenantName, setNewTenantName] = useState('');
   const saveTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // Fetch live crypto prices from CoinGecko and SOFR from NY Fed
@@ -346,6 +271,53 @@ export default function Factors() {
       handleFactorChange(config.key, config.defaultValue);
     });
   };
+
+  // Add a new custom tenant
+  const addTenant = async () => {
+    const name = newTenantName.trim();
+    if (!name) return;
+    const key = `tc${name.replace(/[^a-zA-Z0-9]/g, '')}`;
+    // Save to settings with default spread of 0
+    const apiUrl = getApiUrl();
+    await fetch(`${apiUrl}/api/v1/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, value: 0 }),
+    });
+    // Add to local FACTOR_CONFIGS so it renders immediately
+    FACTOR_CONFIGS.tenantCredit.push({
+      key, label: name, min: -3, max: 5, step: 0.25,
+      format: (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`,
+      defaultValue: 0,
+    });
+    setFactors(prev => ({ ...prev, [key]: 0 }));
+    setNewTenantName('');
+    setShowAddTenant(false);
+    queryClient.invalidateQueries({ queryKey: ['tenants'] });
+    queryClient.invalidateQueries({ queryKey: ['valuation'] });
+  };
+
+  // Remove a tenant (custom ones only)
+  const removeTenant = async (key: string) => {
+    const apiUrl = getApiUrl();
+    await fetch(`${apiUrl}/api/v1/settings/${key}`, { method: 'DELETE' });
+    // Remove from FACTOR_CONFIGS
+    const idx = FACTOR_CONFIGS.tenantCredit.findIndex(c => c.key === key);
+    if (idx >= 0) FACTOR_CONFIGS.tenantCredit.splice(idx, 1);
+    setFactors(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    queryClient.invalidateQueries({ queryKey: ['tenants'] });
+    queryClient.invalidateQueries({ queryKey: ['valuation'] });
+  };
+
+  // Default tenant keys that can't be removed
+  const defaultTenantKeys = new Set([
+    'tcGoogle', 'tcMicrosoft', 'tcAmazon', 'tcMeta', 'tcOracle',
+    'tcCoreweave', 'tcAnthropic', 'tcOpenai', 'tcXai', 'tcOther', 'tcSelf',
+  ]);
 
   // Toggle section collapse
   const toggleSection = (sectionId: string) => {
@@ -480,19 +452,53 @@ export default function Factors() {
                       Credit spreads vs SOFR ({sofrRate.toFixed(1)}%). Negative = better credit.
                     </p>
                   )}
-                  {section.id === 'energization' && (
+                  {section.id === 'timeValue' && (
                     <p className="text-xs text-gray-500 mb-3">
-                      Discount for future energization: mult = e<sup>-rate×(year-base)</sup>
+                      Future cash flows are discounted to present value using the Discount Rate (in HPC/AI section)
+                      via PV = 1/(1+r)<sup>t</sup>, where t = years until lease start or energization date.
                     </p>
                   )}
-                  {section.configs.map(renderSlider)}
-
-                  {/* Energization decay chart */}
-                  {section.id === 'energization' && (
-                    <EnergizationChart
-                      decayRate={factors.energizationDecayRate ?? 0.15}
-                      baseYear={factors.energizationBaseYear ?? 2025}
-                    />
+                  {section.id === 'tenantCredit' ? (
+                    <>
+                      {section.configs.map((config) => (
+                        <div key={config.key} className="relative group">
+                          {renderSlider(config)}
+                          {!defaultTenantKeys.has(config.key) && (
+                            <button
+                              onClick={() => removeTenant(config.key)}
+                              className="absolute top-2 right-0 p-1 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition"
+                              title="Remove tenant"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      {showAddTenant ? (
+                        <div className="flex items-center gap-2 mt-2">
+                          <input
+                            type="text"
+                            value={newTenantName}
+                            onChange={(e) => setNewTenantName(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && addTenant()}
+                            placeholder="Tenant name"
+                            className="flex-1 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white"
+                            autoFocus
+                          />
+                          <button onClick={addTenant} className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-500">Add</button>
+                          <button onClick={() => { setShowAddTenant(false); setNewTenantName(''); }} className="px-2 py-1 text-xs text-gray-400 hover:text-white">Cancel</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setShowAddTenant(true)}
+                          className="flex items-center gap-1 mt-2 text-xs text-indigo-400 hover:text-indigo-300 transition"
+                        >
+                          <Plus className="w-3 h-3" /> Add Tenant
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    section.configs.map(renderSlider)
                   )}
 
                   {/* Tenant credit implied rates table */}

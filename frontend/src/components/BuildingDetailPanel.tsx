@@ -261,6 +261,27 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     },
   });
 
+  // Fetch tenant list for dropdown
+  const { data: tenantList } = useQuery({
+    queryKey: ['tenants'],
+    queryFn: async () => {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/tenants`);
+      if (!res.ok) throw new Error('Failed to fetch tenants');
+      return res.json() as Promise<{ key: string; name: string; spread: number; isDefault: boolean }[]>;
+    },
+  });
+
+  const tenantOptions = [
+    { value: '', label: 'None' },
+    ...(tenantList || [])
+      .filter(t => t.key !== 'tcSelf' && t.key !== 'tcOther')
+      .map(t => ({ value: t.name, label: t.name })),
+    ...(tenantList || [])
+      .filter(t => t.key === 'tcOther' || t.key === 'tcSelf')
+      .map(t => ({ value: t.name, label: t.name })),
+  ];
+
   const updateMutation = useMutation({
     mutationFn: async (updates: Record<string, any>) => {
       const apiUrl = getApiUrl();
@@ -816,7 +837,8 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                   label="Tenant"
                   value={leaseEdits.tenant}
                   onChange={(v) => handleLeaseChange('tenant', v)}
-                  placeholder="e.g., CoreWeave"
+                  type="select"
+                  options={tenantOptions}
                 />
                 <EditableField
                   label="Structure"
@@ -1130,13 +1152,15 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
 
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Tenant</label>
-                <input
-                  type="text"
+                <select
                   value={newUsePeriod.tenant || ''}
                   onChange={(e) => setNewUsePeriod({ ...newUsePeriod, tenant: e.target.value })}
-                  placeholder="e.g., CoreWeave, Microsoft"
                   className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
-                />
+                >
+                  {tenantOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
               </div>
 
               {splitType === 'transition' && (
