@@ -268,7 +268,18 @@ async function loadFactors(): Promise<Record<string, any>> {
     const num = Number(s.value);
     settingsMap[s.key] = isNaN(num) ? s.value : num;
   }
-  return { ...DEFAULT_FACTORS, ...settingsMap };
+  const factors = { ...DEFAULT_FACTORS, ...settingsMap };
+
+  // Derive dailyRevPerEh from btcPrice unless user has explicitly overridden dailyRevPerEh
+  // Formula: dailyRevPerEh = (blockReward * 144 * btcPrice) / networkHashrateEh
+  // If networkHashrateEh not set, scale proportionally from baseline ($97k → $29,400)
+  if (!settingsMap.dailyRevPerEh && factors.btcPrice) {
+    const baselineBtc = 97000;
+    const baselineDailyRev = 29400;
+    factors.dailyRevPerEh = (factors.btcPrice / baselineBtc) * baselineDailyRev;
+  }
+
+  return factors;
 }
 
 // ===========================================
@@ -986,7 +997,9 @@ const DEFAULT_FACTORS: Record<string, any> = {
   // Mining valuation
   mwValueBtcMining: 0.3, // $M per MW for BTC mining
   ebitdaMultiple: 6, // EBITDA multiple for mining
-  dailyRevPerEh: 29400, // Daily revenue per EH/s
+  dailyRevPerEh: 29400, // Daily revenue per EH/s (derived from btcPrice if not overridden)
+  networkHashrateEh: 0, // Network hashrate in EH/s (0 = auto-derive dailyRevPerEh from btcPrice)
+  blockReward: 3.125, // BTC block reward (post-2024 halving)
   poolFeePct: 0.02,
 
   // Phase probabilities
@@ -1733,6 +1746,9 @@ httpServer.listen(PORT, async () => {
       });
       console.log('✅ Added IREN Goldman Sachs / JPMorgan term loan');
     }
+
+    // Remove any saved dailyRevPerEh override so it derives from btcPrice
+    await prisma.settings.deleteMany({ where: { key: 'dailyRevPerEh' } });
   } catch (e) {
     console.error('Migration error (non-fatal):', e);
   }

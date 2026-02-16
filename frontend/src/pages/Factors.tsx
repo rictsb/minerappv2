@@ -40,7 +40,6 @@ const FACTOR_CONFIGS: Record<string, FactorConfig[]> = {
   ],
   mining: [
     { key: 'ebitdaMultiple', label: 'EBITDA Multiple', min: 2, max: 15, step: 0.5, format: (v) => `${v}x`, defaultValue: 6 },
-    { key: 'dailyRevPerEh', label: 'Daily Rev per EH', min: 10000, max: 100000, step: 1000, format: (v) => `$${v.toLocaleString()}`, defaultValue: 29400 },
     { key: 'poolFeePct', label: 'Pool Fee %', min: 0, max: 0.05, step: 0.005, format: (v) => `${(v * 100).toFixed(1)}%`, defaultValue: 0.02 },
     { key: 'mwValueBtcMining', label: 'BTC Mining ($/MW)', min: 0.1, max: 2, step: 0.05, format: (v) => `$${v.toFixed(2)}M/MW`, defaultValue: 0.3 },
   ],
@@ -447,6 +446,19 @@ export default function Factors() {
                     <p className="text-xs text-gray-500 mb-3">
                       Credit spreads vs SOFR ({sofrRate.toFixed(1)}%). Negative = better credit.
                     </p>
+                  )}
+                  {section.id === 'mining' && (
+                    <div className="mb-4 p-3 bg-gray-700/30 border border-gray-600/50 rounded">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-400">Daily Rev per EH</span>
+                        <span className="text-sm font-mono text-orange-400">
+                          ${Math.round(((factors.btcPrice || 97000) / 97000) * 29400).toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-gray-500 mt-1">
+                        Auto-derived from BTC price (baseline: $29,400 @ $97k BTC)
+                      </p>
+                    </div>
                   )}
                   {section.id === 'tenantCredit' ? (
                     <>
