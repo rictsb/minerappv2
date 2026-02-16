@@ -772,33 +772,82 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
               </div>
             </div>
           ) : liveValuation.method === 'SPLIT' ? (
-            <div className="text-[11px] font-mono space-y-1">
-              {(liveValuation.periodBreakdown || []).map((p: any, i: number) => (
-                <div key={i} className="bg-gray-800/50 rounded px-2 py-1.5">
-                  <div className="flex justify-between text-gray-400 mb-0.5">
-                    <span className="text-cyan-400">{p.tenant || 'Uncontracted'}</span>
-                    <span className="text-gray-500">{p.mwAllocation} MW · {p.useType?.replace(/_/g, ' ')}</span>
+            <div className="text-[11px] font-mono space-y-1.5">
+              {(liveValuation.periodBreakdown || []).map((p: any, i: number) => {
+                // Find the matching use period to get startDate
+                const currentUses = (data?.usePeriods || []).filter((up: any) => up.isCurrent);
+                const matchedUp = currentUses[i];
+                const leaseStart = matchedUp?.startDate || matchedUp?.leaseStart;
+                return (
+                  <div key={i} className="bg-gray-800/50 rounded px-2 py-1.5">
+                    {/* Period header */}
+                    <div className="flex justify-between text-gray-400 mb-1">
+                      <span className="text-cyan-400 font-medium">{p.tenant || 'Uncontracted'}</span>
+                      <span className="text-gray-500">{p.mwAllocation} MW · {p.useType?.replace(/_/g, ' ')}</span>
+                    </div>
+                    {leaseStart && (
+                      <div className="flex justify-between text-gray-600 mb-0.5">
+                        <span>Lease Start</span>
+                        <span className="text-gray-400">{new Date(leaseStart).toLocaleDateString()}</span>
+                      </div>
+                    )}
+                    {p.method === 'DCF' ? (
+                      <div className="space-y-0.5">
+                        <div className="flex justify-between text-gray-500">
+                          <span>Lease ÷ Term</span>
+                          <span>{formatMoney(p.leaseVal)} ÷ {safeToFixed(p.leaseYearsVal, 1)}yr = <span className="text-gray-400">{formatMoney(p.annualRev)}/yr</span></span>
+                        </div>
+                        <div className="flex justify-between text-gray-500">
+                          <span>× NOI Margin</span>
+                          <span>× {safeToFixed(p.noiPct, 0)}% = <span className="text-green-400">{formatMoney(p.noiAnnual)}/yr</span></span>
+                        </div>
+                        <div className="border-t border-gray-700/50 my-0.5" />
+                        <div className="flex justify-between text-gray-500">
+                          <span>Cap Value</span>
+                          <span>NOI ÷ {safeToFixed((p.capRate || 0) * 100, 1)}% = <span className="text-blue-400">{formatMoney(p.baseValue)}</span></span>
+                        </div>
+                        <div className="flex justify-between text-gray-500">
+                          <span>Terminal PV</span>
+                          <span className="text-purple-400">{formatMoney(p.terminalValue)}</span>
+                        </div>
+                        <div className="border-t border-gray-700/50 my-0.5" />
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Gross</span>
+                          <span className="text-white">{formatMoney(p.grossValue)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">× Factor → Adjusted</span>
+                          <span className="text-orange-400 font-medium">{formatMoney(p.adjustedValue)}</span>
+                        </div>
+                      </div>
+                    ) : p.method === 'MW_PIPELINE' ? (
+                      <div className="space-y-0.5">
+                        <div className="flex justify-between text-gray-500">
+                          <span>Pipeline $/MW</span>
+                          <span>{p.periodMw} MW × ${safeToFixed(p.mwRate, 0)}M = <span className="text-white">{formatMoney(p.grossValue)}</span></span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">× Factor → Adjusted</span>
+                          <span className="text-orange-400 font-medium">{formatMoney(p.adjustedValue)}</span>
+                        </div>
+                      </div>
+                    ) : p.method === 'MW_VALUE' ? (
+                      <div className="space-y-0.5">
+                        <div className="flex justify-between text-gray-500">
+                          <span>BTC $/MW</span>
+                          <span>{p.periodMw} MW × ${safeToFixed(p.mwRate, 1)}M = <span className="text-white">{formatMoney(p.grossValue)}</span></span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">× Factor → Adjusted</span>
+                          <span className="text-orange-400 font-medium">{formatMoney(p.adjustedValue)}</span>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                  {p.method === 'DCF' ? (
-                    <div className="flex justify-between text-gray-500">
-                      <span>DCF (NOI ${safeToFixed(p.noiAnnual, 1)}M)</span>
-                      <span className="text-white">{formatMoney(p.adjustedValue)}</span>
-                    </div>
-                  ) : p.method === 'MW_PIPELINE' ? (
-                    <div className="flex justify-between text-gray-500">
-                      <span>{p.periodMw} MW × ${safeToFixed(p.mwRate, 0)}M</span>
-                      <span className="text-white">{formatMoney(p.adjustedValue)}</span>
-                    </div>
-                  ) : p.method === 'MW_VALUE' ? (
-                    <div className="flex justify-between text-gray-500">
-                      <span>{p.periodMw} MW × ${safeToFixed(p.mwRate, 1)}M</span>
-                      <span className="text-white">{formatMoney(p.adjustedValue)}</span>
-                    </div>
-                  ) : null}
-                </div>
-              ))}
+                );
+              })}
               <div className="flex justify-between text-gray-500 mt-1">
-                <span>× Adj Factor</span>
+                <span>Combined Adj Factor</span>
                 <span className="text-orange-400 font-medium">× {safeToFixed(liveValuation.combinedFactor, 3)}x</span>
               </div>
               <div className="border-t border-dashed border-orange-500/30 my-1" />
@@ -1253,39 +1302,39 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">Tenant</label>
-                <select
-                  value={newUsePeriod.tenant || ''}
-                  onChange={(e) => setNewUsePeriod({ ...newUsePeriod, tenant: e.target.value })}
-                  className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
-                >
-                  {tenantOptions.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Tenant</label>
+                  <select
+                    value={newUsePeriod.tenant || ''}
+                    onChange={(e) => setNewUsePeriod({ ...newUsePeriod, tenant: e.target.value })}
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
+                  >
+                    {tenantOptions.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Lease Start Date</label>
+                  <input
+                    type="date"
+                    value={newUsePeriod.startDate || ''}
+                    onChange={(e) => setNewUsePeriod({ ...newUsePeriod, startDate: e.target.value })}
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
+                  />
+                </div>
               </div>
 
               {splitType === 'transition' && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-gray-400 mb-1 block">Start Date</label>
-                    <input
-                      type="date"
-                      value={newUsePeriod.startDate || ''}
-                      onChange={(e) => setNewUsePeriod({ ...newUsePeriod, startDate: e.target.value })}
-                      className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-400 mb-1 block">End Date (optional)</label>
-                    <input
-                      type="date"
-                      value={newUsePeriod.endDate || ''}
-                      onChange={(e) => setNewUsePeriod({ ...newUsePeriod, endDate: e.target.value })}
-                      className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
-                    />
-                  </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">End Date (optional)</label>
+                  <input
+                    type="date"
+                    value={newUsePeriod.endDate || ''}
+                    onChange={(e) => setNewUsePeriod({ ...newUsePeriod, endDate: e.target.value })}
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
+                  />
                 </div>
               )}
 
@@ -1341,9 +1390,10 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                     leaseValueM: newUsePeriod.leaseValueM ? parseFloat(newUsePeriod.leaseValueM) : null,
                     leaseYears: newUsePeriod.leaseYears ? parseFloat(newUsePeriod.leaseYears) : null,
                     noiPct: newUsePeriod.noiPct ? parseFloat(newUsePeriod.noiPct) / 100 : null,
+                    startDate: newUsePeriod.startDate ? new Date(newUsePeriod.startDate) : null,
+                    leaseStart: newUsePeriod.startDate ? new Date(newUsePeriod.startDate) : null,
                   };
                   if (splitType === 'transition') {
-                    payload.startDate = newUsePeriod.startDate ? new Date(newUsePeriod.startDate) : null;
                     payload.endDate = newUsePeriod.endDate ? new Date(newUsePeriod.endDate) : null;
                   }
                   createUsePeriodMutation.mutate(payload);
