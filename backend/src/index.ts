@@ -1701,9 +1701,41 @@ export const broadcast = (event: string, data: any) => {
 // Start server
 const PORT = process.env.PORT || 3001;
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, async () => {
   console.log(`🚀 BTC Miner Valuation Terminal API running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
+
+  // One-time data migration: add IREN Goldman/JPM term loan if not exists
+  try {
+    const existing = await prisma.debt.findFirst({
+      where: { ticker: 'IREN', instrument: { contains: 'Goldman Sachs' } },
+    });
+    if (!existing) {
+      await prisma.debt.create({
+        data: {
+          ticker: 'IREN',
+          instrument: '$3.6B Goldman Sachs / JPMorgan Delayed-Draw Term Loan',
+          debtType: 'Term Loan',
+          issuer: 'Goldman Sachs / JPMorgan',
+          principalM: 3600.00,
+          originalM: 3600.00,
+          maturity: new Date('2030-12-31'),
+          couponPct: 0.0550,
+          annualInterestM: 198.00,
+          secured: true,
+          collateral: 'GPU equipment + Microsoft contract cash flows',
+          level: 'Project',
+          linkedSite: 'Childress',
+          convertible: false,
+          status: 'Outstanding (delayed-draw)',
+          confidence: 'MEDIUM',
+        },
+      });
+      console.log('✅ Added IREN Goldman Sachs / JPMorgan term loan');
+    }
+  } catch (e) {
+    console.error('Migration error (non-fatal):', e);
+  }
 });
 
 // Graceful shutdown
