@@ -11,7 +11,6 @@ import {
   Save,
   RotateCcw,
   AlertTriangle,
-  Settings,
   Split,
   Calendar,
   Trash2,
@@ -242,11 +241,10 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
   const [showSplitModal, setShowSplitModal] = useState(false);
   const [splitType, setSplitType] = useState<'split' | 'transition'>('split');
   const [newUsePeriod, setNewUsePeriod] = useState<Record<string, any>>({});
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   // Editable lease details
   const [leaseEdits, setLeaseEdits] = useState<Record<string, any>>({});
-  // Editable valuation inputs
-  const [valInputEdits, setValInputEdits] = useState<Record<string, any>>({});
   // Factor overrides
   const [factorOverrides, setFactorOverrides] = useState<Record<string, number>>({});
   const [hasChanges, setHasChanges] = useState(false);
@@ -328,12 +326,20 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       const res = await fetch(`${apiUrl}/api/v1/use-periods/${usePeriodId}`, {
         method: 'DELETE',
       });
-      if (!res.ok) throw new Error('Failed to delete use period');
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to delete use period');
+      }
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['building-valuation', buildingId] });
       queryClient.invalidateQueries({ queryKey: ['companies'] });
+      setConfirmDelete(null);
+    },
+    onError: (err: any) => {
+      alert(err.message || 'Failed to delete');
+      setConfirmDelete(null);
     },
   });
 
@@ -342,7 +348,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     if (data) {
       const ld = data.leaseDetails || {};
       const fd = data.factorDetails || {};
-      const vi = data.valuation?.inputs || {};
       const bld = data.building || {};
 
       setLeaseEdits({
@@ -352,12 +357,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         leaseValueM: ld.leaseValueM || '',
         annualRevM: ld.annualRevM || '',
         noiPct: ld.noiPct ? (ld.noiPct * 100).toFixed(1) : '',
-      });
-
-      setValInputEdits({
-        capRate: vi.capRate ? (vi.capRate * 100).toFixed(2) : '7.50',
-        exitCapRate: vi.exitCapRate ? (vi.exitCapRate * 100).toFixed(2) : '8.00',
-        terminalGrowthRate: vi.terminalGrowthRate ? (vi.terminalGrowthRate * 100).toFixed(1) : '2.5',
       });
 
       setFactorOverrides({
@@ -377,11 +376,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
 
   const handleLeaseChange = (key: string, value: string) => {
     setLeaseEdits((prev) => ({ ...prev, [key]: value }));
-    setHasChanges(true);
-  };
-
-  const handleValInputChange = (key: string, value: string) => {
-    setValInputEdits((prev) => ({ ...prev, [key]: value }));
     setHasChanges(true);
   };
 
@@ -413,12 +407,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         noiPct: noiPct ? noiPct / 100 : null,
         noiAnnualM: calculatedNoi || null,
       },
-      // Valuation inputs (cap rates)
-      valuation: {
-        capRateOverride: parseFloat(valInputEdits.capRate) / 100,
-        exitCapRateOverride: parseFloat(valInputEdits.exitCapRate) / 100,
-        terminalGrowthOverride: parseFloat(valInputEdits.terminalGrowthRate) / 100,
-      },
       // Factor overrides
       factors: {
         fidoodleFactor: factorOverrides.fidoodleFactor,
@@ -436,7 +424,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     if (data) {
       const ld = data.leaseDetails || {};
       const fd = data.factorDetails || {};
-      const gf = data.globalFactors || {};
 
       setLeaseEdits({
         tenant: ld.tenant || '',
@@ -445,12 +432,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         leaseValueM: ld.leaseValueM || '',
         annualRevM: ld.annualRevM || '',
         noiPct: ld.noiPct ? (ld.noiPct * 100).toFixed(1) : '',
-      });
-
-      setValInputEdits({
-        capRate: ((gf.hpcCapRate || 0.075) * 100).toFixed(2),
-        exitCapRate: ((gf.hpcExitCapRate || 0.08) * 100).toFixed(2),
-        terminalGrowthRate: ((gf.terminalGrowthRate || 0.025) * 100).toFixed(1),
       });
 
       setFactorOverrides({
@@ -472,227 +453,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
 
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
-  };
-
-  // Calculate live valuation with full breakdown
-  // Calculate valuation for a single use period
-  // When isSplit=true, use the period's own lease data; otherwise use the shared leaseEdits form
-  const calcPeriodValuation = (currentUse: any, periodMw: number, combinedFactor: number, isSplit = false) => {
-    const useType = currentUse?.useType || 'UNCONTRACTED';
-
-    // BTC Mining — simple $/MW
-    if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-      const mwRate = 0.3;
-      const grossValue = periodMw * mwRate;
-      const adjustedValue = grossValue * combinedFactor;
-      return { method: 'MW_VALUE' as const, adjustedValue: isFinite(adjustedValue) ? adjustedValue : 0, grossValue: isFinite(grossValue) ? grossValue : 0, mwRate, useType, periodMw };
-    }
-
-    // HPC uncontracted / pipeline — check if this period has lease data
-    const periodLeaseVal = Number(currentUse?.leaseValueM) || 0;
-    const formLeaseVal = parseFloat(leaseEdits.leaseValueM) || 0;
-    const hasLease = currentUse?.tenant && (isSplit ? periodLeaseVal > 0 : (formLeaseVal > 0 || periodLeaseVal > 0));
-    if (!hasLease && (useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD' || useType === 'HPC_AI_PLANNED' || useType === 'UNCONTRACTED' || useType === 'UNCONTRACTED_ROFR')) {
-      const mwRate = 8;
-      const grossValue = periodMw * mwRate;
-      const adjustedValue = grossValue * combinedFactor;
-      return { method: 'MW_PIPELINE' as const, adjustedValue: isFinite(adjustedValue) ? adjustedValue : 0, grossValue: isFinite(grossValue) ? grossValue : 0, mwRate, useType, periodMw };
-    }
-
-    // HPC/AI with lease — DCF
-    // For splits: use the period's own lease data; for single buildings: use the form edits
-    const leaseVal = isSplit
-      ? (Number(currentUse?.leaseValueM) || 0)
-      : (parseFloat(leaseEdits.leaseValueM) || Number(currentUse?.leaseValueM) || 0);
-    const leaseYearsVal = isSplit
-      ? (Number(currentUse?.leaseYears) || 10)
-      : (leaseEdits.leaseYears ? parseFloat(leaseEdits.leaseYears) : (data?.remainingLeaseYears || Number(currentUse?.leaseYears) || 10));
-    const annualRev = leaseVal / Math.max(leaseYearsVal, 0.1);
-    const noiPctRaw = isSplit
-      ? (Number(currentUse?.noiPct) || 0)
-      : (parseFloat(leaseEdits.noiPct) || Number(currentUse?.noiPct) || 0);
-    // noiPct from the DB is 0-1 fraction; from the form it's 0-100 percentage
-    const noiPctVal = isSplit ? (noiPctRaw <= 1 ? noiPctRaw * 100 : noiPctRaw) : noiPctRaw;
-    const noiAnnual = annualRev * (noiPctVal / 100);
-    const capRate = valInputEdits.capRate ? parseFloat(valInputEdits.capRate) / 100 : 0.075;
-    const exitCapRate = valInputEdits.exitCapRate ? parseFloat(valInputEdits.exitCapRate) / 100 : 0.08;
-    const terminalGrowthRate = valInputEdits.terminalGrowthRate ? parseFloat(valInputEdits.terminalGrowthRate) / 100 : 0.025;
-    const discountRate = data?.valuation?.inputs?.discountRate || 0.10;
-    const renewalProbability = data?.globalFactors?.renewalProbability || 0.75;
-    const baseValue = noiAnnual > 0 && capRate > 0 ? noiAnnual / capRate : 0;
-    const capRateDiff = Math.max(exitCapRate - terminalGrowthRate, 0.001);
-    const terminalNoi = noiAnnual * Math.pow(1 + terminalGrowthRate, leaseYearsVal);
-    const terminalValueAtEnd = terminalNoi / capRateDiff;
-    const terminalValue = terminalValueAtEnd / Math.pow(1 + discountRate, leaseYearsVal) * renewalProbability;
-    const grossValue = baseValue + terminalValue;
-    const adjustedValue = grossValue * combinedFactor;
-    return { method: 'DCF' as const, adjustedValue: isFinite(adjustedValue) ? adjustedValue : 0, grossValue: isFinite(grossValue) ? grossValue : 0, baseValue: isFinite(baseValue) ? baseValue : 0, terminalValue: isFinite(terminalValue) ? terminalValue : 0, useType, periodMw, leaseVal, leaseYearsVal, annualRev, noiPct: noiPctVal, noiAnnual, capRate, exitCapRate, terminalGrowthRate, discountRate, renewalProbability };
-  };
-
-  const calculateLiveValuation = () => {
-    const empty = {
-      method: 'NONE' as const,
-      combinedFactor: 1, adjustedValue: 0, baseValue: 0, terminalValue: 0, grossValue: 0,
-      leaseVal: 0, leaseYearsVal: 0, annualRev: 0, noiPct: 0, noiAnnual: 0,
-      capRate: 0, exitCapRate: 0, terminalGrowthRate: 0, discountRate: 0, renewalProbability: 0,
-      itMw: 0, mwRate: 0, useType: '' as string,
-      periodBreakdown: [] as any[],
-    };
-    if (!data) return empty;
-
-    // Building-level factors (shared across all splits)
-    const buildingFactor =
-      (factorOverrides.phaseProbability || 1) *
-      (factorOverrides.regulatoryRisk || 1) *
-      (factorOverrides.sizeMultiplier || 1) *
-      (factorOverrides.powerAuthority || 1) *
-      (factorOverrides.ownership || 1) *
-      (factorOverrides.datacenterTier || 1) *
-      (factorOverrides.fidoodleFactor || 1);
-
-    // Per-period factors (from the building-level sliders for single buildings)
-    const perPeriodFactor =
-      (factorOverrides.leaseStructure || 1) *
-      (factorOverrides.tenantCredit || 1) *
-      (factorOverrides.timeValue || 1);
-
-    // Combined factor for single-period buildings
-    const combinedFactor = buildingFactor * perPeriodFactor;
-
-    const buildingItMw = data.building?.itMw || 0;
-    const currentUses = (data.usePeriods || []).filter((up: any) => up.isCurrent);
-
-    // If only one period (unsplit) — use original single-period logic for display
-    if (currentUses.length <= 1) {
-      const currentUse = currentUses[0];
-      const useType = currentUse?.useType || 'UNCONTRACTED';
-      const itMw = buildingItMw;
-
-      // BTC Mining — simple $/MW
-      if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-        const mwRate = 0.3;
-        const grossValue = itMw * mwRate;
-        const adjustedValue = grossValue * combinedFactor;
-        return {
-          ...empty, method: 'MW_VALUE' as const,
-          combinedFactor: isFinite(combinedFactor) ? combinedFactor : 1,
-          adjustedValue: isFinite(adjustedValue) ? adjustedValue : 0,
-          grossValue: isFinite(grossValue) ? grossValue : 0,
-          itMw, mwRate, useType,
-        };
-      }
-
-      // HPC uncontracted / pipeline
-      const hasLease = currentUse?.tenant && (parseFloat(leaseEdits.leaseValueM) || currentUse?.leaseValueM);
-      if (!hasLease && (useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD' || useType === 'HPC_AI_PLANNED' || useType === 'UNCONTRACTED' || useType === 'UNCONTRACTED_ROFR')) {
-        const mwRate = 8;
-        const grossValue = itMw * mwRate;
-        const adjustedValue = grossValue * combinedFactor;
-        return {
-          ...empty, method: 'MW_PIPELINE' as const,
-          combinedFactor: isFinite(combinedFactor) ? combinedFactor : 1,
-          adjustedValue: isFinite(adjustedValue) ? adjustedValue : 0,
-          grossValue: isFinite(grossValue) ? grossValue : 0,
-          itMw, mwRate, useType,
-        };
-      }
-
-      // HPC/AI with lease — full DCF
-      const leaseVal = parseFloat(leaseEdits.leaseValueM) || 0;
-      const leaseYearsVal = leaseEdits.leaseYears ? parseFloat(leaseEdits.leaseYears) : (data.remainingLeaseYears || 10);
-      const annualRev = leaseVal / Math.max(leaseYearsVal, 0.1);
-      const noiPct = parseFloat(leaseEdits.noiPct) || 0;
-      const noiAnnual = annualRev * (noiPct / 100);
-      const capRate = valInputEdits.capRate ? parseFloat(valInputEdits.capRate) / 100 : 0.075;
-      const exitCapRate = valInputEdits.exitCapRate ? parseFloat(valInputEdits.exitCapRate) / 100 : 0.08;
-      const terminalGrowthRate = valInputEdits.terminalGrowthRate ? parseFloat(valInputEdits.terminalGrowthRate) / 100 : 0.025;
-      const discountRate = data.valuation?.inputs?.discountRate || 0.10;
-      const renewalProbability = data.globalFactors?.renewalProbability || 0.75;
-
-      const baseValue = noiAnnual > 0 && capRate > 0 ? noiAnnual / capRate : 0;
-      const capRateDiff = Math.max(exitCapRate - terminalGrowthRate, 0.001);
-      const terminalNoi = noiAnnual * Math.pow(1 + terminalGrowthRate, leaseYearsVal);
-      const terminalValueAtEnd = terminalNoi / capRateDiff;
-      const terminalValue = terminalValueAtEnd / Math.pow(1 + discountRate, leaseYearsVal) * renewalProbability;
-      const grossValue = baseValue + terminalValue;
-      const adjustedValue = grossValue * combinedFactor;
-
-      return {
-        method: 'DCF' as const,
-        combinedFactor: isFinite(combinedFactor) ? combinedFactor : 1,
-        adjustedValue: isFinite(adjustedValue) ? adjustedValue : 0,
-        baseValue: isFinite(baseValue) ? baseValue : 0,
-        terminalValue: isFinite(terminalValue) ? terminalValue : 0,
-        grossValue: isFinite(grossValue) ? grossValue : 0,
-        leaseVal, leaseYearsVal, annualRev, noiPct, noiAnnual,
-        capRate, exitCapRate, terminalGrowthRate, discountRate, renewalProbability,
-        itMw, mwRate: 0, useType,
-        periodBreakdown: [],
-      };
-    }
-
-    // MULTI-PERIOD (split building): value each period separately and sum
-    // Per-period factors: tenant credit, lease structure, time value are computed per split
-    const getPerPeriodTenantCredit = (tenant: string | null): number => {
-      if (!tenant) return 1.0;
-      const gf = data?.globalFactors || {};
-      const sofrRate = gf.sofrRate ?? 4.3;
-      const t = tenant.toLowerCase();
-      let spread = gf.tcOther ?? 1.0;
-      if (t.includes('google')) spread = gf.tcGoogle ?? -1.0;
-      else if (t.includes('microsoft') || t.includes('azure')) spread = gf.tcMicrosoft ?? -1.0;
-      else if (t.includes('amazon') || t.includes('aws')) spread = gf.tcAmazon ?? -1.0;
-      else if (t.includes('meta') || t.includes('facebook')) spread = gf.tcMeta ?? -0.75;
-      else if (t.includes('oracle')) spread = gf.tcOracle ?? -0.50;
-      else if (t.includes('coreweave')) spread = gf.tcCoreweave ?? 0.0;
-      else if (t.includes('anthropic')) spread = gf.tcAnthropic ?? 0.0;
-      else if (t.includes('openai')) spread = gf.tcOpenai ?? 0.0;
-      else if (t.includes('xai') || t.includes('x.ai')) spread = gf.tcXai ?? 0.25;
-      return sofrRate / (sofrRate + spread);
-    };
-    const getPerPeriodTimeValue = (leaseStart: any, energDate: any): number => {
-      const dr = data?.globalFactors?.discountRate ?? 0.10;
-      const ref = leaseStart ? new Date(leaseStart) : energDate ? new Date(energDate) : null;
-      if (!ref) return 1.0;
-      const yrs = (ref.getTime() - Date.now()) / (365.25 * 24 * 3600 * 1000);
-      return yrs <= 0 ? 1.0 : 1 / Math.pow(1 + dr, yrs);
-    };
-    const getPerPeriodLeaseStruct = (structure: string | null): number => {
-      const gf = data?.globalFactors || {};
-      if (!structure) return gf.nnnMult ?? 1.0;
-      const sl = structure.toLowerCase();
-      if (sl.includes('nnn') || sl.includes('triple')) return gf.nnnMult ?? 1.0;
-      if (sl.includes('modified')) return gf.modifiedGrossMult ?? 0.95;
-      if (sl.includes('gross')) return gf.grossMult ?? 0.90;
-      return gf.nnnMult ?? 1.0;
-    };
-
-    // Calculate allocated MW to figure out remainder for periods without explicit allocation
-    const explicitlyAllocated = currentUses.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
-    const periodBreakdown = currentUses.map((up: any) => {
-      let periodMw = Number(up.mwAllocation) || 0;
-      // If this period has no allocation, give it the remaining unallocated MW
-      if (!periodMw && buildingItMw > 0) {
-        periodMw = Math.max(buildingItMw - explicitlyAllocated, 0);
-      }
-      // Compute per-period factors
-      const ppTenantCredit = getPerPeriodTenantCredit(up.tenant);
-      const ppTimeValue = getPerPeriodTimeValue(up.leaseStart || up.startDate, data?.building?.energizationDate);
-      const ppLeaseStruct = getPerPeriodLeaseStruct(up.leaseStructure);
-      const periodCombinedFactor = buildingFactor * ppTenantCredit * ppTimeValue * ppLeaseStruct;
-      return { ...calcPeriodValuation(up, periodMw, periodCombinedFactor, true), tenant: up.tenant, mwAllocation: periodMw, periodFactor: periodCombinedFactor };
-    });
-    const totalAdjustedValue = periodBreakdown.reduce((sum: number, p: any) => sum + (p.adjustedValue || 0), 0);
-
-    return {
-      ...empty,
-      method: 'SPLIT' as const,
-      combinedFactor: isFinite(combinedFactor) ? combinedFactor : 1,
-      adjustedValue: isFinite(totalAdjustedValue) ? totalAdjustedValue : 0,
-      itMw: buildingItMw,
-      useType: 'SPLIT',
-      periodBreakdown,
-    };
   };
 
   if (isLoading) {
@@ -722,7 +482,12 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
   const site = data.site || {};
   const campus = data.campus || {};
   const factorDetails = data.factorDetails || {};
-  const liveValuation = calculateLiveValuation();
+
+  // Server-computed valuations — single source of truth
+  const periodValuations: any[] = data.periodValuations || [];
+  const totalValuation = data.totalValuation || 0;
+  const currentUses = (data.usePeriods || []).filter((up: any) => up.isCurrent);
+  const isSplitBuilding = periodValuations.length > 1;
 
   return (
     <div className="fixed inset-y-0 right-0 w-[520px] bg-gray-900 border-l border-gray-700 shadow-2xl z-50 flex flex-col overflow-hidden">
@@ -756,169 +521,152 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
             <span className="text-sm font-medium text-gray-300">Valuation</span>
           </div>
           <div className="text-2xl font-bold text-orange-400">
-            {formatMoney(liveValuation.adjustedValue)}
+            {formatMoney(totalValuation)}
           </div>
         </div>
 
-        {/* Method-specific waterfall */}
+        {/* Waterfall — display server-computed period valuations */}
         <div className="px-3 pb-3 pt-2">
-          {liveValuation.method === 'DCF' ? (
-            <div className="text-[11px] font-mono space-y-0.5">
-              {/* Revenue line */}
-              <div className="flex justify-between text-gray-500">
-                <span>Lease Value ÷ Term</span>
-                <span>{formatMoney(liveValuation.leaseVal)} ÷ {safeToFixed(liveValuation.leaseYearsVal, 1)}yr = <span className="text-gray-400">{formatMoney(liveValuation.annualRev)}/yr</span></span>
-              </div>
-              {/* NOI line */}
-              <div className="flex justify-between text-gray-500">
-                <span>× NOI Margin</span>
-                <span>× {safeToFixed(liveValuation.noiPct, 0)}% = <span className="text-green-400 font-medium">{formatMoney(liveValuation.noiAnnual)}/yr NOI</span></span>
-              </div>
-              {/* Divider */}
-              <div className="border-t border-gray-700 my-1" />
-              {/* Capitalized value */}
-              <div className="flex justify-between">
-                <span className="text-gray-500">Capitalized Value</span>
-                <span className="text-gray-400">NOI ÷ {safeToFixed(liveValuation.capRate * 100, 1)}% = <span className="text-blue-400">{formatMoney(liveValuation.baseValue)}</span></span>
-              </div>
-              {/* Terminal value */}
-              <div className="flex justify-between">
-                <span className="text-gray-500">Terminal Value (PV)</span>
-                <span className="text-purple-400">{formatMoney(liveValuation.terminalValue)}</span>
-              </div>
-              {/* Gross */}
-              <div className="border-t border-gray-700 my-1" />
-              <div className="flex justify-between">
-                <span className="text-gray-400">Gross Value</span>
-                <span className="text-white font-medium">{formatMoney(liveValuation.grossValue)}</span>
-              </div>
-              {/* Factor */}
-              <div className="flex justify-between">
-                <span className="text-gray-500">× Adj Factor</span>
-                <span className="text-orange-400 font-medium">× {safeToFixed(liveValuation.combinedFactor, 3)}x</span>
-              </div>
-              {/* Final */}
-              <div className="border-t border-dashed border-orange-500/30 my-1" />
-              <div className="flex justify-between text-sm">
-                <span className="text-orange-400 font-bold">Adjusted Value</span>
-                <span className="text-orange-400 font-bold">{formatMoney(liveValuation.adjustedValue)}</span>
-              </div>
-            </div>
-          ) : liveValuation.method === 'MW_VALUE' ? (
-            <div className="text-[11px] font-mono space-y-0.5">
-              <div className="flex justify-between text-gray-500">
-                <span>BTC Mining $/MW</span>
-                <span>{safeToFixed(liveValuation.itMw, 0)} MW × ${safeToFixed(liveValuation.mwRate, 1)}M = <span className="text-white">{formatMoney(liveValuation.grossValue)}</span></span>
-              </div>
-              <div className="flex justify-between text-gray-500">
-                <span>× Adj Factor</span>
-                <span className="text-orange-400 font-medium">× {safeToFixed(liveValuation.combinedFactor, 3)}x</span>
-              </div>
-              <div className="border-t border-dashed border-orange-500/30 my-1" />
-              <div className="flex justify-between text-sm">
-                <span className="text-orange-400 font-bold">Adjusted Value</span>
-                <span className="text-orange-400 font-bold">{formatMoney(liveValuation.adjustedValue)}</span>
-              </div>
-            </div>
-          ) : liveValuation.method === 'MW_PIPELINE' ? (
-            <div className="text-[11px] font-mono space-y-0.5">
-              <div className="flex justify-between text-gray-500">
-                <span>Pipeline $/MW (uncontracted)</span>
-                <span>{safeToFixed(liveValuation.itMw, 0)} MW × ${safeToFixed(liveValuation.mwRate, 0)}M = <span className="text-white">{formatMoney(liveValuation.grossValue)}</span></span>
-              </div>
-              <div className="flex justify-between text-gray-500">
-                <span>× Adj Factor</span>
-                <span className="text-orange-400 font-medium">× {safeToFixed(liveValuation.combinedFactor, 3)}x</span>
-              </div>
-              <div className="border-t border-dashed border-orange-500/30 my-1" />
-              <div className="flex justify-between text-sm">
-                <span className="text-orange-400 font-bold">Adjusted Value</span>
-                <span className="text-orange-400 font-bold">{formatMoney(liveValuation.adjustedValue)}</span>
-              </div>
-            </div>
-          ) : liveValuation.method === 'SPLIT' ? (
-            <div className="text-[11px] font-mono space-y-1.5">
-              {(liveValuation.periodBreakdown || []).map((p: any, i: number) => {
-                // Find the matching use period to get startDate
-                const currentUses = (data?.usePeriods || []).filter((up: any) => up.isCurrent);
-                const matchedUp = currentUses[i];
-                const leaseStart = matchedUp?.startDate || matchedUp?.leaseStart;
+          {periodValuations.length === 0 ? (
+            <div className="text-[11px] text-gray-600 italic">No valuation — add lease details or set a use type</div>
+          ) : periodValuations.length === 1 ? (
+            // Single-period waterfall
+            (() => {
+              const p = periodValuations[0];
+              if (p.method === 'NOI_CAP_RATE') {
                 return (
-                  <div key={i} className="bg-gray-800/50 rounded px-2 py-1.5">
-                    {/* Period header */}
-                    <div className="flex justify-between text-gray-400 mb-1">
-                      <span className="text-cyan-400 font-medium">{p.tenant || 'Uncontracted'}</span>
-                      <span className="text-gray-500">{p.mwAllocation} MW · {p.useType?.replace(/_/g, ' ')}</span>
+                  <div className="text-[11px] font-mono space-y-0.5">
+                    <div className="flex justify-between text-gray-500">
+                      <span>Lease Value ÷ Term</span>
+                      <span>{formatMoney(p.leaseValueM)} ÷ {safeToFixed(p.leaseYears, 1)}yr = <span className="text-gray-400">{formatMoney(p.annualRev)}/yr</span></span>
                     </div>
-                    {leaseStart && (
-                      <div className="flex justify-between text-gray-600 mb-0.5">
-                        <span>Lease Start</span>
-                        <span className="text-gray-400">{new Date(leaseStart).toLocaleDateString()}</span>
-                      </div>
-                    )}
-                    {p.method === 'DCF' ? (
-                      <div className="space-y-0.5">
-                        <div className="flex justify-between text-gray-500">
-                          <span>Lease ÷ Term</span>
-                          <span>{formatMoney(p.leaseVal)} ÷ {safeToFixed(p.leaseYearsVal, 1)}yr = <span className="text-gray-400">{formatMoney(p.annualRev)}/yr</span></span>
-                        </div>
-                        <div className="flex justify-between text-gray-500">
-                          <span>× NOI Margin</span>
-                          <span>× {safeToFixed(p.noiPct, 0)}% = <span className="text-green-400">{formatMoney(p.noiAnnual)}/yr</span></span>
-                        </div>
-                        <div className="border-t border-gray-700/50 my-0.5" />
-                        <div className="flex justify-between text-gray-500">
-                          <span>Cap Value</span>
-                          <span>NOI ÷ {safeToFixed((p.capRate || 0) * 100, 1)}% = <span className="text-blue-400">{formatMoney(p.baseValue)}</span></span>
-                        </div>
-                        <div className="flex justify-between text-gray-500">
-                          <span>Terminal PV</span>
-                          <span className="text-purple-400">{formatMoney(p.terminalValue)}</span>
-                        </div>
-                        <div className="border-t border-gray-700/50 my-0.5" />
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Gross</span>
-                          <span className="text-white">{formatMoney(p.grossValue)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">× {safeToFixed(p.periodFactor || liveValuation.combinedFactor, 3)}x → Adj</span>
-                          <span className="text-orange-400 font-medium">{formatMoney(p.adjustedValue)}</span>
-                        </div>
-                      </div>
-                    ) : p.method === 'MW_PIPELINE' ? (
-                      <div className="space-y-0.5">
-                        <div className="flex justify-between text-gray-500">
-                          <span>Pipeline $/MW</span>
-                          <span>{p.periodMw} MW × ${safeToFixed(p.mwRate, 0)}M = <span className="text-white">{formatMoney(p.grossValue)}</span></span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">× {safeToFixed(p.periodFactor || liveValuation.combinedFactor, 3)}x → Adj</span>
-                          <span className="text-orange-400 font-medium">{formatMoney(p.adjustedValue)}</span>
-                        </div>
-                      </div>
-                    ) : p.method === 'MW_VALUE' ? (
-                      <div className="space-y-0.5">
-                        <div className="flex justify-between text-gray-500">
-                          <span>BTC $/MW</span>
-                          <span>{p.periodMw} MW × ${safeToFixed(p.mwRate, 1)}M = <span className="text-white">{formatMoney(p.grossValue)}</span></span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">× {safeToFixed(p.periodFactor || liveValuation.combinedFactor, 3)}x → Adj</span>
-                          <span className="text-orange-400 font-medium">{formatMoney(p.adjustedValue)}</span>
-                        </div>
-                      </div>
-                    ) : null}
+                    <div className="flex justify-between text-gray-500">
+                      <span>× NOI Margin</span>
+                      <span>× {safeToFixed((p.noiPct || 0) * 100, 0)}% = <span className="text-green-400 font-medium">{formatMoney(p.noiAnnual)}/yr NOI</span></span>
+                    </div>
+                    <div className="border-t border-gray-700 my-1" />
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Capitalized Value (NOI ÷ {safeToFixed(p.capRate * 100, 1)}%)</span>
+                      <span className="text-blue-400">{formatMoney(p.grossValue)}</span>
+                    </div>
+                    <div className="flex justify-between text-gray-500">
+                      <span>× Adj Factor</span>
+                      <span className="text-orange-400 font-medium">× {safeToFixed(p.periodFactor, 3)}x</span>
+                    </div>
+                    <div className="border-t border-dashed border-orange-500/30 my-1" />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-orange-400 font-bold">Adjusted Value</span>
+                      <span className="text-orange-400 font-bold">{formatMoney(p.valuationM)}</span>
+                    </div>
                   </div>
                 );
-              })}
+              } else if (p.method === 'MW_VALUE') {
+                return (
+                  <div className="text-[11px] font-mono space-y-0.5">
+                    <div className="flex justify-between text-gray-500">
+                      <span>BTC Mining $/MW</span>
+                      <span>{safeToFixed(p.mw, 0)} MW × $0.3M = <span className="text-white">{formatMoney(p.grossValue)}</span></span>
+                    </div>
+                    <div className="flex justify-between text-gray-500">
+                      <span>× Adj Factor</span>
+                      <span className="text-orange-400 font-medium">× {safeToFixed(p.periodFactor, 3)}x</span>
+                    </div>
+                    <div className="border-t border-dashed border-orange-500/30 my-1" />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-orange-400 font-bold">Adjusted Value</span>
+                      <span className="text-orange-400 font-bold">{formatMoney(p.valuationM)}</span>
+                    </div>
+                  </div>
+                );
+              } else {
+                // MW_PIPELINE or LEASE_VALUE
+                return (
+                  <div className="text-[11px] font-mono space-y-0.5">
+                    <div className="flex justify-between text-gray-500">
+                      <span>Pipeline $/MW (uncontracted)</span>
+                      <span>{safeToFixed(p.mw, 0)} MW × $8M = <span className="text-white">{formatMoney(p.grossValue)}</span></span>
+                    </div>
+                    <div className="flex justify-between text-gray-500">
+                      <span>× Adj Factor</span>
+                      <span className="text-orange-400 font-medium">× {safeToFixed(p.periodFactor, 3)}x</span>
+                    </div>
+                    <div className="border-t border-dashed border-orange-500/30 my-1" />
+                    <div className="flex justify-between text-sm">
+                      <span className="text-orange-400 font-bold">Adjusted Value</span>
+                      <span className="text-orange-400 font-bold">{formatMoney(p.valuationM)}</span>
+                    </div>
+                  </div>
+                );
+              }
+            })()
+          ) : (
+            // Multi-period (split) waterfall
+            <div className="text-[11px] font-mono space-y-1.5">
+              {periodValuations.map((p: any, i: number) => (
+                <div key={p.usePeriodId || i} className="bg-gray-800/50 rounded px-2 py-1.5">
+                  {/* Period header */}
+                  <div className="flex justify-between text-gray-400 mb-1">
+                    <span className="text-cyan-400 font-medium">{p.tenant || 'Uncontracted'}</span>
+                    <span className="text-gray-500">{safeToFixed(p.mw, 0)} MW · {p.useType?.replace(/_/g, ' ')}</span>
+                  </div>
+                  {p.leaseStart && (
+                    <div className="flex justify-between text-gray-600 mb-0.5">
+                      <span>Lease Start</span>
+                      <span className="text-gray-400">{new Date(p.leaseStart).toLocaleDateString()}</span>
+                    </div>
+                  )}
+                  {p.method === 'NOI_CAP_RATE' ? (
+                    <div className="space-y-0.5">
+                      <div className="flex justify-between text-gray-500">
+                        <span>Lease ÷ Term</span>
+                        <span>{formatMoney(p.leaseValueM)} ÷ {safeToFixed(p.leaseYears, 1)}yr = <span className="text-gray-400">{formatMoney(p.annualRev)}/yr</span></span>
+                      </div>
+                      <div className="flex justify-between text-gray-500">
+                        <span>× NOI Margin</span>
+                        <span>× {safeToFixed((p.noiPct || 0) * 100, 0)}% = <span className="text-green-400">{formatMoney(p.noiAnnual)}/yr</span></span>
+                      </div>
+                      <div className="border-t border-gray-700/50 my-0.5" />
+                      <div className="flex justify-between text-gray-500">
+                        <span>Cap Value</span>
+                        <span>NOI ÷ {safeToFixed((p.capRate || 0) * 100, 1)}% = <span className="text-blue-400">{formatMoney(p.grossValue)}</span></span>
+                      </div>
+                      <div className="border-t border-gray-700/50 my-0.5" />
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">× {safeToFixed(p.periodFactor, 3)}x → Adj</span>
+                        <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span>
+                      </div>
+                    </div>
+                  ) : p.method === 'MW_PIPELINE' ? (
+                    <div className="space-y-0.5">
+                      <div className="flex justify-between text-gray-500">
+                        <span>Pipeline $/MW</span>
+                        <span>{safeToFixed(p.mw, 0)} MW × $8M = <span className="text-white">{formatMoney(p.grossValue)}</span></span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">× {safeToFixed(p.periodFactor, 3)}x → Adj</span>
+                        <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span>
+                      </div>
+                    </div>
+                  ) : p.method === 'MW_VALUE' ? (
+                    <div className="space-y-0.5">
+                      <div className="flex justify-between text-gray-500">
+                        <span>BTC $/MW</span>
+                        <span>{safeToFixed(p.mw, 0)} MW × $0.3M = <span className="text-white">{formatMoney(p.grossValue)}</span></span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">× {safeToFixed(p.periodFactor, 3)}x → Adj</span>
+                        <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
               <div className="border-t border-dashed border-orange-500/30 my-1" />
               <div className="flex justify-between text-sm">
                 <span className="text-orange-400 font-bold">Total Value</span>
-                <span className="text-orange-400 font-bold">{formatMoney(liveValuation.adjustedValue)}</span>
+                <span className="text-orange-400 font-bold">{formatMoney(totalValuation)}</span>
               </div>
             </div>
-          ) : (
-            <div className="text-[11px] text-gray-600 italic">No valuation method applied — add lease details or set a use type</div>
           )}
         </div>
       </div>
@@ -935,9 +683,9 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
               {expandedSections.splits ? <ChevronDown className="h-4 w-4 text-gray-500" /> : <ChevronRight className="h-4 w-4 text-gray-500" />}
               <Split className="h-4 w-4 text-purple-500" />
               <span className="text-sm font-medium text-gray-200">Capacity Allocation</span>
-              {data?.usePeriods && data.usePeriods.length > 1 && (
+              {currentUses.length > 1 && (
                 <span className="text-xs bg-purple-900/50 text-purple-400 px-1.5 py-0.5 rounded">
-                  {data.usePeriods.filter((up: any) => up.isCurrent).length} splits
+                  {currentUses.length} splits
                 </span>
               )}
             </div>
@@ -960,17 +708,17 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 </div>
               </div>
 
-              {/* Use Periods List */}
+              {/* Use Periods List — only show current periods */}
               <div className="space-y-2 mb-3">
-                {(data?.usePeriods || []).map((up: any) => (
+                {(data?.usePeriods || []).filter((up: any) => up.isCurrent).map((up: any) => (
                   <div
                     key={up.id}
-                    className={`bg-gray-800/30 border rounded p-2 ${up.isCurrent ? 'border-purple-600/50' : 'border-gray-700'}`}
+                    className="bg-gray-800/30 border rounded p-2 border-purple-600/50"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${up.isCurrent ? 'bg-green-900/50 text-green-400' : 'bg-gray-700 text-gray-400'}`}>
-                          {up.isCurrent ? 'Current' : 'Future'}
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-green-900/50 text-green-400">
+                          Current
                         </span>
                         <span className="text-sm font-medium text-white">{up.tenant || 'Uncontracted'}</span>
                         {up.mwAllocation && (
@@ -985,14 +733,31 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                         }`}>
                           {up.useType === 'HPC_AI_HOSTING' ? 'HPC/AI' : up.useType === 'BTC_MINING' ? 'BTC' : up.useType}
                         </span>
-                        {(data?.usePeriods || []).length > 1 && (
-                          <button
-                            onClick={() => deleteUsePeriodMutation.mutate(up.id)}
-                            className="p-1 hover:bg-red-900/30 rounded text-red-500/70 hover:text-red-400"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
+                        {currentUses.length > 1 && (
+                          confirmDelete === up.id ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => deleteUsePeriodMutation.mutate(up.id)}
+                                className="text-[10px] px-1.5 py-0.5 bg-red-600 text-white rounded hover:bg-red-700"
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                onClick={() => setConfirmDelete(null)}
+                                className="text-[10px] px-1.5 py-0.5 bg-gray-600 text-gray-200 rounded hover:bg-gray-500"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDelete(up.id)}
+                              className="p-1 hover:bg-red-900/30 rounded text-red-500/70 hover:text-red-400"
+                              title="Delete"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          )
                         )}
                       </div>
                     </div>
@@ -1044,43 +809,34 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
             </div>
           </button>
           {expandedSections.lease && (() => {
-            const currentUses = (data?.usePeriods || []).filter((up: any) => up.isCurrent);
-            const isSplitBuilding = currentUses.length > 1;
-
             if (isSplitBuilding) {
               // Per-period lease summary for split buildings
               return (
                 <div className="px-4 pb-4 space-y-2">
                   <div className="text-[10px] text-gray-500 mb-1">Each split period has its own lease. Edit via the split modal.</div>
-                  {currentUses.map((up: any, idx: number) => {
-                    const leaseVal = Number(up.leaseValueM) || 0;
-                    const leaseYrs = Number(up.leaseYears) || 0;
-                    const noiPctRaw = Number(up.noiPct) || 0;
-                    const noiPct = noiPctRaw <= 1 ? noiPctRaw * 100 : noiPctRaw;
-                    const annualRev = leaseVal > 0 && leaseYrs > 0 ? leaseVal / leaseYrs : 0;
-                    const noiAnnual = annualRev * (noiPct / 100);
-                    const leaseStart = up.startDate || up.leaseStart;
+                  {periodValuations.map((pv: any, idx: number) => {
+                    const noiPctDisplay = pv.noiPct ? (pv.noiPct <= 1 ? pv.noiPct * 100 : pv.noiPct) : 0;
                     return (
-                      <div key={up.id || idx} className="bg-gray-800/30 border border-gray-700 rounded p-2">
+                      <div key={pv.usePeriodId || idx} className="bg-gray-800/30 border border-gray-700 rounded p-2">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-medium text-cyan-400">{up.tenant || 'Uncontracted'}</span>
-                          <span className="text-[10px] text-gray-500">{Number(up.mwAllocation) || '?'} MW</span>
+                          <span className="text-xs font-medium text-cyan-400">{pv.tenant || 'Uncontracted'}</span>
+                          <span className="text-[10px] text-gray-500">{safeToFixed(pv.mw, 0)} MW</span>
                         </div>
                         <div className="grid grid-cols-3 gap-x-3 gap-y-0.5 text-[10px]">
-                          {leaseStart && (
+                          {pv.leaseStart && (
                             <>
                               <span className="text-gray-500">Lease Start</span>
-                              <span className="text-gray-400 col-span-2">{new Date(leaseStart).toLocaleDateString()}</span>
+                              <span className="text-gray-400 col-span-2">{new Date(pv.leaseStart).toLocaleDateString()}</span>
                             </>
                           )}
                           <span className="text-gray-500">Lease Value</span>
-                          <span className="text-gray-300 col-span-2">{leaseVal > 0 ? formatMoney(leaseVal) : '—'}</span>
+                          <span className="text-gray-300 col-span-2">{pv.leaseValueM > 0 ? formatMoney(pv.leaseValueM) : '—'}</span>
                           <span className="text-gray-500">Term</span>
-                          <span className="text-gray-300 col-span-2">{leaseYrs > 0 ? `${leaseYrs} yr` : '—'}</span>
+                          <span className="text-gray-300 col-span-2">{pv.leaseYears > 0 ? `${pv.leaseYears} yr` : '—'}</span>
                           <span className="text-gray-500">NOI %</span>
-                          <span className="text-gray-300 col-span-2">{noiPct > 0 ? `${noiPct.toFixed(0)}%` : '—'}</span>
+                          <span className="text-gray-300 col-span-2">{noiPctDisplay > 0 ? `${noiPctDisplay.toFixed(0)}%` : '—'}</span>
                           <span className="text-gray-500">Annual NOI</span>
-                          <span className="text-green-400 col-span-2 font-medium">{noiAnnual > 0 ? formatMoney(noiAnnual) : '—'}</span>
+                          <span className="text-green-400 col-span-2 font-medium">{pv.noiAnnual > 0 ? formatMoney(pv.noiAnnual) : '—'}</span>
                         </div>
                       </div>
                     );
@@ -1161,50 +917,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
               </div>
             );
           })()}
-        </div>
-
-        {/* Valuation Inputs Section */}
-        <div className="border-b border-gray-700">
-          <button
-            onClick={() => toggleSection('valInputs')}
-            className="w-full flex items-center justify-between p-3 hover:bg-gray-800/50"
-          >
-            <div className="flex items-center gap-2">
-              {expandedSections.valInputs ? <ChevronDown className="h-4 w-4 text-gray-500" /> : <ChevronRight className="h-4 w-4 text-gray-500" />}
-              <Settings className="h-4 w-4 text-blue-500" />
-              <span className="text-sm font-medium text-gray-200">Valuation Inputs</span>
-            </div>
-          </button>
-          {expandedSections.valInputs && (
-            <div className="px-4 pb-4">
-              <div className="grid grid-cols-3 gap-3">
-                <EditableField
-                  label="Cap Rate"
-                  value={valInputEdits.capRate}
-                  onChange={(v) => handleValInputChange('capRate', v)}
-                  type="number"
-                  step="0.25"
-                  suffix="%"
-                />
-                <EditableField
-                  label="Exit Cap Rate"
-                  value={valInputEdits.exitCapRate}
-                  onChange={(v) => handleValInputChange('exitCapRate', v)}
-                  type="number"
-                  step="0.25"
-                  suffix="%"
-                />
-                <EditableField
-                  label="Terminal Growth"
-                  value={valInputEdits.terminalGrowthRate}
-                  onChange={(v) => handleValInputChange('terminalGrowthRate', v)}
-                  type="number"
-                  step="0.1"
-                  suffix="%"
-                />
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Adjustment Factors Section */}
@@ -1301,39 +1013,48 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 format={formatMultiplier}
                 description={factorDetails.datacenterTier?.tier || 'Tier III'}
               />
-              <SliderRow
-                label="Lease Structure"
-                autoValue={factorDetails.leaseStructure?.auto ?? 1.0}
-                currentValue={factorOverrides.leaseStructure ?? 1.0}
-                onChange={(v) => handleFactorChange('leaseStructure', v)}
-                min={0.9}
-                max={1.05}
-                step={0.01}
-                format={formatMultiplier}
-                description={leaseEdits.leaseStructure || 'NNN'}
-              />
-              <SliderRow
-                label="Tenant Credit"
-                autoValue={factorDetails.tenantCredit?.auto ?? 1.0}
-                currentValue={factorOverrides.tenantCredit ?? 1.0}
-                onChange={(v) => handleFactorChange('tenantCredit', v)}
-                min={0.85}
-                max={1.05}
-                step={0.01}
-                format={formatMultiplier}
-                description={leaseEdits.tenant || 'no tenant'}
-              />
-              <SliderRow
-                label="Time Value"
-                autoValue={factorDetails.timeValue?.auto ?? 1.0}
-                currentValue={factorOverrides.timeValue ?? 1.0}
-                onChange={(v) => handleFactorChange('timeValue', v)}
-                min={0.5}
-                max={1.0}
-                step={0.01}
-                format={formatMultiplier}
-                description={factorDetails.timeValue?.source === 'leaseStart' ? 'from lease start' : factorDetails.timeValue?.source === 'energization' ? 'from energization' : 'no date'}
-              />
+              {!isSplitBuilding && (
+                <>
+                  <SliderRow
+                    label="Lease Structure"
+                    autoValue={factorDetails.leaseStructure?.auto ?? 1.0}
+                    currentValue={factorOverrides.leaseStructure ?? 1.0}
+                    onChange={(v) => handleFactorChange('leaseStructure', v)}
+                    min={0.9}
+                    max={1.05}
+                    step={0.01}
+                    format={formatMultiplier}
+                    description={leaseEdits.leaseStructure || 'NNN'}
+                  />
+                  <SliderRow
+                    label="Tenant Credit"
+                    autoValue={factorDetails.tenantCredit?.auto ?? 1.0}
+                    currentValue={factorOverrides.tenantCredit ?? 1.0}
+                    onChange={(v) => handleFactorChange('tenantCredit', v)}
+                    min={0.85}
+                    max={1.05}
+                    step={0.01}
+                    format={formatMultiplier}
+                    description={leaseEdits.tenant || 'no tenant'}
+                  />
+                  <SliderRow
+                    label="Time Value"
+                    autoValue={factorDetails.timeValue?.auto ?? 1.0}
+                    currentValue={factorOverrides.timeValue ?? 1.0}
+                    onChange={(v) => handleFactorChange('timeValue', v)}
+                    min={0.5}
+                    max={1.0}
+                    step={0.01}
+                    format={formatMultiplier}
+                    description={factorDetails.timeValue?.source === 'leaseStart' ? 'from lease start' : factorDetails.timeValue?.source === 'energization' ? 'from energization' : 'no date'}
+                  />
+                </>
+              )}
+              {isSplitBuilding && (
+                <div className="mt-2 text-[10px] text-gray-500 italic">
+                  Tenant Credit, Lease Structure, and Time Value are computed per-split automatically based on each period's data.
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1478,6 +1199,13 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                   className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
                 />
               </div>
+
+              {/* MW validation warning */}
+              {newUsePeriod.mwAllocation && parseFloat(newUsePeriod.mwAllocation) > (data?.capacityAllocation?.unallocatedMw || 0) && (
+                <div className="text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-700/30 rounded p-2">
+                  Warning: MW allocation ({newUsePeriod.mwAllocation}) exceeds unallocated capacity ({data?.capacityAllocation?.unallocatedMw || 0} MW)
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 mt-4">

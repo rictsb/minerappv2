@@ -72,6 +72,196 @@ app.get('/health', (req, res) => {
 });
 
 // ===========================================
+// SHARED VALUATION HELPERS
+// ===========================================
+// Single source of truth for all factor calculations and period valuations.
+// Used by /api/v1/companies, /api/v1/valuation, and /api/v1/buildings/:id/valuation.
+
+function createFactorHelpers(f: Record<string, any>) {
+  const getPhaseProbability = (phase: string): number => {
+    const phaseMap: Record<string, string> = {
+      OPERATIONAL: 'probOperational', CONSTRUCTION: 'probConstruction',
+      DEVELOPMENT: 'probDevelopment', EXCLUSIVITY: 'probExclusivity', DILIGENCE: 'probDiligence',
+    };
+    const key = phaseMap[phase];
+    return key ? (f[key] ?? 0.5) : 0.5;
+  };
+
+  const getTimeValueMult = (leaseStart: Date | null, energDate: Date | null): number => {
+    const dr = f.discountRate ?? 0.10;
+    const ref = leaseStart ? new Date(leaseStart) : energDate ? new Date(energDate) : null;
+    if (!ref) return 1.0;
+    const yrs = (ref.getTime() - Date.now()) / (365.25 * 24 * 3600 * 1000);
+    return yrs <= 0 ? 1.0 : 1 / Math.pow(1 + dr, yrs);
+  };
+
+  const getPAMult = (grid: string | null): number => {
+    if (!grid) return f.paOther ?? 0.80;
+    const g = grid.toLowerCase();
+    if (g.includes('ercot')) return f.paErcot ?? 1.05;
+    if (g.includes('pjm')) return f.paPjm ?? 1.00;
+    if (g.includes('miso')) return f.paMiso ?? 0.95;
+    if (g.includes('nyiso')) return f.paNyiso ?? 0.95;
+    if (g.includes('caiso')) return f.paCaiso ?? 0.90;
+    if (g.includes('canada') || g.includes('hydro')) return f.paCanada ?? 0.95;
+    if (g.includes('norway')) return f.paNorway ?? 0.90;
+    if (g.includes('uae')) return f.paUae ?? 0.85;
+    if (g.includes('bhutan')) return f.paBhutan ?? 0.70;
+    if (g.includes('paraguay')) return f.paParaguay ?? 0.70;
+    if (g.includes('ethiopia')) return f.paEthiopia ?? 0.60;
+    return f.paOther ?? 0.80;
+  };
+
+  const getSizeMult = (mw: number): number => {
+    if (mw >= 500) return f.sizeGte500 ?? 1.10;
+    if (mw >= 250) return f.size250to499 ?? 1.00;
+    if (mw >= 100) return f.size100to249 ?? 0.95;
+    return f.sizeLt100 ?? 0.85;
+  };
+
+  const getOwnerMult = (s: string | null): number => {
+    if (!s) return f.ownedMult ?? 1.0;
+    const sl = s.toLowerCase();
+    if (sl.includes('own') || sl.includes('fee')) return f.ownedMult ?? 1.0;
+    if (sl.includes('long') || sl.includes('ground')) return f.longtermLeaseMult ?? 0.95;
+    if (sl.includes('short') || sl.includes('lease')) return f.shorttermLeaseMult ?? 0.85;
+    return f.ownedMult ?? 1.0;
+  };
+
+  const getTierMult = (tier: string | null): number => {
+    if (!tier) return f.tierIiiMult ?? 1.0;
+    if (tier.includes('IV') || tier.includes('4')) return f.tierIvMult ?? 1.15;
+    if (tier.includes('III') || tier.includes('3')) return f.tierIiiMult ?? 1.00;
+    if (tier.includes('II') || tier.includes('2')) return f.tierIiMult ?? 0.90;
+    return f.tierIMult ?? 0.80;
+  };
+
+  const getTenantMult = (tenant: string | null): number => {
+    if (!tenant) return 1.0;
+    const t = tenant.toLowerCase();
+    const sofr = f.sofrRate ?? 4.3;
+    let spread = f.tcOther ?? 1.0;
+    if (t.includes('google')) spread = f.tcGoogle ?? -1.0;
+    else if (t.includes('microsoft') || t.includes('azure')) spread = f.tcMicrosoft ?? -1.0;
+    else if (t.includes('amazon') || t.includes('aws')) spread = f.tcAmazon ?? -1.0;
+    else if (t.includes('meta') || t.includes('facebook')) spread = f.tcMeta ?? -0.75;
+    else if (t.includes('oracle')) spread = f.tcOracle ?? -0.50;
+    else if (t.includes('coreweave')) spread = f.tcCoreweave ?? 0.0;
+    else if (t.includes('anthropic')) spread = f.tcAnthropic ?? 0.0;
+    else if (t.includes('openai')) spread = f.tcOpenai ?? 0.0;
+    else if (t.includes('xai') || t.includes('x.ai')) spread = f.tcXai ?? 0.25;
+    return sofr / (sofr + spread);
+  };
+
+  const getLeaseStructMult = (structure: string | null): number => {
+    if (!structure) return f.nnnMult ?? 1.0;
+    const sl = structure.toLowerCase();
+    if (sl.includes('nnn') || sl.includes('triple')) return f.nnnMult ?? 1.0;
+    if (sl.includes('modified')) return f.modifiedGrossMult ?? 0.95;
+    if (sl.includes('gross')) return f.grossMult ?? 0.90;
+    return f.nnnMult ?? 1.0;
+  };
+
+  return { getPhaseProbability, getTimeValueMult, getPAMult, getSizeMult, getOwnerMult, getTierMult, getTenantMult, getLeaseStructMult };
+}
+
+// Compute building-level factor (shared across all splits of a building)
+function computeBuildingFactor(building: any, siteTotalMw: number, helpers: ReturnType<typeof createFactorHelpers>) {
+  const phase = building.developmentPhase || 'DILIGENCE';
+  const prob = building.probabilityOverride ? Number(building.probabilityOverride) : helpers.getPhaseProbability(phase);
+  const regRisk = Number(building.regulatoryRisk) ?? 1.0;
+  const paMult = helpers.getPAMult(building.grid);
+  const ownerMult = helpers.getOwnerMult(building.ownershipStatus);
+  const sizeMult = helpers.getSizeMult(siteTotalMw);
+  const tierMult = helpers.getTierMult((building as any).datacenterTier || 'TIER_III');
+  const fidoodle = Number((building as any).fidoodleFactor) ?? 1.0;
+  return prob * regRisk * paMult * ownerMult * sizeMult * tierMult * fidoodle;
+}
+
+// Derive NOI from lease data. DB stores noiPct as 0-1 fraction.
+function deriveNoi(up: any): number {
+  let noiAnnual = Number(up.noiAnnualM) || 0;
+  if (!noiAnnual) {
+    const leaseValM = Number(up.leaseValueM) || 0;
+    const leaseYears = Number(up.leaseYears) || 10;
+    const noiPctFrac = Number(up.noiPct) || 0; // 0-1 fraction from DB
+    if (leaseValM > 0 && noiPctFrac > 0) {
+      const annualRev = leaseValM / Math.max(leaseYears, 0.1);
+      noiAnnual = annualRev * noiPctFrac;
+    }
+  }
+  return noiAnnual;
+}
+
+// Compute valuation for a single use period. Returns the valuation details object.
+// This is the SINGLE canonical computation used everywhere.
+function computePeriodValuation(
+  up: any,
+  periodMw: number,
+  building: any,
+  buildingFactor: number,
+  helpers: ReturnType<typeof createFactorHelpers>,
+  f: Record<string, any>
+): { valuationM: number; method: string; grossValue: number; noiAnnual: number; capRate: number; periodFactor: number; tenantMult: number; leaseStructMult: number; timeValueMult: number } {
+  // Per-period factors
+  const timeValueMult = helpers.getTimeValueMult(up.leaseStart ?? null, building.energizationDate);
+  const tenantMult = helpers.getTenantMult(up.tenant ?? null);
+  const leaseStructMult = helpers.getLeaseStructMult(up.leaseStructure ?? null);
+  const periodFactor = buildingFactor * timeValueMult * tenantMult * leaseStructMult;
+
+  const useType = up.useType || 'UNCONTRACTED';
+  const hasLease = up.tenant && up.leaseValueM;
+
+  // BTC Mining — simple $/MW
+  if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
+    const gross = periodMw * (f.mwValueBtcMining ?? 0.3);
+    const val = gross * periodFactor;
+    return { valuationM: isFinite(val) ? val : 0, method: 'MW_VALUE', grossValue: gross, noiAnnual: 0, capRate: 0, periodFactor, tenantMult, leaseStructMult, timeValueMult };
+  }
+
+  // HPC/AI with lease — Direct Capitalization: NOI / Cap Rate
+  if ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && hasLease) {
+    const noiAnnual = deriveNoi(up);
+    const capRate = f.hpcCapRate ?? 0.075;
+    if (noiAnnual > 0 && capRate > 0) {
+      const grossValue = noiAnnual / capRate;
+      const val = grossValue * periodFactor;
+      return { valuationM: isFinite(val) ? val : 0, method: 'NOI_CAP_RATE', grossValue, noiAnnual, capRate, periodFactor, tenantMult, leaseStructMult, timeValueMult };
+    } else {
+      // Fallback: use lease value as gross
+      const leaseValM = Number(up.leaseValueM) || 0;
+      const val = leaseValM * periodFactor;
+      return { valuationM: isFinite(val) ? val : 0, method: 'LEASE_VALUE', grossValue: leaseValM, noiAnnual: 0, capRate: 0, periodFactor, tenantMult, leaseStructMult, timeValueMult };
+    }
+  }
+
+  // Pipeline / uncontracted — $/MW
+  const gross = periodMw * (f.mwValueHpcUncontracted ?? 8);
+  const val = gross * periodFactor;
+  return { valuationM: isFinite(val) ? val : 0, method: 'MW_PIPELINE', grossValue: gross, noiAnnual: 0, capRate: 0, periodFactor, tenantMult, leaseStructMult, timeValueMult };
+}
+
+// Compute MW for a period, handling remainder logic for splits
+function computePeriodMw(up: any, buildingItMw: number, currentUses: any[], explicitlyAllocated: number): number {
+  let mw = Number(up.mwAllocation) || 0;
+  if (!mw) {
+    mw = currentUses.length === 1 ? buildingItMw : Math.max(buildingItMw - explicitlyAllocated, 0);
+  }
+  return mw;
+}
+
+// Load merged factors from settings + defaults
+async function loadFactors(): Promise<Record<string, any>> {
+  const settingsRows = await prisma.settings.findMany();
+  const settingsMap: Record<string, any> = {};
+  for (const s of settingsRows) {
+    const num = Number(s.value);
+    settingsMap[s.key] = isNaN(num) ? s.value : num;
+  }
+  return { ...DEFAULT_FACTORS, ...settingsMap };
+}
+
+// ===========================================
 // COMPANIES API
 // ===========================================
 
@@ -100,168 +290,37 @@ app.get('/api/v1/companies', async (req, res) => {
       },
     });
 
-    // Load settings to compute per-period valuations
-    const settingsRows = await prisma.settings.findMany();
-    const settingsMap: Record<string, any> = {};
-    for (const s of settingsRows) {
-      const num = Number(s.value);
-      settingsMap[s.key] = isNaN(num) ? s.value : num;
-    }
-    const f = { ...DEFAULT_FACTORS, ...settingsMap };
-
-    // --- Helper functions (same as /api/v1/valuation) ---
-    const getPhaseProbability = (phase: string): number => {
-      const phaseMap: Record<string, string> = {
-        OPERATIONAL: 'probOperational', CONSTRUCTION: 'probConstruction',
-        DEVELOPMENT: 'probDevelopment', EXCLUSIVITY: 'probExclusivity', DILIGENCE: 'probDiligence',
-      };
-      const key = phaseMap[phase];
-      return key ? (f[key] ?? 0.5) : 0.5;
-    };
-    const getTimeValueMult = (leaseStart: Date | null, energDate: Date | null): number => {
-      const dr = f.discountRate ?? 0.10;
-      const ref = leaseStart ? new Date(leaseStart) : energDate ? new Date(energDate) : null;
-      if (!ref) return 1.0;
-      const yrs = (ref.getTime() - Date.now()) / (365.25 * 24 * 3600 * 1000);
-      return yrs <= 0 ? 1.0 : 1 / Math.pow(1 + dr, yrs);
-    };
-    const getPAMult = (grid: string | null): number => {
-      if (!grid) return f.paOther ?? 0.80;
-      const g = grid.toLowerCase();
-      if (g.includes('ercot')) return f.paErcot ?? 1.05;
-      if (g.includes('pjm')) return f.paPjm ?? 1.00;
-      if (g.includes('miso')) return f.paMiso ?? 0.95;
-      if (g.includes('nyiso')) return f.paNyiso ?? 0.95;
-      if (g.includes('caiso')) return f.paCaiso ?? 0.90;
-      if (g.includes('canada') || g.includes('hydro')) return f.paCanada ?? 0.95;
-      if (g.includes('norway')) return f.paNorway ?? 0.90;
-      if (g.includes('uae')) return f.paUae ?? 0.85;
-      if (g.includes('bhutan')) return f.paBhutan ?? 0.70;
-      if (g.includes('paraguay')) return f.paParaguay ?? 0.70;
-      if (g.includes('ethiopia')) return f.paEthiopia ?? 0.60;
-      return f.paOther ?? 0.80;
-    };
-    const getSizeMult = (mw: number): number => {
-      if (mw >= 500) return f.sizeGte500 ?? 1.10;
-      if (mw >= 250) return f.size250to499 ?? 1.00;
-      if (mw >= 100) return f.size100to249 ?? 0.95;
-      return f.sizeLt100 ?? 0.85;
-    };
-    const getOwnerMult = (s: string | null): number => {
-      if (!s) return f.ownedMult ?? 1.0;
-      const sl = s.toLowerCase();
-      if (sl.includes('own') || sl.includes('fee')) return f.ownedMult ?? 1.0;
-      if (sl.includes('long') || sl.includes('ground')) return f.longtermLeaseMult ?? 0.95;
-      if (sl.includes('short') || sl.includes('lease')) return f.shorttermLeaseMult ?? 0.85;
-      return f.ownedMult ?? 1.0;
-    };
-    const getTenantMult = (tenant: string | null): number => {
-      if (!tenant) return 1.0;
-      const t = tenant.toLowerCase();
-      const sofr = f.sofrRate ?? 4.3;
-      let spread = f.tcOther ?? 1.0;
-      if (t.includes('google')) spread = f.tcGoogle ?? -1.0;
-      else if (t.includes('microsoft') || t.includes('azure')) spread = f.tcMicrosoft ?? -1.0;
-      else if (t.includes('amazon') || t.includes('aws')) spread = f.tcAmazon ?? -1.0;
-      else if (t.includes('meta') || t.includes('facebook')) spread = f.tcMeta ?? -0.75;
-      else if (t.includes('oracle')) spread = f.tcOracle ?? -0.50;
-      else if (t.includes('coreweave')) spread = f.tcCoreweave ?? 0.0;
-      else if (t.includes('anthropic')) spread = f.tcAnthropic ?? 0.0;
-      else if (t.includes('openai')) spread = f.tcOpenai ?? 0.0;
-      else if (t.includes('xai') || t.includes('x.ai')) spread = f.tcXai ?? 0.25;
-      return sofr / (sofr + spread);
-    };
-    const getLeaseStructMult = (structure: string | null): number => {
-      if (!structure) return f.nnnMult ?? 1.0;
-      const sl = structure.toLowerCase();
-      if (sl.includes('nnn') || sl.includes('triple')) return f.nnnMult ?? 1.0;
-      if (sl.includes('modified')) return f.modifiedGrossMult ?? 0.95;
-      if (sl.includes('gross')) return f.grossMult ?? 0.90;
-      return f.nnnMult ?? 1.0;
-    };
+    const f = await loadFactors();
+    const helpers = createFactorHelpers(f);
 
     // --- Compute per-period valuations and attach to response ---
     const enriched = companies.map((company: any) => {
       for (const site of (company.sites || [])) {
-        // Calculate site total MW for size multiplier
         let siteTotalMw = 0;
         for (const campus of (site.campuses || [])) {
           for (const bld of (campus.buildings || [])) {
             siteTotalMw += Number(bld.grossMw) || 0;
           }
         }
-        const sizeMult = getSizeMult(siteTotalMw);
 
         for (const campus of (site.campuses || [])) {
           for (const bld of (campus.buildings || [])) {
             const buildingMw = Number(bld.itMw) || 0;
-            const phase = bld.developmentPhase || 'DILIGENCE';
-            const prob = bld.probabilityOverride ? Number(bld.probabilityOverride) : getPhaseProbability(phase);
-            const regRisk = Number(bld.regulatoryRisk) ?? 1.0;
-            const paMult = getPAMult(bld.grid);
-            const ownerMult = getOwnerMult(bld.ownershipStatus);
-            const fidoodle = Number(bld.fidoodleFactor) ?? 1.0;
-
-            // Building-level factors (shared across all splits)
-            const buildingFactor = prob * regRisk * paMult * ownerMult * sizeMult * fidoodle;
+            const bFactor = computeBuildingFactor(bld, siteTotalMw, helpers);
 
             const currentUses = (bld.usePeriods || []).filter((up: any) => up.isCurrent);
             const explicitAlloc = currentUses.reduce((s: number, up: any) => s + (Number(up.mwAllocation) || 0), 0);
 
             for (const up of currentUses) {
-              let mw = Number(up.mwAllocation) || 0;
-              if (!mw) {
-                mw = currentUses.length === 1 ? buildingMw : Math.max(buildingMw - explicitAlloc, 0);
-              }
-
-              // Per-period factors
-              const timeVal = getTimeValueMult(up.leaseStart ?? null, bld.energizationDate);
-              const tenantMult = getTenantMult(up.tenant ?? null);
-              const leaseMult = getLeaseStructMult(up.leaseStructure ?? null);
-              const periodFactor = buildingFactor * timeVal * tenantMult * leaseMult;
-
-              const useType = up.useType || 'UNCONTRACTED';
-              const hasLease = up.tenant && up.leaseValueM;
-              const leaseValM = Number(up.leaseValueM) || 0;
-              const leaseYears = Number(up.leaseYears) || 10;
-
-              // Compute NOI
-              let noiAnnual = Number(up.noiAnnualM) || 0;
-              if (!noiAnnual && leaseValM > 0 && up.noiPct) {
-                noiAnnual = (leaseValM / Math.max(leaseYears, 0.1)) * (Number(up.noiPct) || 0);
-              }
-
-              let val = 0;
-              if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-                val = mw * (f.mwValueBtcMining ?? 0.3) * periodFactor;
-              } else if ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && hasLease) {
-                if (noiAnnual > 0) {
-                  const capRate = f.hpcCapRate ?? 0.075;
-                  const exitCap = f.hpcExitCapRate ?? 0.08;
-                  const termGrowth = f.terminalGrowthRate ?? 0.025;
-                  const dRate = f.discountRate ?? 0.10;
-                  const renewProb = f.leaseRenewalProbability ?? 0.75;
-                  const baseValue = capRate > 0 ? noiAnnual / capRate : 0;
-                  const termNoi = noiAnnual * Math.pow(1 + termGrowth, leaseYears);
-                  const capDiff = Math.max(exitCap - termGrowth, 0.001);
-                  const tvPV = (termNoi / capDiff) / Math.pow(1 + dRate, leaseYears) * renewProb;
-                  val = (baseValue + tvPV) * periodFactor;
-                } else {
-                  val = leaseValM * periodFactor;
-                }
-              } else {
-                // Pipeline / uncontracted
-                val = mw * (f.mwValueHpcUncontracted ?? 8) * periodFactor;
-              }
-
-              // Attach computed valuation to the use period object
-              (up as any).computedValuationM = isFinite(val) ? val : 0;
+              const mw = computePeriodMw(up, buildingMw, currentUses, explicitAlloc);
+              const result = computePeriodValuation(up, mw, bld, bFactor, helpers, f);
+              (up as any).computedValuationM = result.valuationM;
             }
 
-            // For buildings with no use periods, attach valuation to the building
+            // For buildings with no use periods, treat as pipeline
             if (currentUses.length === 0) {
-              const timeVal = getTimeValueMult(null, bld.energizationDate);
-              const pipelineVal = buildingMw * (f.mwValueHpcUncontracted ?? 8) * buildingFactor * timeVal;
+              const timeVal = helpers.getTimeValueMult(null, bld.energizationDate);
+              const pipelineVal = buildingMw * (f.mwValueHpcUncontracted ?? 8) * bFactor * timeVal;
               (bld as any).computedValuationM = isFinite(pipelineVal) ? pipelineVal : 0;
             }
           }
@@ -531,9 +590,22 @@ app.post('/api/v1/use-periods', async (req, res) => {
 
 app.patch('/api/v1/use-periods/:id', async (req, res) => {
   try {
+    const data = { ...req.body };
+    // Recompute noiAnnualM if lease data changed
+    if (data.leaseValueM !== undefined || data.leaseYears !== undefined || data.noiPct !== undefined) {
+      const existing = await prisma.usePeriod.findUnique({ where: { id: req.params.id } });
+      if (existing) {
+        const leaseVal = Number(data.leaseValueM ?? existing.leaseValueM) || 0;
+        const leaseYrs = Number(data.leaseYears ?? existing.leaseYears) || 10;
+        const noiPctFrac = Number(data.noiPct ?? existing.noiPct) || 0;
+        if (leaseVal > 0 && noiPctFrac > 0) {
+          data.noiAnnualM = (leaseVal / Math.max(leaseYrs, 0.1)) * noiPctFrac;
+        }
+      }
+    }
     const usePeriod = await prisma.usePeriod.update({
       where: { id: req.params.id },
-      data: req.body,
+      data,
     });
     res.json(usePeriod);
   } catch (error) {
@@ -544,6 +616,19 @@ app.patch('/api/v1/use-periods/:id', async (req, res) => {
 
 app.delete('/api/v1/use-periods/:id', async (req, res) => {
   try {
+    // Protect against deleting the last current use period for a building
+    const toDelete = await prisma.usePeriod.findUnique({ where: { id: req.params.id } });
+    if (!toDelete) {
+      return res.status(404).json({ error: 'Use period not found' });
+    }
+    if (toDelete.isCurrent && toDelete.buildingId) {
+      const currentCount = await prisma.usePeriod.count({
+        where: { buildingId: toDelete.buildingId, isCurrent: true },
+      });
+      if (currentCount <= 1) {
+        return res.status(400).json({ error: 'Cannot delete the last current use period. A building must have at least one current use period.' });
+      }
+    }
     await prisma.usePeriod.delete({ where: { id: req.params.id } });
     res.json({ success: true });
   } catch (error) {
@@ -944,16 +1029,9 @@ const DEFAULT_FACTORS: Record<string, any> = {
 
 app.get('/api/v1/valuation', async (req, res) => {
   try {
-    // Get settings or use defaults
-    const settingsRows = await prisma.settings.findMany();
-    const settings: Record<string, any> = {};
-    for (const s of settingsRows) {
-      const num = Number(s.value);
-      settings[s.key] = isNaN(num) ? s.value : num;
-    }
-    const factors = { ...DEFAULT_FACTORS, ...settings };
+    const factors = await loadFactors();
+    const helpers = createFactorHelpers(factors);
 
-    // Get all companies with full data
     const companies = await prisma.company.findMany({
       where: { archived: false },
       include: {
@@ -974,104 +1052,14 @@ app.get('/api/v1/valuation', async (req, res) => {
       },
     });
 
-    // Fetch Mining Valuations and Net Liquid Assets from their dedicated tables
     const miningValuations = await prisma.miningValuation.findMany();
     const netLiquidAssets = await prisma.netLiquidAssets.findMany();
-
-    // Create lookup maps by ticker
     const miningByTicker = new Map(miningValuations.map((mv: any) => [mv.ticker, mv]));
     const netLiquidByTicker = new Map(netLiquidAssets.map((nla: any) => [nla.ticker, nla]));
 
-    // Helper function to get phase probability from factors
-    const getPhaseProbability = (phase: string): number => {
-      const phaseMap: Record<string, string> = {
-        OPERATIONAL: 'probOperational',
-        CONSTRUCTION: 'probConstruction',
-        DEVELOPMENT: 'probDevelopment',
-        EXCLUSIVITY: 'probExclusivity',
-        DILIGENCE: 'probDiligence',
-      };
-      const key = phaseMap[phase];
-      return key ? (factors[key] ?? DEFAULT_FACTORS[key] ?? 0.5) : 0.5;
-    };
-
-    // Helper function to calculate energization discount
-    // Time-value discount: uses lease start date if available, otherwise falls back to energization date.
-    // Discounts future cash flows to present value using the discount rate.
-    // If the date is in the past or today, no discount is applied (multiplier = 1.0).
-    const getTimeValueMultiplier = (leaseStart: Date | null, energizationDate: Date | null): number => {
-      const discountRate = factors.discountRate ?? DEFAULT_FACTORS.discountRate;
-      const refDate = leaseStart ? new Date(leaseStart) : energizationDate ? new Date(energizationDate) : null;
-      if (!refDate) return 1.0;
-      const now = new Date();
-      const yearsFromNow = (refDate.getTime() - now.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
-      if (yearsFromNow <= 0) return 1.0; // Already started or in the past
-      return 1 / Math.pow(1 + discountRate, yearsFromNow);
-    };
-
-    // Helper function to get power authority multiplier
-    const getPowerAuthorityMultiplier = (grid: string | null): number => {
-      if (!grid) return factors.paOther ?? DEFAULT_FACTORS.paOther;
-      const gridLower = grid.toLowerCase();
-      if (gridLower.includes('ercot')) return factors.paErcot ?? DEFAULT_FACTORS.paErcot;
-      if (gridLower.includes('pjm')) return factors.paPjm ?? DEFAULT_FACTORS.paPjm;
-      if (gridLower.includes('miso')) return factors.paMiso ?? DEFAULT_FACTORS.paMiso;
-      if (gridLower.includes('nyiso')) return factors.paNyiso ?? DEFAULT_FACTORS.paNyiso;
-      if (gridLower.includes('caiso')) return factors.paCaiso ?? DEFAULT_FACTORS.paCaiso;
-      if (gridLower.includes('canada') || gridLower.includes('hydro')) return factors.paCanada ?? DEFAULT_FACTORS.paCanada;
-      if (gridLower.includes('norway')) return factors.paNorway ?? DEFAULT_FACTORS.paNorway;
-      if (gridLower.includes('uae')) return factors.paUae ?? DEFAULT_FACTORS.paUae;
-      if (gridLower.includes('bhutan')) return factors.paBhutan ?? DEFAULT_FACTORS.paBhutan;
-      if (gridLower.includes('paraguay')) return factors.paParaguay ?? DEFAULT_FACTORS.paParaguay;
-      if (gridLower.includes('ethiopia')) return factors.paEthiopia ?? DEFAULT_FACTORS.paEthiopia;
-      return factors.paOther ?? DEFAULT_FACTORS.paOther;
-    };
-
-    // Helper function to get site size multiplier
-    const getSizeMultiplier = (totalMw: number): number => {
-      if (totalMw >= 500) return factors.sizeGte500 ?? DEFAULT_FACTORS.sizeGte500;
-      if (totalMw >= 250) return factors.size250to499 ?? DEFAULT_FACTORS.size250to499;
-      if (totalMw >= 100) return factors.size100to249 ?? DEFAULT_FACTORS.size100to249;
-      return factors.sizeLt100 ?? DEFAULT_FACTORS.sizeLt100;
-    };
-
-    // Helper function to get ownership multiplier
-    const getOwnershipMultiplier = (ownershipStatus: string | null): number => {
-      if (!ownershipStatus) return factors.ownedMult ?? DEFAULT_FACTORS.ownedMult;
-      const status = ownershipStatus.toLowerCase();
-      if (status.includes('own') || status.includes('fee')) return factors.ownedMult ?? DEFAULT_FACTORS.ownedMult;
-      if (status.includes('long') || status.includes('ground')) return factors.longtermLeaseMult ?? DEFAULT_FACTORS.longtermLeaseMult;
-      if (status.includes('short') || status.includes('lease')) return factors.shorttermLeaseMult ?? DEFAULT_FACTORS.shorttermLeaseMult;
-      return factors.ownedMult ?? DEFAULT_FACTORS.ownedMult;
-    };
-
-    // Helper function to get tenant credit multiplier (converts spread to NOI adjustment)
-    const getTenantCreditMultiplier = (tenant: string | null): number => {
-      if (!tenant) return 1.0;
-      const t = tenant.toLowerCase();
-      const sofrRate = factors.sofrRate ?? DEFAULT_FACTORS.sofrRate;
-      let spread = factors.tcOther ?? DEFAULT_FACTORS.tcOther;
-
-      if (t.includes('google')) spread = factors.tcGoogle ?? DEFAULT_FACTORS.tcGoogle;
-      else if (t.includes('microsoft') || t.includes('azure')) spread = factors.tcMicrosoft ?? DEFAULT_FACTORS.tcMicrosoft;
-      else if (t.includes('amazon') || t.includes('aws')) spread = factors.tcAmazon ?? DEFAULT_FACTORS.tcAmazon;
-      else if (t.includes('meta') || t.includes('facebook')) spread = factors.tcMeta ?? DEFAULT_FACTORS.tcMeta;
-      else if (t.includes('oracle')) spread = factors.tcOracle ?? DEFAULT_FACTORS.tcOracle;
-      else if (t.includes('coreweave')) spread = factors.tcCoreweave ?? DEFAULT_FACTORS.tcCoreweave;
-      else if (t.includes('anthropic')) spread = factors.tcAnthropic ?? DEFAULT_FACTORS.tcAnthropic;
-      else if (t.includes('openai')) spread = factors.tcOpenai ?? DEFAULT_FACTORS.tcOpenai;
-      else if (t.includes('xai') || t.includes('x.ai')) spread = factors.tcXai ?? DEFAULT_FACTORS.tcXai;
-
-      // Lower credit spread = higher multiplier (better credit = higher value)
-      // Base case: 0% spread = 1.0x, -1% = 1.05x, +3% = 0.85x
-      const baseRate = sofrRate;
-      const tenantRate = sofrRate + spread;
-      return baseRate / tenantRate;
-    };
-
     const valuations = companies.map((company: any) => {
-      // Get Net Liquid from the Net Liquid Assets table
-      const nlaRecord = netLiquidByTicker.get(company.ticker);
+      // Net Liquid
+      const nlaRecord: any = netLiquidByTicker.get(company.ticker);
       let netLiquid = 0;
       if (nlaRecord) {
         const cash = Number(nlaRecord.cashM) || 0;
@@ -1083,187 +1071,96 @@ app.get('/api/v1/valuation', async (req, res) => {
         netLiquid = cash + btcValueM + ethValueM - totalDebt;
       }
 
-      // Get Mining Valuation from the Mining Valuations table
-      const mvRecord = miningByTicker.get(company.ticker);
+      // Mining Valuation
+      const mvRecord: any = miningByTicker.get(company.ticker);
       let evMining = 0;
       if (mvRecord) {
         const eh = Number(mvRecord.hashrateEh) || 0;
         const eff = Number(mvRecord.efficiencyJth) || 0;
         const power = Number(mvRecord.powerCostKwh) || 0;
         const hostedMw = Number(mvRecord.hostedMw) || 0;
-
-        // Self-mining valuation
         if (eh > 0) {
           const annRevM = (eh * factors.dailyRevPerEh * 365) / 1_000_000;
           const annPowerM = eh * eff * power * 8.76;
           const poolFeesM = factors.poolFeePct * annRevM;
           const ebitdaM = annRevM - annPowerM - poolFeesM;
-          const selfMiningValM = Math.max(0, ebitdaM * factors.ebitdaMultiple);
-          evMining += selfMiningValM;
+          evMining += Math.max(0, ebitdaM * factors.ebitdaMultiple);
         }
-
-        // Hosted mining valuation
-        if (hostedMw > 0) {
-          const hostedValM = hostedMw * factors.mwValueBtcMining;
-          evMining += hostedValM;
-        }
+        if (hostedMw > 0) evMining += hostedMw * factors.mwValueBtcMining;
       }
 
-      // Calculate total IT MW capacity from all buildings (for display)
       let totalItMw = 0;
-
-      // Calculate MW by category and enterprise value
       let mwHpcContracted = 0;
       let mwHpcPipeline = 0;
       let evHpcContracted = 0;
       let evHpcPipeline = 0;
-
-      // Collect contracted HPC site details for drill-down
-      const hpcSites: { siteName: string; buildingName: string; tenant: string; mw: number; leaseValueM: number; noiAnnualM: number; valuation: number; phase: string }[] = [];
+      const hpcSites: any[] = [];
       let totalLeaseValueM = 0;
-
-      // Per-period valuations for Projects table
       const periodValuations: { buildingId: string; usePeriodId: string | null; valuationM: number }[] = [];
 
       for (const site of company.sites) {
-        // Calculate total site MW for size multiplier
         let siteTotalMw = 0;
         for (const campus of site.campuses) {
           for (const building of campus.buildings) {
             siteTotalMw += Number(building.grossMw) || 0;
-            // Accumulate IT MW for all buildings
             totalItMw += Number(building.itMw) || 0;
           }
         }
-        const sizeMultiplier = getSizeMultiplier(siteTotalMw);
 
         for (const campus of site.campuses) {
           for (const building of campus.buildings) {
-            // Skip buildings excluded from valuation
             if (!building.includeInValuation) continue;
 
-            const buildingMw = Number(building.grossMw) || 0;
-            const phase = building.developmentPhase;
-
-            // Get base probability from phase or override
-            const prob = building.probabilityOverride
-              ? Number(building.probabilityOverride)
-              : getPhaseProbability(phase);
-
-            // Regulatory risk multiplier (1.0 = no risk, 0.0 = blocked)
-            const regRisk = Number(building.regulatoryRisk) ?? 1.0;
-
-            // Power authority multiplier
-            const paMult = getPowerAuthorityMultiplier(building.grid);
-
-            // Ownership multiplier
-            const ownershipMult = getOwnershipMultiplier(building.ownershipStatus);
-
-            // Loop over ALL current use periods (supports splits)
+            const buildingMw = Number(building.itMw) || 0;
+            const bFactor = computeBuildingFactor(building, siteTotalMw, helpers);
             const currentUses = building.usePeriods.filter((up: any) => up.isCurrent);
 
             if (currentUses.length === 0) {
-              // No use periods — treat as unallocated pipeline
-              const timeValueMult = getTimeValueMultiplier(null, building.energizationDate);
-              const adjFactor = prob * regRisk * timeValueMult * paMult * ownershipMult * sizeMultiplier;
-              const pipelineVal = buildingMw * factors.mwValueHpcUncontracted * adjFactor;
-              mwHpcPipeline += buildingMw * adjFactor;
+              const timeVal = helpers.getTimeValueMult(null, building.energizationDate);
+              const pipelineVal = buildingMw * (factors.mwValueHpcUncontracted ?? 8) * bFactor * timeVal;
+              mwHpcPipeline += buildingMw;
               evHpcPipeline += pipelineVal;
               periodValuations.push({ buildingId: building.id, usePeriodId: null, valuationM: pipelineVal });
             } else {
-              // Calculate explicitly allocated MW to determine remainder
               const explicitlyAllocated = currentUses.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
+
               for (const currentUse of currentUses) {
-                // Use allocated MW for this period; if unset, give it the remaining unallocated MW
-                let mw = Number(currentUse.mwAllocation) || 0;
-                if (!mw) {
-                  mw = currentUses.length === 1 ? buildingMw : Math.max(buildingMw - explicitlyAllocated, 0);
-                }
+                const mw = computePeriodMw(currentUse, buildingMw, currentUses, explicitlyAllocated);
+                const result = computePeriodValuation(currentUse, mw, building, bFactor, helpers, factors);
                 const useType = currentUse.useType || 'UNCONTRACTED';
                 const hasLease = currentUse.tenant && currentUse.leaseValueM;
                 const leaseValM = Number(currentUse.leaseValueM) || 0;
-                const leaseYears = Number(currentUse.leaseYears) || 10;
 
-                // Compute NOI: use stored noiAnnualM, or derive from lease data
-                let noiAnnual = Number(currentUse.noiAnnualM) || 0;
-                if (!noiAnnual && leaseValM > 0 && currentUse.noiPct) {
-                  const noiPctVal = Number(currentUse.noiPct) || 0;
-                  const annualRev = leaseValM / Math.max(leaseYears, 0.1);
-                  noiAnnual = annualRev * noiPctVal; // noiPct is stored as 0-1 fraction
-                }
-
-                // Time-value discount per use period
-                const timeValueMult = getTimeValueMultiplier(currentUse.leaseStart ?? null, building.energizationDate);
-
-                // Tenant credit multiplier per use period
-                const tenantMult = getTenantCreditMultiplier(currentUse.tenant ?? null);
-
-                // Combined adjustment factor
-                const adjFactor = prob * regRisk * timeValueMult * paMult * ownershipMult * sizeMultiplier;
-
-                let periodVal = 0;
-
-                // Categorize and value based on use type
                 if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-                  periodVal = mw * factors.mwValueBtcMining * adjFactor;
-                } else if (useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') {
-                  if (hasLease) {
-                    mwHpcContracted += mw;
-                    totalLeaseValueM += leaseValM;
-                    // DCF valuation: cap rate + terminal value (matches side panel)
-                    if (noiAnnual > 0) {
-                      const capRate = factors.hpcCapRate ?? 0.075;
-                      const exitCapRate = factors.hpcExitCapRate ?? 0.08;
-                      const termGrowth = factors.terminalGrowthRate ?? 0.025;
-                      const dRate = factors.discountRate ?? 0.10;
-                      const renewProb = factors.leaseRenewalProbability ?? 0.75;
-
-                      const baseValue = capRate > 0 ? noiAnnual / capRate : 0;
-                      const terminalNoi = noiAnnual * Math.pow(1 + termGrowth, leaseYears);
-                      const capRateDiff = Math.max(exitCapRate - termGrowth, 0.001);
-                      const terminalValueAtEnd = terminalNoi / capRateDiff;
-                      const terminalValuePV = terminalValueAtEnd / Math.pow(1 + dRate, leaseYears) * renewProb;
-
-                      periodVal = (baseValue + terminalValuePV) * adjFactor * tenantMult;
-                      evHpcContracted += periodVal;
-                    } else {
-                      periodVal = leaseValM * adjFactor * tenantMult;
-                      evHpcContracted += periodVal;
-                    }
-                    hpcSites.push({
-                      siteName: site.name,
-                      buildingName: building.name,
-                      tenant: currentUse.tenant || '',
-                      mw: Number(currentUse.mwAllocation) || Number(building.itMw) || mw,
-                      leaseValueM: leaseValM,
-                      noiAnnualM: noiAnnual,
-                      valuation: Math.round(periodVal),
-                      phase,
-                    });
-                  } else {
-                    periodVal = mw * factors.mwValueHpcUncontracted * adjFactor;
-                    mwHpcPipeline += mw * adjFactor;
-                    evHpcPipeline += periodVal;
-                  }
-                } else if (useType === 'HPC_AI_PLANNED' || useType === 'UNCONTRACTED' || useType === 'UNCONTRACTED_ROFR') {
-                  // Pipeline - uncontracted capacity
-                  periodVal = mw * factors.mwValueHpcUncontracted * adjFactor;
-                  mwHpcPipeline += mw * adjFactor;
-                  evHpcPipeline += periodVal;
+                  // Mining period already handled
+                } else if ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && hasLease) {
+                  mwHpcContracted += mw;
+                  totalLeaseValueM += leaseValM;
+                  evHpcContracted += result.valuationM;
+                  hpcSites.push({
+                    siteName: site.name,
+                    buildingName: building.name,
+                    tenant: currentUse.tenant || '',
+                    mw,
+                    leaseValueM: leaseValM,
+                    noiAnnualM: result.noiAnnual,
+                    valuation: Math.round(result.valuationM),
+                    phase: building.developmentPhase,
+                  });
+                } else {
+                  mwHpcPipeline += mw;
+                  evHpcPipeline += result.valuationM;
                 }
 
-                periodValuations.push({ buildingId: building.id, usePeriodId: currentUse.id, valuationM: periodVal });
+                periodValuations.push({ buildingId: building.id, usePeriodId: currentUse.id, valuationM: result.valuationM });
               }
             }
           }
         }
       }
 
-      // Mining EV is now calculated from the Mining Valuations table (done above)
       const totalEv = (evMining || 0) + (evHpcContracted || 0) + (evHpcPipeline || 0);
       const totalValueM = (netLiquid || 0) + totalEv;
-
-      // Get FD shares from Company table and calculate per-share fair value
       const fdSharesM = Number(company.fdSharesM) || 0;
       const fairValuePerShare = fdSharesM > 0 ? totalValueM / fdSharesM : null;
 
@@ -1273,17 +1170,16 @@ app.get('/api/v1/valuation', async (req, res) => {
         stockPrice: Number(company.stockPrice) || null,
         fdSharesM: fdSharesM > 0 ? Math.round(fdSharesM * 10) / 10 : null,
         netLiquid: Math.round(netLiquid * 10) / 10,
-        totalMw: Math.round(totalItMw),  // Total IT MW capacity from Projects
+        totalMw: Math.round(totalItMw),
         evMining: Math.round(evMining),
         evHpcContracted: Math.round(evHpcContracted),
         evHpcPipeline: Math.round(evHpcPipeline),
-        evGpu: 0, // Placeholder for GPU cloud revenue-based valuation
+        evGpu: 0,
         totalEv: Math.round(totalEv),
         totalValueM: Math.round(totalValueM),
         fairValuePerShare: fairValuePerShare !== null ? Math.round(fairValuePerShare * 100) / 100 : null,
-        // Drill-down details
         totalLeaseValueM: Math.round(totalLeaseValueM),
-        hpcSites: hpcSites.sort((a, b) => b.valuation - a.valuation),
+        hpcSites: hpcSites.sort((a: any, b: any) => b.valuation - a.valuation),
         periodValuations,
       };
     });
@@ -1302,7 +1198,6 @@ app.get('/api/v1/valuation', async (req, res) => {
 // GET detailed valuation for a single building
 app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
   try {
-    // Get the building with all related data
     const building = await prisma.building.findUnique({
       where: { id: req.params.id },
       include: {
@@ -1329,14 +1224,8 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
       return res.status(404).json({ error: 'Building not found' });
     }
 
-    // Get settings or use defaults
-    const settingsRows = await prisma.settings.findMany();
-    const settings: Record<string, any> = {};
-    for (const s of settingsRows) {
-      const num = Number(s.value);
-      settings[s.key] = isNaN(num) ? s.value : num;
-    }
-    const factors = { ...DEFAULT_FACTORS, ...settings };
+    const factors = await loadFactors();
+    const helpers = createFactorHelpers(factors);
 
     // Calculate total site MW for size multiplier
     let siteTotalMw = 0;
@@ -1349,17 +1238,15 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
     const mw = Number(building.grossMw) || 0;
     const itMw = Number(building.itMw) || 0;
 
-    // Get all current use periods (supports splits)
     const currentUsePeriods = building.usePeriods.filter((up: any) => up.isCurrent);
     const allUsePeriods = building.usePeriods;
-    const currentUse = currentUsePeriods[0]; // Primary current use for backward compatibility
+    const currentUse = currentUsePeriods[0];
     const useType = currentUse?.useType || 'UNCONTRACTED';
 
-    // Calculate total allocated MW across current splits
     const allocatedMw = currentUsePeriods.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
     const unallocatedMw = Math.max(0, itMw - allocatedMw);
 
-    // Get lease details
+    // Lease details from primary current use period
     const leaseDetails = {
       tenant: currentUse?.tenant || null,
       leaseStructure: (currentUse as any)?.leaseStructure || 'NNN',
@@ -1372,7 +1259,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
       leaseEnd: (currentUse as any)?.leaseEnd || null,
     };
 
-    // Calculate remaining lease years
+    // Remaining lease years
     let remainingLeaseYears = leaseDetails.leaseYears || 0;
     if (leaseDetails.leaseStart && leaseDetails.leaseYears) {
       const startDate = new Date(leaseDetails.leaseStart);
@@ -1382,183 +1269,102 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
       remainingLeaseYears = Math.max(0, (endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 365));
     }
 
-    // Auto-derived factor calculations
-    const getPhaseProbability = (phase: string): number => {
-      const phaseMap: Record<string, string> = {
-        OPERATIONAL: 'probOperational',
-        CONSTRUCTION: 'probConstruction',
-        DEVELOPMENT: 'probDevelopment',
-        EXCLUSIVITY: 'probExclusivity',
-        DILIGENCE: 'probDiligence',
-      };
-      const key = phaseMap[phase];
-      return key ? (factors[key] ?? 0.5) : 0.5;
-    };
-
-    const getSizeMultiplier = (totalMw: number): number => {
-      if (totalMw >= 500) return factors.sizeGte500;
-      if (totalMw >= 250) return factors.size250to499;
-      if (totalMw >= 100) return factors.size100to249;
-      return factors.sizeLt100;
-    };
-
-    const getPowerAuthorityMultiplier = (grid: string | null): number => {
-      if (!grid) return factors.paOther;
-      const gridLower = grid.toLowerCase();
-      if (gridLower.includes('ercot')) return factors.paErcot;
-      if (gridLower.includes('pjm')) return factors.paPjm;
-      if (gridLower.includes('miso')) return factors.paMiso;
-      if (gridLower.includes('nyiso')) return factors.paNyiso;
-      if (gridLower.includes('caiso')) return factors.paCaiso;
-      if (gridLower.includes('canada') || gridLower.includes('hydro')) return factors.paCanada;
-      if (gridLower.includes('norway') || gridLower.includes('nordic')) return factors.paNorway;
-      if (gridLower.includes('uae')) return factors.paUae;
-      return factors.paOther;
-    };
-
-    const getOwnershipMultiplier = (status: string | null): number => {
-      if (!status) return factors.ownedMult;
-      const s = status.toLowerCase();
-      if (s.includes('own') || s.includes('fee')) return factors.ownedMult;
-      if (s.includes('long') || s.includes('ground')) return factors.longtermLeaseMult;
-      return factors.shorttermLeaseMult;
-    };
-
-    const getTierMultiplier = (tier: string | null): number => {
-      if (!tier) return factors.tierIiiMult;
-      if (tier.includes('IV') || tier.includes('4')) return factors.tierIvMult;
-      if (tier.includes('III') || tier.includes('3')) return factors.tierIiiMult;
-      if (tier.includes('II') || tier.includes('2')) return factors.tierIiMult;
-      return factors.tierIMult;
-    };
-
-    const getLeaseStructureMultiplier = (structure: string | null): number => {
-      if (!structure) return factors.nnnMult;
-      const s = structure.toUpperCase();
-      if (s.includes('NNN') || s.includes('TRIPLE')) return factors.nnnMult;
-      if (s.includes('MODIFIED')) return factors.modifiedGrossMult;
-      if (s.includes('GROSS')) return factors.grossMult;
-      return factors.nnnMult;
-    };
-
-    const getTenantCreditMultiplier = (tenant: string | null): number => {
-      if (!tenant) return 1.0;
-      const t = tenant.toLowerCase();
-      const sofrRate = factors.sofrRate;
-      let spread = factors.tcOther;
-
-      if (t.includes('google')) spread = factors.tcGoogle;
-      else if (t.includes('microsoft') || t.includes('azure')) spread = factors.tcMicrosoft;
-      else if (t.includes('amazon') || t.includes('aws')) spread = factors.tcAmazon;
-      else if (t.includes('meta') || t.includes('facebook')) spread = factors.tcMeta;
-      else if (t.includes('oracle')) spread = factors.tcOracle;
-      else if (t.includes('coreweave')) spread = factors.tcCoreweave;
-      else if (t.includes('anthropic')) spread = factors.tcAnthropic;
-      else if (t.includes('openai')) spread = factors.tcOpenai;
-      else if (t.includes('xai')) spread = factors.tcXai;
-
-      return sofrRate / (sofrRate + spread);
-    };
-
-    // Time-value discount: lease start if available, otherwise energization date
-    const getTimeValueMultiplierDetail = (leaseStart: Date | null, energizationDate: Date | null): number => {
-      const dRate = factors.discountRate ?? 0.10;
-      const refDate = leaseStart ? new Date(leaseStart) : energizationDate ? new Date(energizationDate) : null;
-      if (!refDate) return 1.0;
-      const now = new Date();
-      const yearsFromNow = (refDate.getTime() - now.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
-      if (yearsFromNow <= 0) return 1.0;
-      return 1 / Math.pow(1 + dRate, yearsFromNow);
-    };
-
-    // Build factor details with auto-derived and override values
+    // Build factor details for the UI (auto-derived + overrides)
     const datacenterTier = (building as any).datacenterTier || 'TIER_III';
     const fidoodleFactor = Number((building as any).fidoodleFactor) || 1.0;
 
     const factorDetails = {
-      // Phase & Risk
       phase: building.developmentPhase,
       phaseProbability: {
-        auto: getPhaseProbability(building.developmentPhase),
+        auto: helpers.getPhaseProbability(building.developmentPhase),
         override: building.probabilityOverride ? Number(building.probabilityOverride) : null,
-        final: building.probabilityOverride
-          ? Number(building.probabilityOverride)
-          : getPhaseProbability(building.developmentPhase),
+        final: building.probabilityOverride ? Number(building.probabilityOverride) : helpers.getPhaseProbability(building.developmentPhase),
       },
-      regulatoryRisk: {
-        value: Number(building.regulatoryRisk) ?? 1.0,
-      },
-
-      // Size
+      regulatoryRisk: { value: Number(building.regulatoryRisk) ?? 1.0 },
       sizeMultiplier: {
         siteTotalMw,
-        auto: getSizeMultiplier(siteTotalMw),
+        auto: helpers.getSizeMult(siteTotalMw),
         override: (building as any).sizeMultOverride ? Number((building as any).sizeMultOverride) : null,
-        final: (building as any).sizeMultOverride
-          ? Number((building as any).sizeMultOverride)
-          : getSizeMultiplier(siteTotalMw),
+        final: (building as any).sizeMultOverride ? Number((building as any).sizeMultOverride) : helpers.getSizeMult(siteTotalMw),
       },
-
-      // Power Authority
       powerAuthority: {
         grid: building.grid,
-        auto: getPowerAuthorityMultiplier(building.grid),
+        auto: helpers.getPAMult(building.grid),
         override: (building as any).powerAuthMultOverride ? Number((building as any).powerAuthMultOverride) : null,
-        final: (building as any).powerAuthMultOverride
-          ? Number((building as any).powerAuthMultOverride)
-          : getPowerAuthorityMultiplier(building.grid),
+        final: (building as any).powerAuthMultOverride ? Number((building as any).powerAuthMultOverride) : helpers.getPAMult(building.grid),
       },
-
-      // Ownership
       ownership: {
         status: building.ownershipStatus,
-        auto: getOwnershipMultiplier(building.ownershipStatus),
+        auto: helpers.getOwnerMult(building.ownershipStatus),
         override: (building as any).ownershipMultOverride ? Number((building as any).ownershipMultOverride) : null,
-        final: (building as any).ownershipMultOverride
-          ? Number((building as any).ownershipMultOverride)
-          : getOwnershipMultiplier(building.ownershipStatus),
+        final: (building as any).ownershipMultOverride ? Number((building as any).ownershipMultOverride) : helpers.getOwnerMult(building.ownershipStatus),
       },
-
-      // Datacenter Tier
       datacenterTier: {
         tier: datacenterTier,
-        auto: getTierMultiplier(datacenterTier),
+        auto: helpers.getTierMult(datacenterTier),
         override: (building as any).tierMultOverride ? Number((building as any).tierMultOverride) : null,
-        final: (building as any).tierMultOverride
-          ? Number((building as any).tierMultOverride)
-          : getTierMultiplier(datacenterTier),
+        final: (building as any).tierMultOverride ? Number((building as any).tierMultOverride) : helpers.getTierMult(datacenterTier),
       },
-
-      // Lease Structure
       leaseStructure: {
         structure: leaseDetails.leaseStructure,
-        auto: getLeaseStructureMultiplier(leaseDetails.leaseStructure),
-        final: getLeaseStructureMultiplier(leaseDetails.leaseStructure),
+        auto: helpers.getLeaseStructMult(leaseDetails.leaseStructure),
+        final: helpers.getLeaseStructMult(leaseDetails.leaseStructure),
       },
-
-      // Tenant Credit
       tenantCredit: {
         tenant: leaseDetails.tenant,
-        auto: getTenantCreditMultiplier(leaseDetails.tenant),
-        final: getTenantCreditMultiplier(leaseDetails.tenant),
+        auto: helpers.getTenantMult(leaseDetails.tenant),
+        final: helpers.getTenantMult(leaseDetails.tenant),
       },
-
-      // Time Value Discount (lease start → energization date fallback)
       timeValue: {
         leaseStart: leaseDetails.leaseStart,
         energizationDate: building.energizationDate,
         source: leaseDetails.leaseStart ? 'leaseStart' : building.energizationDate ? 'energization' : 'none',
-        auto: getTimeValueMultiplierDetail(leaseDetails.leaseStart, building.energizationDate),
-        final: getTimeValueMultiplierDetail(leaseDetails.leaseStart, building.energizationDate),
+        auto: helpers.getTimeValueMult(leaseDetails.leaseStart, building.energizationDate),
+        final: helpers.getTimeValueMult(leaseDetails.leaseStart, building.energizationDate),
       },
-
-      // Custom Fidoodle Factor
-      fidoodleFactor: {
-        value: fidoodleFactor,
-      },
+      fidoodleFactor: { value: fidoodleFactor },
     };
 
-    // Calculate combined adjustment factor (use || 1 to protect against NaN/undefined)
+    // Building-level factor (shared across all splits)
+    const bFactor = computeBuildingFactor(building, siteTotalMw, helpers);
+
+    // Compute per-period valuations using the shared canonical function
+    const explicitlyAllocated = currentUsePeriods.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
+    const periodValuations = currentUsePeriods.map((up: any) => {
+      const periodMw = computePeriodMw(up, itMw, currentUsePeriods, explicitlyAllocated);
+      const result = computePeriodValuation(up, periodMw, building, bFactor, helpers, factors);
+      const noiAnnual = deriveNoi(up);
+      const leaseValM = Number(up.leaseValueM) || 0;
+      const leaseYrs = Number(up.leaseYears) || 0;
+      const noiPctRaw = Number(up.noiPct) || 0;
+      const annualRev = leaseValM > 0 && leaseYrs > 0 ? leaseValM / leaseYrs : 0;
+      return {
+        usePeriodId: up.id,
+        tenant: up.tenant,
+        useType: up.useType,
+        mw: periodMw,
+        method: result.method,
+        grossValue: result.grossValue,
+        noiAnnual: result.noiAnnual || noiAnnual,
+        capRate: result.capRate || (factors.hpcCapRate ?? 0.075),
+        periodFactor: result.periodFactor,
+        tenantMult: result.tenantMult,
+        leaseStructMult: result.leaseStructMult,
+        timeValueMult: result.timeValueMult,
+        valuationM: result.valuationM,
+        // Lease summary for display
+        leaseValueM: leaseValM,
+        leaseYears: leaseYrs,
+        noiPct: noiPctRaw,
+        annualRev,
+        leaseStart: up.leaseStart || up.startDate,
+        leaseStructure: up.leaseStructure,
+      };
+    });
+
+    const totalValuation = periodValuations.reduce((sum: number, p: any) => sum + p.valuationM, 0);
+
+    // Combined factor for display (building-level only for reference)
     const combinedFactor =
       (factorDetails.phaseProbability.final || 1) *
       (factorDetails.regulatoryRisk.value || 1) *
@@ -1566,100 +1372,32 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
       (factorDetails.powerAuthority.final || 1) *
       (factorDetails.ownership.final || 1) *
       (factorDetails.datacenterTier.final || 1) *
-      (factorDetails.leaseStructure.final || 1) *
-      (factorDetails.tenantCredit.final || 1) *
-      (factorDetails.timeValue.final || 1) *
       (factorDetails.fidoodleFactor.value || 1);
 
-    // HPC/AI Valuation Calculation
-    const noiAnnual = leaseDetails.noiAnnualM || 0;
-    const capRate = (building as any).capRateOverride ? Number((building as any).capRateOverride) : factors.hpcCapRate;
-    const exitCapRate = (building as any).exitCapRateOverride ? Number((building as any).exitCapRateOverride) : factors.hpcExitCapRate;
-    const terminalGrowthRate = (building as any).terminalGrowthOverride ? Number((building as any).terminalGrowthOverride) : factors.terminalGrowthRate;
-    const discountRate = factors.discountRate;
-
-    // Base Value = NOI / Cap Rate
-    const baseValue = noiAnnual > 0 ? noiAnnual / capRate : 0;
-
-    // Terminal Value using Gordon Growth Model
-    // TV = NOI * (1 + g) / (r - g), then discount to present
-    const leaseYears = remainingLeaseYears || leaseDetails.leaseYears || 10;
-    const renewalProbability = factors.leaseRenewalProbability;
-
-    // Calculate terminal value at end of lease, discounted to present
-    // Terminal NOI = Current NOI * (1 + g)^leaseYears
-    const terminalNoi = noiAnnual * Math.pow(1 + terminalGrowthRate, leaseYears);
-    // Protect against division by zero (if exitCapRate == terminalGrowthRate)
-    const capRateDiff = Math.max(exitCapRate - terminalGrowthRate, 0.001);
-    const terminalValueAtEnd = terminalNoi / capRateDiff;
-    const terminalValuePV = terminalValueAtEnd / Math.pow(1 + discountRate, leaseYears) * (renewalProbability || 0.75);
-
-    // Gross Value = Base Value + Terminal Value PV
-    const grossValue = baseValue + terminalValuePV;
-
-    // Adjusted Value = Gross Value * Combined Factor
-    const adjustedValue = grossValue * combinedFactor;
+    // Simple valuation summary for backward compatibility (using first period)
+    const capRate = factors.hpcCapRate ?? 0.075;
+    const noiAnnual = leaseDetails.noiAnnualM || (deriveNoi(currentUse || {}));
+    const baseValue = noiAnnual > 0 && capRate > 0 ? noiAnnual / capRate : 0;
 
     const valuation = {
-      // Method used
-      method: 'NOI_CAP_RATE_TERMINAL',
+      method: 'NOI_CAP_RATE',
       useType,
-
-      // Key inputs
       inputs: {
         noiAnnualM: noiAnnual,
         capRate,
-        exitCapRate,
-        terminalGrowthRate,
-        discountRate,
-        leaseYears,
-        remainingLeaseYears,
-        renewalProbability,
+        discountRate: factors.discountRate,
       },
-
-      // Step-by-step calculation
       calculation: {
         step1_baseValue: {
-          description: 'NOI / Cap Rate',
+          description: 'NOI / Cap Rate (Direct Capitalization)',
           formula: `${noiAnnual.toFixed(2)} / ${(capRate * 100).toFixed(2)}%`,
           value: baseValue,
         },
-        step2_terminalNoi: {
-          description: `NOI grown at ${(terminalGrowthRate * 100).toFixed(1)}% for ${leaseYears.toFixed(1)} years`,
-          formula: `${noiAnnual.toFixed(2)} × (1 + ${(terminalGrowthRate * 100).toFixed(1)}%)^${leaseYears.toFixed(1)}`,
-          value: terminalNoi,
-        },
-        step3_terminalValueAtEnd: {
-          description: 'Terminal Value at lease end (Gordon Growth)',
-          formula: `${terminalNoi.toFixed(2)} / (${(exitCapRate * 100).toFixed(2)}% - ${(terminalGrowthRate * 100).toFixed(1)}%)`,
-          value: terminalValueAtEnd,
-        },
-        step4_terminalValuePV: {
-          description: `Terminal Value discounted to present (${(renewalProbability * 100).toFixed(0)}% renewal prob)`,
-          formula: `${terminalValueAtEnd.toFixed(2)} / (1 + ${(discountRate * 100).toFixed(0)}%)^${leaseYears.toFixed(1)} × ${(renewalProbability * 100).toFixed(0)}%`,
-          value: terminalValuePV,
-        },
-        step5_grossValue: {
-          description: 'Base Value + Terminal Value PV',
-          value: grossValue,
-        },
-        step6_combinedFactor: {
-          description: 'Product of all adjustment factors',
-          value: combinedFactor,
-        },
-        step7_adjustedValue: {
-          description: 'Gross Value × Combined Factor',
-          formula: `${grossValue.toFixed(2)} × ${combinedFactor.toFixed(4)}`,
-          value: adjustedValue,
-        },
       },
-
-      // Final results (protect against NaN/Infinity)
       results: {
         baseValueM: isFinite(baseValue) ? Math.round(baseValue * 10) / 10 : 0,
-        terminalValueM: isFinite(terminalValuePV) ? Math.round(terminalValuePV * 10) / 10 : 0,
-        grossValueM: isFinite(grossValue) ? Math.round(grossValue * 10) / 10 : 0,
-        adjustedValueM: isFinite(adjustedValue) ? Math.round(adjustedValue * 10) / 10 : 0,
+        grossValueM: isFinite(baseValue) ? Math.round(baseValue * 10) / 10 : 0,
+        adjustedValueM: isFinite(totalValuation) ? Math.round(totalValuation * 10) / 10 : 0,
       },
     };
 
@@ -1686,7 +1424,6 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         id: building.campus.id,
         name: building.campus.name,
       },
-      // All use periods for the building (splits + transitions)
       usePeriods: allUsePeriods.map((up: any) => ({
         id: up.id,
         useType: up.useType,
@@ -1704,18 +1441,19 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         leaseStart: up.leaseStart,
         leaseEnd: up.leaseEnd,
       })),
-      // Capacity allocation summary
       capacityAllocation: {
         totalItMw: itMw,
         allocatedMw,
         unallocatedMw,
         currentSplits: currentUsePeriods.length,
       },
-      // Primary lease details (backward compatibility)
       leaseDetails,
       remainingLeaseYears,
       factorDetails,
       combinedFactor,
+      // NEW: Per-period valuation breakdown computed server-side
+      periodValuations,
+      totalValuation: isFinite(totalValuation) ? totalValuation : 0,
       valuation,
       globalFactors: {
         hpcCapRate: factors.hpcCapRate,
@@ -1723,13 +1461,11 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         terminalGrowthRate: factors.terminalGrowthRate,
         discountRate: factors.discountRate,
         renewalProbability: factors.leaseRenewalProbability,
-        // Tenant credit spreads (for per-period computation)
         sofrRate: factors.sofrRate,
         tcGoogle: factors.tcGoogle, tcMicrosoft: factors.tcMicrosoft, tcAmazon: factors.tcAmazon,
         tcMeta: factors.tcMeta, tcOracle: factors.tcOracle, tcCoreweave: factors.tcCoreweave,
         tcAnthropic: factors.tcAnthropic, tcOpenai: factors.tcOpenai, tcXai: factors.tcXai,
         tcOther: factors.tcOther, tcSelf: factors.tcSelf,
-        // Lease structure multipliers
         nnnMult: factors.nnnMult, modifiedGrossMult: factors.modifiedGrossMult, grossMult: factors.grossMult,
       },
     });
