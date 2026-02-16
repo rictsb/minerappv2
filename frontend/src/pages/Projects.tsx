@@ -10,6 +10,8 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import BuildingDetailPanel from '../components/BuildingDetailPanel';
 
@@ -73,6 +75,7 @@ interface Building {
   probabilityOverride: string | null;
   regulatoryRisk: string | null;
   ownershipStatus: string | null;
+  includeInValuation: boolean;
   notes: string | null;
   usePeriods: UsePeriod[];
 }
@@ -122,6 +125,7 @@ interface FlatBuilding {
   noiAnnualM: number | null;
   energizationDate: string | null;
   ownershipStatus: string | null;
+  includeInValuation: boolean;
   building: Building;
 }
 
@@ -129,7 +133,7 @@ type SortKey = 'ticker' | 'siteName' | 'buildingName' | 'phase' | 'useType' | 't
 type SortDir = 'asc' | 'desc';
 
 interface ColumnDef {
-  key: SortKey | 'rowNum' | 'actions';
+  key: SortKey | 'rowNum' | 'actions' | 'includeEv';
   label: string;
   sortable: boolean;
   width: string;
@@ -140,6 +144,7 @@ interface ColumnDef {
 
 const columns: ColumnDef[] = [
   { key: 'rowNum', label: '#', sortable: false, width: '40px', minWidth: '40px', align: 'left' },
+  { key: 'includeEv', label: 'EV', sortable: false, width: '32px', minWidth: '32px', align: 'center' },
   { key: 'ticker', label: 'Ticker', sortable: true, width: '70px', minWidth: '50px', align: 'left', headerClass: 'text-orange-400' },
   { key: 'siteName', label: 'Site', sortable: true, width: '140px', minWidth: '80px', align: 'left' },
   { key: 'buildingName', label: 'Building', sortable: true, width: '140px', minWidth: '80px', align: 'left' },
@@ -248,6 +253,23 @@ export default function Projects() {
     },
   });
 
+  const toggleIncludeMutation = useMutation({
+    mutationFn: async ({ id, include }: { id: string; include: boolean }) => {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/buildings/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ includeInValuation: include }),
+      });
+      if (!res.ok) throw new Error('Failed to toggle');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['valuation'] });
+    },
+  });
+
   const deleteBuildingMutation = useMutation({
     mutationFn: async (id: string) => {
       const apiUrl = getApiUrl();
@@ -342,6 +364,7 @@ export default function Projects() {
               noiAnnualM: currentUse?.noiAnnualM ? parseFloat(currentUse.noiAnnualM) : null,
               energizationDate: building.energizationDate || null,
               ownershipStatus: building.ownershipStatus || null,
+              includeInValuation: building.includeInValuation ?? true,
               building,
             });
           }
@@ -656,10 +679,26 @@ export default function Projects() {
                       key={row.buildingId}
                       className={`hover:bg-gray-700/30 transition cursor-pointer ${
                         selectedBuildingId === row.buildingId ? 'bg-orange-900/20 border-l-2 border-orange-500' : ''
-                      }`}
+                      } ${!row.includeInValuation ? 'opacity-40' : ''}`}
                       onClick={() => !isEditing && setSelectedBuildingId(row.buildingId)}
                     >
                       <td className="px-2 py-1.5 text-gray-500 text-xs">{idx + 1}</td>
+                      <td className="px-1 py-1.5 text-center">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleIncludeMutation.mutate({ id: row.buildingId, include: !row.includeInValuation });
+                          }}
+                          className={`p-0.5 rounded transition-colors ${
+                            row.includeInValuation
+                              ? 'text-green-400 hover:text-green-300 hover:bg-green-900/30'
+                              : 'text-gray-600 hover:text-gray-400 hover:bg-gray-700/50'
+                          }`}
+                          title={row.includeInValuation ? 'Included in EV — click to exclude' : 'Excluded from EV — click to include'}
+                        >
+                          {row.includeInValuation ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                        </button>
+                      </td>
                       <td className="px-2 py-1.5">
                         <span className="text-orange-500 font-medium text-xs">{row.ticker}</span>
                       </td>
