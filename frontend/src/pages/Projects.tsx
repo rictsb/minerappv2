@@ -157,20 +157,46 @@ const columns: ColumnDef[] = [
   { key: 'actions', label: 'Edit', sortable: false, width: '60px', minWidth: '60px', align: 'center' },
 ];
 
+// Helper to persist filter state in localStorage
+function usePersistedState<T>(key: string, defaultValue: T): [T, (val: T) => void] {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const saved = localStorage.getItem(key);
+      return saved !== null ? JSON.parse(saved) : defaultValue;
+    } catch { return defaultValue; }
+  });
+  const setPersistedValue = useCallback((val: T) => {
+    setValue(val);
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+  }, [key]);
+  return [value, setPersistedValue];
+}
+
 export default function Projects() {
   const queryClient = useQueryClient();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterTicker, setFilterTicker] = useState('');
-  const [filterPhase, setFilterPhase] = useState('');
-  const [filterUseType, setFilterUseType] = useState('');
-  const [filterTenant, setFilterTenant] = useState('');
-  const [filterEv, setFilterEv] = useState<'' | 'included' | 'excluded'>('');
+  const [searchTerm, setSearchTerm] = usePersistedState('projects-search', '');
+  const [filterTicker, setFilterTicker] = usePersistedState('projects-ticker', '');
+  const [filterPhase, setFilterPhase] = usePersistedState('projects-phase', '');
+  const [filterUseType, setFilterUseType] = usePersistedState('projects-useType', '');
+  const [filterTenant, setFilterTenant] = usePersistedState('projects-tenant', '');
+  const [filterEv, setFilterEv] = usePersistedState<'' | 'included' | 'excluded'>('projects-ev', '');
   const [editingBuilding, setEditingBuilding] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<Record<string, any>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>('ticker');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [sortKey, setSortKey] = usePersistedState<SortKey>('projects-sortKey', 'ticker');
+  const [sortDir, setSortDir] = usePersistedState<SortDir>('projects-sortDir', 'asc');
+
+  const hasActiveFilters = searchTerm || filterTicker || filterPhase || filterUseType || filterTenant || filterEv;
+
+  const clearAllFilters = useCallback(() => {
+    setSearchTerm('');
+    setFilterTicker('');
+    setFilterPhase('');
+    setFilterUseType('');
+    setFilterTenant('');
+    setFilterEv('');
+  }, [setSearchTerm, setFilterTicker, setFilterPhase, setFilterUseType, setFilterTenant, setFilterEv]);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
     const saved = localStorage.getItem('projects-column-widths');
     return saved ? JSON.parse(saved) : {};
@@ -628,6 +654,15 @@ export default function Projects() {
               <option value="included">In EV</option>
               <option value="excluded">Not in EV</option>
             </select>
+
+            {hasActiveFilters && (
+              <button
+                onClick={clearAllFilters}
+                className="text-xs text-orange-400 hover:text-orange-300 underline underline-offset-2 px-2 py-2 whitespace-nowrap"
+              >
+                Clear filters
+              </button>
+            )}
           </div>
         </div>
       </div>
