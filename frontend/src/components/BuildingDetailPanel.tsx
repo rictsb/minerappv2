@@ -1150,9 +1150,14 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                   <input
                     type="date"
                     value={newUsePeriod.startDate || ''}
+                    min={data?.building?.energizationDate ? data.building.energizationDate.split('T')[0] : ''}
                     onChange={(e) => setNewUsePeriod({ ...newUsePeriod, startDate: e.target.value })}
                     className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
                   />
+                  {newUsePeriod.startDate && data?.building?.energizationDate &&
+                    newUsePeriod.startDate < data.building.energizationDate.split('T')[0] && (
+                    <p className="text-[10px] text-red-400 mt-0.5">Cannot be before energization date</p>
+                  )}
                 </div>
               </div>
 

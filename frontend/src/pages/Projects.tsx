@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Filter,
@@ -62,6 +62,9 @@ interface UsePeriod {
   noiAnnualM: string | null;
   noiPct: string | null;
   leaseYears: string | null;
+  leaseStart: string | null;
+  leaseStructure: string | null;
+  startDate: string | null;
   computedValuationM?: number;
 }
 
@@ -129,6 +132,7 @@ interface FlatBuilding {
   leaseYears: number | null;
   noiPct: number | null;
   noiAnnualM: number | null;
+  leaseStart: string | null;
   energizationDate: string | null;
   ownershipStatus: string | null;
   includeInValuation: boolean;
@@ -393,6 +397,7 @@ export default function Projects() {
                 leaseYears: currentUse.leaseYears ? parseFloat(currentUse.leaseYears) : null,
                 noiPct: currentUse.noiPct ? parseFloat(currentUse.noiPct) : null,
                 noiAnnualM,
+                leaseStart: currentUse.leaseStart || currentUse.startDate || null,
                 energizationDate: building.energizationDate || null,
                 ownershipStatus: building.ownershipStatus || null,
                 includeInValuation: building.includeInValuation ?? true,
@@ -431,6 +436,7 @@ export default function Projects() {
                   leaseYears: null,
                   noiPct: null,
                   noiAnnualM: null,
+                  leaseStart: null,
                   energizationDate: building.energizationDate || null,
                   ownershipStatus: building.ownershipStatus || null,
                   includeInValuation: building.includeInValuation ?? true,
@@ -468,6 +474,7 @@ export default function Projects() {
                   leaseYears: null,
                   noiPct: null,
                   noiAnnualM: null,
+                  leaseStart: null,
                   energizationDate: building.energizationDate || null,
                   ownershipStatus: building.ownershipStatus || null,
                   includeInValuation: building.includeInValuation ?? true,
@@ -576,6 +583,16 @@ export default function Projects() {
       useType: row.useType,
       usePeriodId: row.usePeriodId,
       originalUseType: row.useType,
+      // Split/use-period fields
+      tenant: row.tenant || '',
+      mwAllocation: row.itMw?.toString() || '',
+      leaseValueM: row.leaseValueM?.toString() || '',
+      leaseYears: row.leaseYears?.toString() || '',
+      noiPct: row.noiPct != null ? (row.noiPct <= 1 ? (row.noiPct * 100).toString() : row.noiPct.toString()) : '',
+      leaseStart: row.leaseStart ? row.leaseStart.split('T')[0] : '',
+      editingUsePeriodId: row.usePeriodId,
+      isUnallocatedRow: !row.usePeriodId && row.tenant === 'Unallocated Pipeline',
+      energizationDate: row.energizationDate ? row.energizationDate.split('T')[0] : '',
     });
   };
 
@@ -601,22 +618,30 @@ export default function Projects() {
       },
     });
 
-    // Update use type if changed
-    if (editFormData.useType !== editFormData.originalUseType) {
-      if (editFormData.usePeriodId) {
-        // Update existing use period
-        updateUsePeriodMutation.mutate({
-          id: editFormData.usePeriodId,
-          data: { useType: editFormData.useType },
-        });
-      } else {
-        // Create new use period
-        createUsePeriodMutation.mutate({
-          buildingId: editingBuilding,
-          useType: editFormData.useType,
-          isCurrent: true,
-        });
-      }
+    // Update use period fields (use type, tenant, lease data, MW allocation)
+    if (editFormData.editingUsePeriodId) {
+      const noiPctVal = editFormData.noiPct ? parseFloat(editFormData.noiPct) : null;
+      const usePeriodData: Record<string, any> = {
+        useType: editFormData.useType,
+        tenant: editFormData.tenant || null,
+        mwAllocation: editFormData.mwAllocation ? parseFloat(editFormData.mwAllocation) : null,
+        leaseValueM: editFormData.leaseValueM ? parseFloat(editFormData.leaseValueM) : null,
+        leaseYears: editFormData.leaseYears ? parseFloat(editFormData.leaseYears) : null,
+        noiPct: noiPctVal != null ? (noiPctVal > 1 ? noiPctVal / 100 : noiPctVal) : null,
+        leaseStart: editFormData.leaseStart || null,
+        startDate: editFormData.leaseStart || null,
+      };
+      updateUsePeriodMutation.mutate({
+        id: editFormData.editingUsePeriodId,
+        data: usePeriodData,
+      });
+    } else if (editFormData.useType !== editFormData.originalUseType && !editFormData.isUnallocatedRow) {
+      // Create new use period if use type changed on a building with no period
+      createUsePeriodMutation.mutate({
+        buildingId: editingBuilding,
+        useType: editFormData.useType,
+        isCurrent: true,
+      });
     }
   };
 
@@ -806,9 +831,10 @@ export default function Projects() {
                 {filteredRows.map((row, idx) => {
                   const isEditing = editingBuilding === row.buildingId;
 
+                  const rowKey = row.usePeriodId ? `${row.buildingId}-${row.usePeriodId}` : `${row.buildingId}-${row.tenant || 'default'}`;
                   return (
+                    <React.Fragment key={rowKey}>
                     <tr
-                      key={row.usePeriodId ? `${row.buildingId}-${row.usePeriodId}` : `${row.buildingId}-${row.tenant || 'default'}`}
                       className={`hover:bg-gray-700/30 transition cursor-pointer ${
                         selectedBuildingId === row.buildingId ? 'bg-orange-900/20 border-l-2 border-orange-500' : ''
                       } ${!row.includeInValuation ? 'opacity-40' : ''}`}
@@ -875,14 +901,27 @@ export default function Projects() {
                         )}
                       </td>
                       <td className="px-2 py-1.5 text-gray-400 text-xs truncate" title={row.tenant || ''}>
-                        {row.tenant || '-'}
+                        {isEditing && row.usePeriodId ? (
+                          <input
+                            type="text"
+                            value={editFormData.tenant || ''}
+                            onChange={(e) => setEditFormData({ ...editFormData, tenant: e.target.value })}
+                            className="w-full bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs"
+                            placeholder="Tenant"
+                          />
+                        ) : (
+                          row.tenant || '-'
+                        )}
                       </td>
                       <td className="px-2 py-1.5 text-right font-mono">
                         {isEditing ? (
                           <input
                             type="number"
-                            value={editFormData.itMw || ''}
-                            onChange={(e) => setEditFormData({ ...editFormData, itMw: e.target.value })}
+                            value={row.usePeriodId ? (editFormData.mwAllocation || '') : (editFormData.itMw || '')}
+                            onChange={(e) => row.usePeriodId
+                              ? setEditFormData({ ...editFormData, mwAllocation: e.target.value })
+                              : setEditFormData({ ...editFormData, itMw: e.target.value })
+                            }
                             className="w-full bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs text-right"
                           />
                         ) : row.itMw !== null ? (
@@ -942,6 +981,59 @@ export default function Projects() {
                         </div>
                       </td>
                     </tr>
+                    {/* Lease detail row when editing a split/use period */}
+                    {isEditing && row.usePeriodId && (
+                      <tr key={`${row.buildingId}-${row.usePeriodId}-detail`} className="bg-gray-800/50">
+                        <td colSpan={3}></td>
+                        <td colSpan={8} className="px-2 py-2">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <div className="flex items-center gap-1">
+                              <label className="text-[10px] text-gray-500">Lease $M:</label>
+                              <input
+                                type="number"
+                                value={editFormData.leaseValueM || ''}
+                                onChange={(e) => setEditFormData({ ...editFormData, leaseValueM: e.target.value })}
+                                className="w-20 bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <label className="text-[10px] text-gray-500">Years:</label>
+                              <input
+                                type="number"
+                                value={editFormData.leaseYears || ''}
+                                onChange={(e) => setEditFormData({ ...editFormData, leaseYears: e.target.value })}
+                                className="w-16 bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <label className="text-[10px] text-gray-500">NOI%:</label>
+                              <input
+                                type="number"
+                                value={editFormData.noiPct || ''}
+                                onChange={(e) => setEditFormData({ ...editFormData, noiPct: e.target.value })}
+                                placeholder="e.g. 85"
+                                className="w-16 bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <label className="text-[10px] text-gray-500">Lease Start:</label>
+                              <input
+                                type="date"
+                                value={editFormData.leaseStart || ''}
+                                min={editFormData.energizationDate || ''}
+                                onChange={(e) => setEditFormData({ ...editFormData, leaseStart: e.target.value })}
+                                className="bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs"
+                              />
+                              {editFormData.leaseStart && editFormData.energizationDate && editFormData.leaseStart < editFormData.energizationDate && (
+                                <span className="text-red-400 text-[10px]">Before energization!</span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td></td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })}
 

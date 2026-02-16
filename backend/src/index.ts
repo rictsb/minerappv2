@@ -624,6 +624,25 @@ app.post('/api/v1/use-periods', async (req, res) => {
 app.patch('/api/v1/use-periods/:id', async (req, res) => {
   try {
     const data = { ...req.body };
+
+    // Validate lease start date >= energization date
+    if (data.leaseStart || data.startDate) {
+      const leaseStartStr = data.leaseStart || data.startDate;
+      const usePeriod = await prisma.usePeriod.findUnique({
+        where: { id: req.params.id },
+        include: { building: true },
+      });
+      if (usePeriod?.building?.energizationDate) {
+        const leaseStart = new Date(leaseStartStr);
+        const energization = new Date(usePeriod.building.energizationDate);
+        if (leaseStart < energization) {
+          return res.status(400).json({
+            error: `Lease start date (${leaseStartStr}) cannot be before energization date (${usePeriod.building.energizationDate.toISOString().split('T')[0]})`,
+          });
+        }
+      }
+    }
+
     // Recompute noiAnnualM if lease data changed
     if (data.leaseValueM !== undefined || data.leaseYears !== undefined || data.noiPct !== undefined) {
       const existing = await prisma.usePeriod.findUnique({ where: { id: req.params.id } });
