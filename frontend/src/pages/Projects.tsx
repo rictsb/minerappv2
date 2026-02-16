@@ -164,6 +164,7 @@ export default function Projects() {
   const [filterPhase, setFilterPhase] = useState('');
   const [filterUseType, setFilterUseType] = useState('');
   const [filterTenant, setFilterTenant] = useState('');
+  const [filterEv, setFilterEv] = useState<'' | 'included' | 'excluded'>('');
   const [editingBuilding, setEditingBuilding] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<Record<string, any>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
@@ -335,6 +336,8 @@ export default function Projects() {
             const currentUse = building.usePeriods?.[0];
             if (filterUseType && currentUse?.useType !== filterUseType) continue;
             if (filterTenant && (currentUse?.tenant || '') !== filterTenant) continue;
+            if (filterEv === 'included' && !building.includeInValuation) continue;
+            if (filterEv === 'excluded' && building.includeInValuation) continue;
 
             rowNum++;
             const phase = building.developmentPhase || 'DILIGENCE';
@@ -373,7 +376,7 @@ export default function Projects() {
     }
 
     return rows;
-  }, [companies, filterTicker, filterPhase, filterUseType, filterTenant]);
+  }, [companies, filterTicker, filterPhase, filterUseType, filterTenant, filterEv]);
 
   // Filter by search term
   const filteredRows = useMemo(() => {
@@ -610,6 +613,20 @@ export default function Projects() {
             >
               <option value="">All Tenants</option>
               {uniqueTenants.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+
+            <select
+              value={filterEv}
+              onChange={(e) => setFilterEv(e.target.value as '' | 'included' | 'excluded')}
+              className={`border rounded-lg px-3 py-2 text-sm ${
+                filterEv === 'included' ? 'bg-green-900/30 border-green-600 text-green-400' :
+                filterEv === 'excluded' ? 'bg-gray-700 border-gray-600 text-gray-400' :
+                'bg-gray-700 border-gray-600 text-white'
+              }`}
+            >
+              <option value="">All (EV)</option>
+              <option value="included">In EV</option>
+              <option value="excluded">Not in EV</option>
             </select>
           </div>
         </div>
