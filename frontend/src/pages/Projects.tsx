@@ -331,8 +331,6 @@ export default function Projects() {
             // Get current use periods (supports splits)
             const currentUses = (building.usePeriods || []).filter(up => up.isCurrent);
 
-            // Create one row per use period for split buildings
-            const periods: (UsePeriod | null)[] = currentUses.length > 0 ? currentUses : [null];
             // Calculate MW allocation: explicit + remainder assignments
             const buildingItMw = building.itMw ? parseFloat(building.itMw) : 0;
             const explicitlyAllocated = currentUses.reduce((sum, up) => sum + (up.mwAllocation ? parseFloat(up.mwAllocation) : 0), 0);
@@ -343,11 +341,14 @@ export default function Projects() {
               effectiveAllocated += mw || (currentUses.length === 1 ? buildingItMw : Math.max(buildingItMw - explicitlyAllocated, 0));
             }
 
-            // Add synthetic unallocated row for split buildings with remaining MW
+            // Build periods array: all current use periods + synthetic unallocated if needed
             const unallocMw = currentUses.length > 0 ? Math.max(0, buildingItMw - effectiveAllocated) : 0;
-            if (unallocMw > 0) {
-              periods.push(null); // null signals the unallocated remainder row
+            if (currentUses.length > 1) {
+              console.log(`[SPLIT DEBUG] ${building.name}: itMw=${buildingItMw}, explicit=${explicitlyAllocated}, effective=${effectiveAllocated}, unalloc=${unallocMw}, periods=${currentUses.length}, mwAllocations=${currentUses.map(u => u.mwAllocation)}`);
             }
+            const periods: (UsePeriod | null)[] = currentUses.length > 0
+              ? [...currentUses, ...(unallocMw > 0 ? [null] : [])]
+              : [null];
 
             for (const currentUse of periods) {
               // Determine if this is the synthetic unallocated remainder row
