@@ -313,13 +313,13 @@ export default function Dashboard() {
                             <div>
                               <span className="text-gray-500">Total Value:</span>{' '}
                               <span className="font-mono text-orange-500">
-                                {v.totalValueM != null ? `$${formatNumber(v.totalValueM, 0)}M` : '-'}
+                                ${formatNumber(v.totalValueM ?? (v.totalEv + (v.netLiquid ?? 0)), 0)}M
                               </span>
                             </div>
                             <div>
                               <span className="text-gray-500">Net Liquidity:</span>{' '}
                               <span className={`font-mono ${(v.netLiquid ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                {v.netLiquid != null ? `$${formatNumber(v.netLiquid, 0)}M` : '-'}
+                                ${formatNumber(v.netLiquid ?? 0, 0)}M
                               </span>
                             </div>
                           </div>

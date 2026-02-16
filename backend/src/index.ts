@@ -704,7 +704,8 @@ app.get('/api/v1/valuation', async (req, res) => {
     const settingsRows = await prisma.settings.findMany();
     const settings: Record<string, any> = {};
     for (const s of settingsRows) {
-      settings[s.key] = s.value;
+      const num = Number(s.value);
+      settings[s.key] = isNaN(num) ? s.value : num;
     }
     const factors = { ...DEFAULT_FACTORS, ...settings };
 
@@ -961,8 +962,8 @@ app.get('/api/v1/valuation', async (req, res) => {
       }
 
       // Mining EV is now calculated from the Mining Valuations table (done above)
-      const totalEv = evMining + evHpcContracted + evHpcPipeline;
-      const totalValueM = netLiquid + totalEv;
+      const totalEv = (evMining || 0) + (evHpcContracted || 0) + (evHpcPipeline || 0);
+      const totalValueM = (netLiquid || 0) + totalEv;
 
       // Get FD shares from Company table and calculate per-share fair value
       const fdSharesM = Number(company.fdSharesM) || 0;
@@ -1033,7 +1034,8 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
     const settingsRows = await prisma.settings.findMany();
     const settings: Record<string, any> = {};
     for (const s of settingsRows) {
-      settings[s.key] = s.value;
+      const num = Number(s.value);
+      settings[s.key] = isNaN(num) ? s.value : num;
     }
     const factors = { ...DEFAULT_FACTORS, ...settings };
 
