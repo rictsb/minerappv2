@@ -404,7 +404,9 @@ export default function Projects() {
             // Then, add unallocated remainder row if there's leftover MW
             const unallocMw = currentUses.length > 0 ? Math.max(0, buildingItMw - effectiveAllocated) : 0;
             if (unallocMw > 0) {
-              if (!(filterUseType && filterUseType !== 'UNCONTRACTED') && !(filterTenant && filterTenant !== 'Unallocated Pipeline')) {
+              // Inherit use type from the building's existing splits
+              const primaryUseType = currentUses[0]?.useType || 'HPC_AI_HOSTING';
+              if (!(filterUseType && filterUseType !== primaryUseType) && !(filterTenant && filterTenant !== 'Unallocated Pipeline')) {
                 rowNum++;
                 rows.push({
                   rowNum,
@@ -415,7 +417,7 @@ export default function Projects() {
                   buildingId: building.id,
                   buildingName: building.name,
                   phase,
-                  useType: 'UNCONTRACTED',
+                  useType: primaryUseType,
                   usePeriodId: null,
                   tenant: 'Unallocated Pipeline',
                   grossMw: building.grossMw ? parseFloat(building.grossMw) : null,
