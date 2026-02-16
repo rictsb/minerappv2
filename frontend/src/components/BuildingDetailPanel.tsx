@@ -540,17 +540,24 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     };
     if (!data) return empty;
 
-    const combinedFactor =
+    // Building-level factors (shared across all splits)
+    const buildingFactor =
       (factorOverrides.phaseProbability || 1) *
       (factorOverrides.regulatoryRisk || 1) *
       (factorOverrides.sizeMultiplier || 1) *
       (factorOverrides.powerAuthority || 1) *
       (factorOverrides.ownership || 1) *
       (factorOverrides.datacenterTier || 1) *
+      (factorOverrides.fidoodleFactor || 1);
+
+    // Per-period factors (from the building-level sliders for single buildings)
+    const perPeriodFactor =
       (factorOverrides.leaseStructure || 1) *
       (factorOverrides.tenantCredit || 1) *
-      (factorOverrides.timeValue || 1) *
-      (factorOverrides.fidoodleFactor || 1);
+      (factorOverrides.timeValue || 1);
+
+    // Combined factor for single-period buildings
+    const combinedFactor = buildingFactor * perPeriodFactor;
 
     const buildingItMw = data.building?.itMw || 0;
     const currentUses = (data.usePeriods || []).filter((up: any) => up.isCurrent);
@@ -625,6 +632,41 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     }
 
     // MULTI-PERIOD (split building): value each period separately and sum
+    // Per-period factors: tenant credit, lease structure, time value are computed per split
+    const getPerPeriodTenantCredit = (tenant: string | null): number => {
+      if (!tenant) return 1.0;
+      const gf = data?.globalFactors || {};
+      const sofrRate = gf.sofrRate ?? 4.3;
+      const t = tenant.toLowerCase();
+      let spread = gf.tcOther ?? 1.0;
+      if (t.includes('google')) spread = gf.tcGoogle ?? -1.0;
+      else if (t.includes('microsoft') || t.includes('azure')) spread = gf.tcMicrosoft ?? -1.0;
+      else if (t.includes('amazon') || t.includes('aws')) spread = gf.tcAmazon ?? -1.0;
+      else if (t.includes('meta') || t.includes('facebook')) spread = gf.tcMeta ?? -0.75;
+      else if (t.includes('oracle')) spread = gf.tcOracle ?? -0.50;
+      else if (t.includes('coreweave')) spread = gf.tcCoreweave ?? 0.0;
+      else if (t.includes('anthropic')) spread = gf.tcAnthropic ?? 0.0;
+      else if (t.includes('openai')) spread = gf.tcOpenai ?? 0.0;
+      else if (t.includes('xai') || t.includes('x.ai')) spread = gf.tcXai ?? 0.25;
+      return sofrRate / (sofrRate + spread);
+    };
+    const getPerPeriodTimeValue = (leaseStart: any, energDate: any): number => {
+      const dr = data?.globalFactors?.discountRate ?? 0.10;
+      const ref = leaseStart ? new Date(leaseStart) : energDate ? new Date(energDate) : null;
+      if (!ref) return 1.0;
+      const yrs = (ref.getTime() - Date.now()) / (365.25 * 24 * 3600 * 1000);
+      return yrs <= 0 ? 1.0 : 1 / Math.pow(1 + dr, yrs);
+    };
+    const getPerPeriodLeaseStruct = (structure: string | null): number => {
+      const gf = data?.globalFactors || {};
+      if (!structure) return gf.nnnMult ?? 1.0;
+      const sl = structure.toLowerCase();
+      if (sl.includes('nnn') || sl.includes('triple')) return gf.nnnMult ?? 1.0;
+      if (sl.includes('modified')) return gf.modifiedGrossMult ?? 0.95;
+      if (sl.includes('gross')) return gf.grossMult ?? 0.90;
+      return gf.nnnMult ?? 1.0;
+    };
+
     // Calculate allocated MW to figure out remainder for periods without explicit allocation
     const explicitlyAllocated = currentUses.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
     const periodBreakdown = currentUses.map((up: any) => {
@@ -633,7 +675,12 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       if (!periodMw && buildingItMw > 0) {
         periodMw = Math.max(buildingItMw - explicitlyAllocated, 0);
       }
-      return { ...calcPeriodValuation(up, periodMw, combinedFactor, true), tenant: up.tenant, mwAllocation: periodMw };
+      // Compute per-period factors
+      const ppTenantCredit = getPerPeriodTenantCredit(up.tenant);
+      const ppTimeValue = getPerPeriodTimeValue(up.leaseStart || up.startDate, data?.building?.energizationDate);
+      const ppLeaseStruct = getPerPeriodLeaseStruct(up.leaseStructure);
+      const periodCombinedFactor = buildingFactor * ppTenantCredit * ppTimeValue * ppLeaseStruct;
+      return { ...calcPeriodValuation(up, periodMw, periodCombinedFactor, true), tenant: up.tenant, mwAllocation: periodMw, periodFactor: periodCombinedFactor };
     });
     const totalAdjustedValue = periodBreakdown.reduce((sum: number, p: any) => sum + (p.adjustedValue || 0), 0);
 
@@ -834,7 +881,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                           <span className="text-white">{formatMoney(p.grossValue)}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-gray-500">× Factor → Adjusted</span>
+                          <span className="text-gray-500">× {safeToFixed(p.periodFactor || liveValuation.combinedFactor, 3)}x → Adj</span>
                           <span className="text-orange-400 font-medium">{formatMoney(p.adjustedValue)}</span>
                         </div>
                       </div>
@@ -845,7 +892,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                           <span>{p.periodMw} MW × ${safeToFixed(p.mwRate, 0)}M = <span className="text-white">{formatMoney(p.grossValue)}</span></span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-gray-500">× Factor → Adjusted</span>
+                          <span className="text-gray-500">× {safeToFixed(p.periodFactor || liveValuation.combinedFactor, 3)}x → Adj</span>
                           <span className="text-orange-400 font-medium">{formatMoney(p.adjustedValue)}</span>
                         </div>
                       </div>
@@ -856,7 +903,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                           <span>{p.periodMw} MW × ${safeToFixed(p.mwRate, 1)}M = <span className="text-white">{formatMoney(p.grossValue)}</span></span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-gray-500">× Factor → Adjusted</span>
+                          <span className="text-gray-500">× {safeToFixed(p.periodFactor || liveValuation.combinedFactor, 3)}x → Adj</span>
                           <span className="text-orange-400 font-medium">{formatMoney(p.adjustedValue)}</span>
                         </div>
                       </div>
@@ -864,10 +911,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                   </div>
                 );
               })}
-              <div className="flex justify-between text-gray-500 mt-1">
-                <span>Combined Adj Factor</span>
-                <span className="text-orange-400 font-medium">× {safeToFixed(liveValuation.combinedFactor, 3)}x</span>
-              </div>
               <div className="border-t border-dashed border-orange-500/30 my-1" />
               <div className="flex justify-between text-sm">
                 <span className="text-orange-400 font-bold">Total Value</span>

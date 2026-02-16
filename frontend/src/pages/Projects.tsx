@@ -62,6 +62,7 @@ interface UsePeriod {
   noiAnnualM: string | null;
   noiPct: string | null;
   leaseYears: string | null;
+  computedValuationM?: number;
 }
 
 interface Building {
@@ -80,6 +81,7 @@ interface Building {
   includeInValuation: boolean;
   notes: string | null;
   usePeriods: UsePeriod[];
+  computedValuationM?: number;
 }
 
 interface Campus {
@@ -130,6 +132,7 @@ interface FlatBuilding {
   energizationDate: string | null;
   ownershipStatus: string | null;
   includeInValuation: boolean;
+  computedValuationM: number | null;
   building: Building;
 }
 
@@ -216,99 +219,10 @@ export default function Projects() {
     },
   });
 
-  // Fetch backend-computed valuations (single source of truth)
-  const { data: valuationData } = useQuery({
-    queryKey: ['valuation'],
-    queryFn: async () => {
-      const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/valuation`);
-      if (!res.ok) throw new Error('Failed to fetch valuations');
-      return res.json();
-    },
-  });
-
-  // Build a lookup map: "buildingId:usePeriodId" -> valuationM
-  const valuationMap = useMemo(() => {
-    const map: Record<string, number> = {};
-    if (valuationData?.valuations) {
-      for (const companyVal of valuationData.valuations) {
-        for (const pv of (companyVal.periodValuations || [])) {
-          const key = `${pv.buildingId}:${pv.usePeriodId || 'none'}`;
-          map[key] = pv.valuationM;
-        }
-      }
-    }
-    return map;
-  }, [valuationData]);
-
-  // Fetch settings for fallback valuation
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: async () => {
-      const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/settings`);
-      if (!res.ok) throw new Error('Failed to fetch settings');
-      return res.json();
-    },
-  });
-
-  const factors = useMemo(() => ({
-    mwValueHpcUncontracted: settings?.mwValueHpcUncontracted ?? 8,
-    mwValueBtcMining: settings?.mwValueBtcMining ?? 0.3,
-    hpcCapRate: settings?.hpcCapRate ?? 0.075,
-    hpcExitCapRate: settings?.hpcExitCapRate ?? 0.08,
-    terminalGrowthRate: settings?.terminalGrowthRate ?? 0.025,
-    discountRate: settings?.discountRate ?? 0.10,
-    leaseRenewalProbability: settings?.leaseRenewalProbability ?? 0.75,
-  }), [settings]);
-
-  // Look up backend-computed valuation; fallback to client-side DCF
+  // Valuation comes directly from the companies endpoint (computedValuationM on each use period)
   const calcValuation = useCallback((row: FlatBuilding) => {
-    // Try backend lookup first
-    const key = `${row.buildingId}:${row.usePeriodId || 'none'}`;
-    const backendVal = valuationMap[key];
-    if (backendVal !== undefined) return backendVal;
-
-    // Fallback: client-side DCF calculation
-    const itMw = row.itMw || 0;
-    const prob = row.probability;
-    const regRisk = row.regulatoryRisk || 1.0;
-    const useType = row.useType;
-
-    // Compute NOI from lease data
-    let noiAnnual = row.noiAnnualM || 0;
-    const leaseYears = row.leaseYears || 10;
-    if (!noiAnnual && row.leaseValueM && row.noiPct) {
-      const noiPctVal = row.noiPct <= 1 ? row.noiPct : row.noiPct / 100;
-      noiAnnual = (row.leaseValueM / Math.max(leaseYears, 0.1)) * noiPctVal;
-    }
-
-    const hasLease = row.tenant && (noiAnnual > 0 || (row.leaseValueM && row.leaseValueM > 0));
-
-    if ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && hasLease && noiAnnual > 0) {
-      const capRate = factors.hpcCapRate;
-      const exitCapRate = factors.hpcExitCapRate;
-      const termGrowth = factors.terminalGrowthRate;
-      const dRate = factors.discountRate;
-      const renewProb = factors.leaseRenewalProbability;
-      const baseValue = capRate > 0 ? noiAnnual / capRate : 0;
-      const terminalNoi = noiAnnual * Math.pow(1 + termGrowth, leaseYears);
-      const capRateDiff = Math.max(exitCapRate - termGrowth, 0.001);
-      const tvPV = (terminalNoi / capRateDiff) / Math.pow(1 + dRate, leaseYears) * renewProb;
-      return (baseValue + tvPV) * prob * regRisk;
-    }
-    if ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && hasLease) {
-      return (row.leaseValueM || 0) * prob * regRisk;
-    }
-    if (useType === 'HPC_AI_PLANNED' || useType === 'UNCONTRACTED' || useType === 'UNCONTRACTED_ROFR' ||
-        ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && !hasLease)) {
-      return itMw * factors.mwValueHpcUncontracted * prob * regRisk;
-    }
-    if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-      return itMw * factors.mwValueBtcMining * prob * regRisk;
-    }
-    return null;
-  }, [valuationMap, factors]);
+    return row.computedValuationM;
+  }, []);
 
   const updateBuildingMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Record<string, any> }) => {
@@ -480,6 +394,7 @@ export default function Projects() {
                 energizationDate: building.energizationDate || null,
                 ownershipStatus: building.ownershipStatus || null,
                 includeInValuation: building.includeInValuation ?? true,
+                computedValuationM: currentUse?.computedValuationM ?? building.computedValuationM ?? null,
                 building,
               });
             }
