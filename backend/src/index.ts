@@ -752,12 +752,17 @@ app.get('/api/v1/valuation', async (req, res) => {
     };
 
     // Helper function to calculate energization discount
-    const getEnergizationMultiplier = (energizationDate: Date | null): number => {
-      if (!energizationDate) return 1.0;
-      const year = new Date(energizationDate).getFullYear();
-      const baseYear = factors.energizationBaseYear ?? DEFAULT_FACTORS.energizationBaseYear;
-      const decayRate = factors.energizationDecayRate ?? DEFAULT_FACTORS.energizationDecayRate;
-      return Math.exp(-decayRate * (year - baseYear));
+    // Time-value discount: uses lease start date if available, otherwise falls back to energization date.
+    // Discounts future cash flows to present value using the discount rate.
+    // If the date is in the past or today, no discount is applied (multiplier = 1.0).
+    const getTimeValueMultiplier = (leaseStart: Date | null, energizationDate: Date | null): number => {
+      const discountRate = factors.discountRate ?? DEFAULT_FACTORS.discountRate;
+      const refDate = leaseStart ? new Date(leaseStart) : energizationDate ? new Date(energizationDate) : null;
+      if (!refDate) return 1.0;
+      const now = new Date();
+      const yearsFromNow = (refDate.getTime() - now.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+      if (yearsFromNow <= 0) return 1.0; // Already started or in the past
+      return 1 / Math.pow(1 + discountRate, yearsFromNow);
     };
 
     // Helper function to get power authority multiplier
@@ -901,8 +906,13 @@ app.get('/api/v1/valuation', async (req, res) => {
             // Regulatory risk multiplier (1.0 = no risk, 0.0 = blocked)
             const regRisk = Number(building.regulatoryRisk) ?? 1.0;
 
-            // Energization year discount
-            const energizationMult = getEnergizationMultiplier(building.energizationDate);
+            const currentUse = building.usePeriods[0];
+            const useType = currentUse?.useType || 'UNCONTRACTED';
+            const hasLease = currentUse?.tenant && currentUse?.leaseValueM;
+            const noiAnnual = Number(currentUse?.noiAnnualM) || 0;
+
+            // Time-value discount: lease start date if available, otherwise energization date
+            const timeValueMult = getTimeValueMultiplier(currentUse?.leaseStart ?? null, building.energizationDate);
 
             // Power authority multiplier
             const paMult = getPowerAuthorityMultiplier(building.grid);
@@ -910,16 +920,11 @@ app.get('/api/v1/valuation', async (req, res) => {
             // Ownership multiplier
             const ownershipMult = getOwnershipMultiplier(building.ownershipStatus);
 
-            const currentUse = building.usePeriods[0];
-            const useType = currentUse?.useType || 'UNCONTRACTED';
-            const hasLease = currentUse?.tenant && currentUse?.leaseValueM;
-            const noiAnnual = Number(currentUse?.noiAnnualM) || 0;
-
             // Tenant credit multiplier
             const tenantMult = getTenantCreditMultiplier(currentUse?.tenant ?? null);
 
             // Combined adjustment factor
-            const adjFactor = prob * regRisk * energizationMult * paMult * ownershipMult * sizeMultiplier;
+            const adjFactor = prob * regRisk * timeValueMult * paMult * ownershipMult * sizeMultiplier;
 
             // Categorize and value based on use type
             if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
@@ -1161,12 +1166,15 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
       return sofrRate / (sofrRate + spread);
     };
 
-    const getEnergizationMultiplier = (date: Date | null): number => {
-      if (!date) return 1.0;
-      const year = new Date(date).getFullYear();
-      const baseYear = factors.energizationBaseYear;
-      const decayRate = factors.energizationDecayRate;
-      return Math.exp(-decayRate * (year - baseYear));
+    // Time-value discount: lease start if available, otherwise energization date
+    const getTimeValueMultiplierDetail = (leaseStart: Date | null, energizationDate: Date | null): number => {
+      const dRate = factors.discountRate ?? 0.10;
+      const refDate = leaseStart ? new Date(leaseStart) : energizationDate ? new Date(energizationDate) : null;
+      if (!refDate) return 1.0;
+      const now = new Date();
+      const yearsFromNow = (refDate.getTime() - now.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+      if (yearsFromNow <= 0) return 1.0;
+      return 1 / Math.pow(1 + dRate, yearsFromNow);
     };
 
     // Build factor details with auto-derived and override values
@@ -1241,11 +1249,13 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         final: getTenantCreditMultiplier(leaseDetails.tenant),
       },
 
-      // Energization
-      energization: {
-        date: building.energizationDate,
-        auto: getEnergizationMultiplier(building.energizationDate),
-        final: getEnergizationMultiplier(building.energizationDate),
+      // Time Value Discount (lease start → energization date fallback)
+      timeValue: {
+        leaseStart: leaseDetails.leaseStart,
+        energizationDate: building.energizationDate,
+        source: leaseDetails.leaseStart ? 'leaseStart' : building.energizationDate ? 'energization' : 'none',
+        auto: getTimeValueMultiplierDetail(leaseDetails.leaseStart, building.energizationDate),
+        final: getTimeValueMultiplierDetail(leaseDetails.leaseStart, building.energizationDate),
       },
 
       // Custom Fidoodle Factor
@@ -1264,7 +1274,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
       (factorDetails.datacenterTier.final || 1) *
       (factorDetails.leaseStructure.final || 1) *
       (factorDetails.tenantCredit.final || 1) *
-      (factorDetails.energization.final || 1) *
+      (factorDetails.timeValue.final || 1) *
       (factorDetails.fidoodleFactor.value || 1);
 
     // HPC/AI Valuation Calculation

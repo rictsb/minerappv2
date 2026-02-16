@@ -348,7 +348,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         datacenterTier: fd.datacenterTier?.final ?? fd.datacenterTier?.auto ?? 1.0,
         leaseStructure: fd.leaseStructure?.final ?? fd.leaseStructure?.auto ?? 1.0,
         tenantCredit: fd.tenantCredit?.final ?? fd.tenantCredit?.auto ?? 1.0,
-        energization: fd.energization?.final ?? fd.energization?.auto ?? 1.0,
+        timeValue: fd.timeValue?.final ?? fd.timeValue?.auto ?? 1.0,
         fidoodleFactor: bld.fidoodleFactor ?? 1.0,
       });
     }
@@ -441,7 +441,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         datacenterTier: fd.datacenterTier?.auto ?? 1.0,
         leaseStructure: fd.leaseStructure?.auto ?? 1.0,
         tenantCredit: fd.tenantCredit?.auto ?? 1.0,
-        energization: fd.energization?.auto ?? 1.0,
+        timeValue: fd.timeValue?.auto ?? 1.0,
         fidoodleFactor: 1.0,
       });
 
@@ -473,7 +473,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       (factorOverrides.datacenterTier || 1) *
       (factorOverrides.leaseStructure || 1) *
       (factorOverrides.tenantCredit || 1) *
-      (factorOverrides.energization || 1) *
+      (factorOverrides.timeValue || 1) *
       (factorOverrides.fidoodleFactor || 1);
 
     const currentUse = (data.usePeriods || []).find((up: any) => up.isCurrent);
@@ -1041,14 +1041,15 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 description={leaseEdits.tenant || 'no tenant'}
               />
               <SliderRow
-                label="Energization"
-                autoValue={factorDetails.energization?.auto ?? 1.0}
-                currentValue={factorOverrides.energization ?? 1.0}
-                onChange={(v) => handleFactorChange('energization', v)}
-                min={0.8}
-                max={1.1}
+                label="Time Value"
+                autoValue={factorDetails.timeValue?.auto ?? 1.0}
+                currentValue={factorOverrides.timeValue ?? 1.0}
+                onChange={(v) => handleFactorChange('timeValue', v)}
+                min={0.5}
+                max={1.0}
                 step={0.01}
                 format={formatMultiplier}
+                description={factorDetails.timeValue?.source === 'leaseStart' ? 'from lease start' : factorDetails.timeValue?.source === 'energization' ? 'from energization' : 'no date'}
               />
             </div>
           )}
