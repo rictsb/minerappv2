@@ -986,9 +986,14 @@ app.get('/api/v1/valuation', async (req, res) => {
               mwHpcPipeline += buildingMw * adjFactor;
               evHpcPipeline += buildingMw * factors.mwValueHpcUncontracted * adjFactor;
             } else {
+              // Calculate explicitly allocated MW to determine remainder
+              const explicitlyAllocated = currentUses.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
               for (const currentUse of currentUses) {
-                // Use allocated MW for this period, fallback to building MW for unsplit buildings
-                const mw = Number(currentUse.mwAllocation) || buildingMw;
+                // Use allocated MW for this period; if unset, give it the remaining unallocated MW
+                let mw = Number(currentUse.mwAllocation) || 0;
+                if (!mw) {
+                  mw = currentUses.length === 1 ? buildingMw : Math.max(buildingMw - explicitlyAllocated, 0);
+                }
                 const useType = currentUse.useType || 'UNCONTRACTED';
                 const hasLease = currentUse.tenant && currentUse.leaseValueM;
                 const noiAnnual = Number(currentUse.noiAnnualM) || 0;

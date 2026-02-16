@@ -613,8 +613,14 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     }
 
     // MULTI-PERIOD (split building): value each period separately and sum
+    // Calculate allocated MW to figure out remainder for periods without explicit allocation
+    const explicitlyAllocated = currentUses.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
     const periodBreakdown = currentUses.map((up: any) => {
-      const periodMw = Number(up.mwAllocation) || 0;
+      let periodMw = Number(up.mwAllocation) || 0;
+      // If this period has no allocation, give it the remaining unallocated MW
+      if (!periodMw && buildingItMw > 0) {
+        periodMw = Math.max(buildingItMw - explicitlyAllocated, 0);
+      }
       return { ...calcPeriodValuation(up, periodMw, combinedFactor), tenant: up.tenant, mwAllocation: periodMw };
     });
     const totalAdjustedValue = periodBreakdown.reduce((sum: number, p: any) => sum + (p.adjustedValue || 0), 0);
