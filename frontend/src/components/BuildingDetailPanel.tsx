@@ -731,9 +731,16 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                       </div>
                       <div className="border-t border-gray-700/50 my-0.5" />
                       <div className="flex justify-between">
-                        <span className="text-gray-500">× {safeToFixed(p.periodFactor, 3)}x → Adj</span>
+                        <span className="text-gray-500" title={`Bldg: ${safeToFixed(p.periodFactor / ((p.timeValueMult || 1) * (p.tenantMult || 1) * (p.leaseStructMult || 1)), 3)}x × Time: ${safeToFixed(p.timeValueMult || 1, 3)}x × Tenant: ${safeToFixed(p.tenantMult || 1, 3)}x × Lease: ${safeToFixed(p.leaseStructMult || 1, 3)}x`}>
+                          × {safeToFixed(p.periodFactor, 3)}x → Adj
+                        </span>
                         <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span>
                       </div>
+                      {(p.timeValueMult ?? 1) < 0.99 && (
+                        <div className="flex justify-between text-gray-600 text-[10px]">
+                          <span>⤷ incl. time discount {safeToFixed(p.timeValueMult, 3)}x</span>
+                        </div>
+                      )}
                     </div>
                   ) : p.method === 'MW_PIPELINE' ? (
                     <div className="space-y-0.5">
@@ -745,6 +752,11 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                         <span className="text-gray-500">× {safeToFixed(p.periodFactor, 3)}x → Adj</span>
                         <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span>
                       </div>
+                      {(p.timeValueMult ?? 1) < 0.99 && (
+                        <div className="flex justify-between text-gray-600 text-[10px]">
+                          <span>⤷ incl. time discount {safeToFixed(p.timeValueMult, 3)}x</span>
+                        </div>
+                      )}
                     </div>
                   ) : p.method === 'MW_VALUE' ? (
                     <div className="space-y-0.5">
@@ -756,6 +768,11 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                         <span className="text-gray-500">× {safeToFixed(p.periodFactor, 3)}x → Adj</span>
                         <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span>
                       </div>
+                      {(p.timeValueMult ?? 1) < 0.99 && (
+                        <div className="flex justify-between text-gray-600 text-[10px]">
+                          <span>⤷ incl. time discount {safeToFixed(p.timeValueMult, 3)}x</span>
+                        </div>
+                      )}
                     </div>
                   ) : null}
                 </div>
@@ -1230,9 +1247,30 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                   />
                 </>
               )}
-              {isSplitBuilding && (
-                <div className="mt-2 text-[10px] text-gray-500 italic">
-                  Tenant Credit, Lease Structure, and Time Value are computed per-split automatically based on each period's data.
+              {isSplitBuilding && periodValuations.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-gray-700">
+                  <div className="text-[10px] text-gray-500 mb-2 font-medium uppercase tracking-wide">Per-Split Factors</div>
+                  {periodValuations.map((pv: any, i: number) => (
+                    <div key={pv.usePeriodId || i} className="mb-2 bg-gray-800/40 rounded p-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-cyan-400 font-medium">{pv.tenant || 'Uncontracted'}</span>
+                        <span className="text-[10px] text-gray-500">{safeToFixed(pv.mw, 0)} MW</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-x-3 gap-y-0.5 text-[10px]">
+                        <span className="text-gray-500">Tenant Credit</span>
+                        <span className="text-gray-300 col-span-2">{formatMultiplier(pv.tenantMult ?? 1)}</span>
+                        <span className="text-gray-500">Lease Structure</span>
+                        <span className="text-gray-300 col-span-2">{formatMultiplier(pv.leaseStructMult ?? 1)}</span>
+                        <span className="text-gray-500">Time Value</span>
+                        <span className={`col-span-2 ${(pv.timeValueMult ?? 1) < 0.99 ? 'text-yellow-400' : 'text-gray-300'}`}>
+                          {formatMultiplier(pv.timeValueMult ?? 1)}
+                          {pv.leaseStart && <span className="text-gray-600 ml-1">({new Date(pv.leaseStart).toLocaleDateString()})</span>}
+                        </span>
+                        <span className="text-gray-500 border-t border-gray-700/50 pt-0.5">Combined</span>
+                        <span className="text-orange-400 font-medium col-span-2 border-t border-gray-700/50 pt-0.5">{formatMultiplier(pv.periodFactor ?? 1)}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
