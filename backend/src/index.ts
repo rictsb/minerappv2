@@ -642,8 +642,34 @@ app.delete('/api/v1/use-periods/:id', async (req, res) => {
     if (!toDelete) {
       return res.status(404).json({ error: 'Use period not found' });
     }
-    await prisma.usePeriod.delete({ where: { id: req.params.id } });
-    res.json({ success: true });
+
+    // Check if this is the last current use period for the building
+    const currentCount = await prisma.usePeriod.count({
+      where: { buildingId: toDelete.buildingId, isCurrent: true },
+    });
+
+    if (currentCount <= 1 && toDelete.isCurrent) {
+      // Last period: instead of deleting, reset to untentanted while preserving useType
+      await prisma.usePeriod.update({
+        where: { id: req.params.id },
+        data: {
+          tenant: null,
+          mwAllocation: null,
+          leaseValueM: null,
+          leaseYears: null,
+          noiPct: null,
+          noiAnnualM: null,
+          annualRevM: null,
+          leaseStart: null,
+          leaseEnd: null,
+          leaseStructure: 'NNN',
+        },
+      });
+      res.json({ success: true, reset: true });
+    } else {
+      await prisma.usePeriod.delete({ where: { id: req.params.id } });
+      res.json({ success: true });
+    }
   } catch (error) {
     console.error('Error deleting use period:', error);
     res.status(500).json({ error: 'Failed to delete use period' });
