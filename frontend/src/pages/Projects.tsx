@@ -233,9 +233,14 @@ export default function Projects() {
     mwValueHpcContracted: settings?.mwValueHpcContracted ?? 25,
     mwValueHpcUncontracted: settings?.mwValueHpcUncontracted ?? 8,
     mwValueBtcMining: settings?.mwValueBtcMining ?? 0.3,
+    hpcCapRate: settings?.hpcCapRate ?? 0.075,
+    hpcExitCapRate: settings?.hpcExitCapRate ?? 0.08,
+    terminalGrowthRate: settings?.terminalGrowthRate ?? 0.025,
+    discountRate: settings?.discountRate ?? 0.10,
+    leaseRenewalProbability: settings?.leaseRenewalProbability ?? 0.75,
   }), [settings]);
 
-  // Calculate building valuation
+  // Calculate building valuation using DCF (matches backend/side panel)
   const calcValuation = useCallback((row: FlatBuilding) => {
     const itMw = row.itMw || 0;
     const prob = row.probability;
@@ -245,19 +250,35 @@ export default function Projects() {
 
     // Compute NOI: use stored noiAnnualM, or compute from lease data
     let noiAnnual = row.noiAnnualM || 0;
+    let leaseYears = row.leaseYears || 10;
     if (!noiAnnual && row.leaseValueM && row.noiPct) {
-      const leaseYrs = row.leaseYears || 10;
       const noiPctVal = row.noiPct <= 1 ? row.noiPct : row.noiPct / 100;
-      const annualRev = row.leaseValueM / Math.max(leaseYrs, 0.1);
+      const annualRev = row.leaseValueM / Math.max(leaseYears, 0.1);
       noiAnnual = annualRev * noiPctVal;
     }
 
     const hasLease = row.tenant && (noiAnnual > 0 || (row.leaseValueM && row.leaseValueM > 0));
 
-    // HPC/AI contracted with NOI — use NOI × multiple
+    // HPC/AI contracted with lease — use DCF (cap rate + terminal value)
     if ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && hasLease) {
       if (noiAnnual > 0) {
-        return noiAnnual * factors.noiMultiple * adjFactor;
+        const capRate = factors.hpcCapRate;
+        const exitCapRate = factors.hpcExitCapRate;
+        const terminalGrowthRate = factors.terminalGrowthRate;
+        const discountRate = factors.discountRate;
+        const renewalProbability = factors.leaseRenewalProbability;
+
+        // Base value: NOI / cap rate
+        const baseValue = capRate > 0 ? noiAnnual / capRate : 0;
+
+        // Terminal value: NOI grown, then discounted to PV
+        const terminalNoi = noiAnnual * Math.pow(1 + terminalGrowthRate, leaseYears);
+        const capRateDiff = Math.max(exitCapRate - terminalGrowthRate, 0.001);
+        const terminalValueAtEnd = terminalNoi / capRateDiff;
+        const terminalValuePV = terminalValueAtEnd / Math.pow(1 + discountRate, leaseYears) * renewalProbability;
+
+        const grossValue = baseValue + terminalValuePV;
+        return grossValue * adjFactor;
       }
       // Lease value but no NOI derivable
       return (row.leaseValueM || 0) * adjFactor;

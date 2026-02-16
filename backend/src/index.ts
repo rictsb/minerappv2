@@ -1005,7 +1005,16 @@ app.get('/api/v1/valuation', async (req, res) => {
                 }
                 const useType = currentUse.useType || 'UNCONTRACTED';
                 const hasLease = currentUse.tenant && currentUse.leaseValueM;
-                const noiAnnual = Number(currentUse.noiAnnualM) || 0;
+                const leaseValM = Number(currentUse.leaseValueM) || 0;
+                const leaseYears = Number(currentUse.leaseYears) || 10;
+
+                // Compute NOI: use stored noiAnnualM, or derive from lease data
+                let noiAnnual = Number(currentUse.noiAnnualM) || 0;
+                if (!noiAnnual && leaseValM > 0 && currentUse.noiPct) {
+                  const noiPctVal = Number(currentUse.noiPct) || 0;
+                  const annualRev = leaseValM / Math.max(leaseYears, 0.1);
+                  noiAnnual = annualRev * noiPctVal; // noiPct is stored as 0-1 fraction
+                }
 
                 // Time-value discount per use period
                 const timeValueMult = getTimeValueMultiplier(currentUse.leaseStart ?? null, building.energizationDate);
@@ -1022,12 +1031,23 @@ app.get('/api/v1/valuation', async (req, res) => {
                 } else if (useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') {
                   if (hasLease) {
                     mwHpcContracted += mw;
-                    const leaseValM = Number(currentUse.leaseValueM) || 0;
                     totalLeaseValueM += leaseValM;
                     let periodVal = 0;
-                    // Value from NOI if available, otherwise from lease value
+                    // DCF valuation: cap rate + terminal value (matches side panel)
                     if (noiAnnual > 0) {
-                      periodVal = noiAnnual * factors.noiMultiple * adjFactor * tenantMult;
+                      const capRate = factors.hpcCapRate ?? 0.075;
+                      const exitCapRate = factors.hpcExitCapRate ?? 0.08;
+                      const termGrowth = factors.terminalGrowthRate ?? 0.025;
+                      const dRate = factors.discountRate ?? 0.10;
+                      const renewProb = factors.leaseRenewalProbability ?? 0.75;
+
+                      const baseValue = capRate > 0 ? noiAnnual / capRate : 0;
+                      const terminalNoi = noiAnnual * Math.pow(1 + termGrowth, leaseYears);
+                      const capRateDiff = Math.max(exitCapRate - termGrowth, 0.001);
+                      const terminalValueAtEnd = terminalNoi / capRateDiff;
+                      const terminalValuePV = terminalValueAtEnd / Math.pow(1 + dRate, leaseYears) * renewProb;
+
+                      periodVal = (baseValue + terminalValuePV) * adjFactor * tenantMult;
                       evHpcContracted += periodVal;
                     } else {
                       periodVal = leaseValM * adjFactor * tenantMult;
