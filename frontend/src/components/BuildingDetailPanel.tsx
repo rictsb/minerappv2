@@ -476,7 +476,8 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
 
   // Calculate live valuation with full breakdown
   // Calculate valuation for a single use period
-  const calcPeriodValuation = (currentUse: any, periodMw: number, combinedFactor: number) => {
+  // When isSplit=true, use the period's own lease data; otherwise use the shared leaseEdits form
+  const calcPeriodValuation = (currentUse: any, periodMw: number, combinedFactor: number, isSplit = false) => {
     const useType = currentUse?.useType || 'UNCONTRACTED';
 
     // BTC Mining — simple $/MW
@@ -487,8 +488,10 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       return { method: 'MW_VALUE' as const, adjustedValue: isFinite(adjustedValue) ? adjustedValue : 0, grossValue: isFinite(grossValue) ? grossValue : 0, mwRate, useType, periodMw };
     }
 
-    // HPC uncontracted / pipeline
-    const hasLease = currentUse?.tenant && (currentUse?.leaseValueM || parseFloat(leaseEdits.leaseValueM));
+    // HPC uncontracted / pipeline — check if this period has lease data
+    const periodLeaseVal = Number(currentUse?.leaseValueM) || 0;
+    const formLeaseVal = parseFloat(leaseEdits.leaseValueM) || 0;
+    const hasLease = currentUse?.tenant && (isSplit ? periodLeaseVal > 0 : (formLeaseVal > 0 || periodLeaseVal > 0));
     if (!hasLease && (useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD' || useType === 'HPC_AI_PLANNED' || useType === 'UNCONTRACTED' || useType === 'UNCONTRACTED_ROFR')) {
       const mwRate = 8;
       const grossValue = periodMw * mwRate;
@@ -497,10 +500,19 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     }
 
     // HPC/AI with lease — DCF
-    const leaseVal = parseFloat(leaseEdits.leaseValueM) || Number(currentUse?.leaseValueM) || 0;
-    const leaseYearsVal = leaseEdits.leaseYears ? parseFloat(leaseEdits.leaseYears) : (data?.remainingLeaseYears || Number(currentUse?.leaseYears) || 10);
+    // For splits: use the period's own lease data; for single buildings: use the form edits
+    const leaseVal = isSplit
+      ? (Number(currentUse?.leaseValueM) || 0)
+      : (parseFloat(leaseEdits.leaseValueM) || Number(currentUse?.leaseValueM) || 0);
+    const leaseYearsVal = isSplit
+      ? (Number(currentUse?.leaseYears) || 10)
+      : (leaseEdits.leaseYears ? parseFloat(leaseEdits.leaseYears) : (data?.remainingLeaseYears || Number(currentUse?.leaseYears) || 10));
     const annualRev = leaseVal / Math.max(leaseYearsVal, 0.1);
-    const noiPctVal = parseFloat(leaseEdits.noiPct) || Number(currentUse?.noiPct) || 0;
+    const noiPctRaw = isSplit
+      ? (Number(currentUse?.noiPct) || 0)
+      : (parseFloat(leaseEdits.noiPct) || Number(currentUse?.noiPct) || 0);
+    // noiPct from the DB is 0-1 fraction; from the form it's 0-100 percentage
+    const noiPctVal = isSplit ? (noiPctRaw <= 1 ? noiPctRaw * 100 : noiPctRaw) : noiPctRaw;
     const noiAnnual = annualRev * (noiPctVal / 100);
     const capRate = valInputEdits.capRate ? parseFloat(valInputEdits.capRate) / 100 : 0.075;
     const exitCapRate = valInputEdits.exitCapRate ? parseFloat(valInputEdits.exitCapRate) / 100 : 0.08;
@@ -621,7 +633,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       if (!periodMw && buildingItMw > 0) {
         periodMw = Math.max(buildingItMw - explicitlyAllocated, 0);
       }
-      return { ...calcPeriodValuation(up, periodMw, combinedFactor), tenant: up.tenant, mwAllocation: periodMw };
+      return { ...calcPeriodValuation(up, periodMw, combinedFactor, true), tenant: up.tenant, mwAllocation: periodMw };
     });
     const totalAdjustedValue = periodBreakdown.reduce((sum: number, p: any) => sum + (p.adjustedValue || 0), 0);
 
@@ -988,76 +1000,124 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
               <span className="text-sm font-medium text-gray-200">Lease Details</span>
             </div>
           </button>
-          {expandedSections.lease && (
-            <div className="px-4 pb-4">
-              <div className="grid grid-cols-3 gap-3">
-                <EditableField
-                  label="Tenant"
-                  value={leaseEdits.tenant}
-                  onChange={(v) => handleLeaseChange('tenant', v)}
-                  type="select"
-                  options={tenantOptions}
-                />
-                <EditableField
-                  label="Structure"
-                  value={leaseEdits.leaseStructure}
-                  onChange={(v) => handleLeaseChange('leaseStructure', v)}
-                  type="select"
-                  options={[
-                    { value: 'NNN', label: 'NNN (Triple Net)' },
-                    { value: 'MODIFIED_GROSS', label: 'Modified Gross' },
-                    { value: 'GROSS', label: 'Gross' },
-                  ]}
-                />
-                <EditableField
-                  label="Term (years)"
-                  value={leaseEdits.leaseYears}
-                  onChange={(v) => handleLeaseChange('leaseYears', v)}
-                  type="number"
-                  step="0.5"
-                />
-                <EditableField
-                  label="Lease Value ($M)"
-                  value={leaseEdits.leaseValueM}
-                  onChange={(v) => handleLeaseChange('leaseValueM', v)}
-                  type="number"
-                  step="0.1"
-                />
-                <div>
-                  <div className="text-[10px] text-gray-500 mb-0.5">Annual Rev ($M) — calculated</div>
-                  <div className="bg-gray-800/50 border border-gray-700 rounded px-2 py-1 text-xs text-blue-400 font-medium">
-                    {(() => {
-                      const leaseVal = parseFloat(leaseEdits.leaseValueM) || 0;
-                      const years = parseFloat(leaseEdits.leaseYears) || 1;
-                      const annualRev = leaseVal / Math.max(years, 0.1);
-                      return `$${annualRev.toFixed(2)}M`;
-                    })()}
-                  </div>
+          {expandedSections.lease && (() => {
+            const currentUses = (data?.usePeriods || []).filter((up: any) => up.isCurrent);
+            const isSplitBuilding = currentUses.length > 1;
+
+            if (isSplitBuilding) {
+              // Per-period lease summary for split buildings
+              return (
+                <div className="px-4 pb-4 space-y-2">
+                  <div className="text-[10px] text-gray-500 mb-1">Each split period has its own lease. Edit via the split modal.</div>
+                  {currentUses.map((up: any, idx: number) => {
+                    const leaseVal = Number(up.leaseValueM) || 0;
+                    const leaseYrs = Number(up.leaseYears) || 0;
+                    const noiPctRaw = Number(up.noiPct) || 0;
+                    const noiPct = noiPctRaw <= 1 ? noiPctRaw * 100 : noiPctRaw;
+                    const annualRev = leaseVal > 0 && leaseYrs > 0 ? leaseVal / leaseYrs : 0;
+                    const noiAnnual = annualRev * (noiPct / 100);
+                    const leaseStart = up.startDate || up.leaseStart;
+                    return (
+                      <div key={up.id || idx} className="bg-gray-800/30 border border-gray-700 rounded p-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-cyan-400">{up.tenant || 'Uncontracted'}</span>
+                          <span className="text-[10px] text-gray-500">{Number(up.mwAllocation) || '?'} MW</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-x-3 gap-y-0.5 text-[10px]">
+                          {leaseStart && (
+                            <>
+                              <span className="text-gray-500">Lease Start</span>
+                              <span className="text-gray-400 col-span-2">{new Date(leaseStart).toLocaleDateString()}</span>
+                            </>
+                          )}
+                          <span className="text-gray-500">Lease Value</span>
+                          <span className="text-gray-300 col-span-2">{leaseVal > 0 ? formatMoney(leaseVal) : '—'}</span>
+                          <span className="text-gray-500">Term</span>
+                          <span className="text-gray-300 col-span-2">{leaseYrs > 0 ? `${leaseYrs} yr` : '—'}</span>
+                          <span className="text-gray-500">NOI %</span>
+                          <span className="text-gray-300 col-span-2">{noiPct > 0 ? `${noiPct.toFixed(0)}%` : '—'}</span>
+                          <span className="text-gray-500">Annual NOI</span>
+                          <span className="text-green-400 col-span-2 font-medium">{noiAnnual > 0 ? formatMoney(noiAnnual) : '—'}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                <EditableField
-                  label="NOI %"
-                  value={leaseEdits.noiPct}
-                  onChange={(v) => handleLeaseChange('noiPct', v)}
-                  type="number"
-                  step="1"
-                  suffix="%"
-                />
-                <div className="col-span-3 bg-gray-800/50 rounded p-2">
-                  <div className="text-[10px] text-gray-500 mb-0.5">Annual NOI ($M) — calculated: (Lease Value ÷ Term) × NOI %</div>
-                  <div className="text-lg font-bold text-green-400">
-                    {(() => {
-                      const leaseVal = parseFloat(leaseEdits.leaseValueM) || 0;
-                      const years = parseFloat(leaseEdits.leaseYears) || 1;
-                      const annualRev = leaseVal / Math.max(years, 0.1);
-                      const pct = parseFloat(leaseEdits.noiPct) || 0;
-                      const noi = annualRev * (pct / 100);
-                      return formatMoney(noi);
-                    })()}
+              );
+            }
+
+            // Single-period: editable lease form
+            return (
+              <div className="px-4 pb-4">
+                <div className="grid grid-cols-3 gap-3">
+                  <EditableField
+                    label="Tenant"
+                    value={leaseEdits.tenant}
+                    onChange={(v) => handleLeaseChange('tenant', v)}
+                    type="select"
+                    options={tenantOptions}
+                  />
+                  <EditableField
+                    label="Structure"
+                    value={leaseEdits.leaseStructure}
+                    onChange={(v) => handleLeaseChange('leaseStructure', v)}
+                    type="select"
+                    options={[
+                      { value: 'NNN', label: 'NNN (Triple Net)' },
+                      { value: 'MODIFIED_GROSS', label: 'Modified Gross' },
+                      { value: 'GROSS', label: 'Gross' },
+                    ]}
+                  />
+                  <EditableField
+                    label="Term (years)"
+                    value={leaseEdits.leaseYears}
+                    onChange={(v) => handleLeaseChange('leaseYears', v)}
+                    type="number"
+                    step="0.5"
+                  />
+                  <EditableField
+                    label="Lease Value ($M)"
+                    value={leaseEdits.leaseValueM}
+                    onChange={(v) => handleLeaseChange('leaseValueM', v)}
+                    type="number"
+                    step="0.1"
+                  />
+                  <div>
+                    <div className="text-[10px] text-gray-500 mb-0.5">Annual Rev ($M) — calculated</div>
+                    <div className="bg-gray-800/50 border border-gray-700 rounded px-2 py-1 text-xs text-blue-400 font-medium">
+                      {(() => {
+                        const leaseVal = parseFloat(leaseEdits.leaseValueM) || 0;
+                        const years = parseFloat(leaseEdits.leaseYears) || 1;
+                        const annualRev = leaseVal / Math.max(years, 0.1);
+                        return `$${annualRev.toFixed(2)}M`;
+                      })()}
+                    </div>
+                  </div>
+                  <EditableField
+                    label="NOI %"
+                    value={leaseEdits.noiPct}
+                    onChange={(v) => handleLeaseChange('noiPct', v)}
+                    type="number"
+                    step="1"
+                    suffix="%"
+                  />
+                  <div className="col-span-3 bg-gray-800/50 rounded p-2">
+                    <div className="text-[10px] text-gray-500 mb-0.5">Annual NOI ($M) — calculated: (Lease Value ÷ Term) × NOI %</div>
+                    <div className="text-lg font-bold text-green-400">
+                      {(() => {
+                        const leaseVal = parseFloat(leaseEdits.leaseValueM) || 0;
+                        const years = parseFloat(leaseEdits.leaseYears) || 1;
+                        const annualRev = leaseVal / Math.max(years, 0.1);
+                        const pct = parseFloat(leaseEdits.noiPct) || 0;
+                        const noi = annualRev * (pct / 100);
+                        return formatMoney(noi);
+                      })()}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
 
         {/* Valuation Inputs Section */}
