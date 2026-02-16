@@ -616,18 +616,9 @@ app.patch('/api/v1/use-periods/:id', async (req, res) => {
 
 app.delete('/api/v1/use-periods/:id', async (req, res) => {
   try {
-    // Protect against deleting the last current use period for a building
     const toDelete = await prisma.usePeriod.findUnique({ where: { id: req.params.id } });
     if (!toDelete) {
       return res.status(404).json({ error: 'Use period not found' });
-    }
-    if (toDelete.isCurrent && toDelete.buildingId) {
-      const currentCount = await prisma.usePeriod.count({
-        where: { buildingId: toDelete.buildingId, isCurrent: true },
-      });
-      if (currentCount <= 1) {
-        return res.status(400).json({ error: 'Cannot delete the last current use period. A building must have at least one current use period.' });
-      }
     }
     await prisma.usePeriod.delete({ where: { id: req.params.id } });
     res.json({ success: true });
@@ -1361,6 +1352,36 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         leaseStructure: up.leaseStructure,
       };
     });
+
+    // Add valuation for unallocated MW (pipeline value)
+    if (unallocatedMw > 0) {
+      const timeVal = helpers.getTimeValueMult(null, building.energizationDate);
+      const pipelineRate = factors.mwValueHpcUncontracted ?? 8;
+      const grossVal = unallocatedMw * pipelineRate;
+      const pFactor = bFactor * timeVal;
+      const valM = grossVal * pFactor;
+      periodValuations.push({
+        usePeriodId: null,
+        tenant: 'Unallocated Pipeline',
+        useType: 'UNCONTRACTED',
+        mw: unallocatedMw,
+        method: 'MW_PIPELINE',
+        grossValue: grossVal,
+        noiAnnual: 0,
+        capRate: 0,
+        periodFactor: pFactor,
+        tenantMult: 1,
+        leaseStructMult: 1,
+        timeValueMult: timeVal,
+        valuationM: isFinite(valM) ? valM : 0,
+        leaseValueM: 0,
+        leaseYears: 0,
+        noiPct: 0,
+        annualRev: 0,
+        leaseStart: null,
+        leaseStructure: null,
+      });
+    }
 
     const totalValuation = periodValuations.reduce((sum: number, p: any) => sum + p.valuationM, 0);
 

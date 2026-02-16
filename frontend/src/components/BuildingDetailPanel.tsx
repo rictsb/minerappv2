@@ -733,7 +733,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                         }`}>
                           {up.useType === 'HPC_AI_HOSTING' ? 'HPC/AI' : up.useType === 'BTC_MINING' ? 'BTC' : up.useType}
                         </span>
-                        {currentUses.length > 1 && (
+                        {currentUses.length >= 1 && (
                           confirmDelete === up.id ? (
                             <div className="flex items-center gap-1">
                               <button
