@@ -67,10 +67,6 @@ const FACTOR_CONFIGS: Record<string, FactorConfig[]> = {
     { key: 'modifiedGrossMult', label: 'Modified Gross', min: 0.5, max: 1.5, step: 0.05, format: (v) => `${v.toFixed(2)}x`, defaultValue: 0.95 },
     { key: 'grossMult', label: 'Gross Lease', min: 0.5, max: 1.5, step: 0.05, format: (v) => `${v.toFixed(2)}x`, defaultValue: 0.90 },
   ],
-  timeValue: [
-    // Time-value discount now uses discountRate from HPC section via PV formula: 1/(1+r)^t
-    // These legacy settings are kept for reference but the PV discount is automatic
-  ],
   powerAuthority: [
     { key: 'paErcot', label: 'ERCOT (Texas)', min: 0, max: 1.5, step: 0.05, format: (v) => `${v.toFixed(2)}x`, defaultValue: 1.05 },
     { key: 'paPjm', label: 'PJM', min: 0, max: 1.5, step: 0.05, format: (v) => `${v.toFixed(2)}x`, defaultValue: 1.00 },
@@ -115,7 +111,6 @@ const SECTIONS = [
   { id: 'datacenterTier', title: 'Datacenter Tier', color: 'cyan', configs: FACTOR_CONFIGS.datacenterTier },
   { id: 'ownership', title: 'Site Ownership', color: 'green', configs: FACTOR_CONFIGS.ownership },
   { id: 'leaseStructure', title: 'Lease Structure', color: 'teal', configs: FACTOR_CONFIGS.leaseStructure },
-  { id: 'timeValue', title: 'Time Value Discount', color: 'yellow', configs: FACTOR_CONFIGS.timeValue },
   { id: 'powerAuthority', title: 'Power Authority', color: 'red', configs: FACTOR_CONFIGS.powerAuthority },
   { id: 'tenantCredit', title: 'Tenant Credit Spreads', color: 'indigo', configs: FACTOR_CONFIGS.tenantCredit },
   { id: 'siteSize', title: 'Site Size', color: 'amber', configs: FACTOR_CONFIGS.siteSize },
@@ -451,12 +446,6 @@ export default function Factors() {
                   {section.id === 'tenantCredit' && (
                     <p className="text-xs text-gray-500 mb-3">
                       Credit spreads vs SOFR ({sofrRate.toFixed(1)}%). Negative = better credit.
-                    </p>
-                  )}
-                  {section.id === 'timeValue' && (
-                    <p className="text-xs text-gray-500 mb-3">
-                      Future cash flows are discounted to present value using the Discount Rate (in HPC/AI section)
-                      via PV = 1/(1+r)<sup>t</sup>, where t = years until lease start or energization date.
                     </p>
                   )}
                   {section.id === 'tenantCredit' ? (
