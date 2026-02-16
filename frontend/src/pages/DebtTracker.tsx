@@ -45,7 +45,6 @@ interface CompanySummary {
 
 const DEBT_TYPES = ['Convertible Note', 'Sr Secured Note', 'Term Loan', 'Equipment Fin', 'Project Fin', 'Revolver', 'Exchangeable Note', 'Assumed Debt', 'Other'];
 const LEVELS = ['Corporate', 'Project', 'Asset'];
-const CONFIDENCE_LEVELS = ['High', 'Medium', 'Low'];
 
 const emptyDebt: Partial<DebtInstrument> = {
   ticker: '',
@@ -233,16 +232,6 @@ export default function DebtTracker() {
       case 'Project Fin': return 'text-green-400';
       case 'Revolver': return 'text-pink-400';
       case 'Exchangeable Note': return 'text-indigo-400';
-      default: return 'text-gray-400';
-    }
-  };
-
-  const getConfidenceColor = (confidence: string) => {
-    switch (confidence) {
-      case 'HIGH': return 'text-green-400';
-      case 'MEDIUM_HIGH': return 'text-lime-400';
-      case 'MEDIUM': return 'text-yellow-400';
-      case 'LOW': return 'text-red-400';
       default: return 'text-gray-400';
     }
   };
