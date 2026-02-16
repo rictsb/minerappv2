@@ -479,6 +479,56 @@ app.delete('/api/v1/net-liquid-assets/:ticker', async (req, res) => {
 });
 
 // ===========================================
+// DEBTS API
+// ===========================================
+
+app.get('/api/v1/debts', async (req, res) => {
+  try {
+    const debts = await prisma.debt.findMany({
+      orderBy: [{ ticker: 'asc' }, { principalM: 'desc' }],
+      include: { company: { select: { name: true } } },
+    });
+    res.json(debts);
+  } catch (error) {
+    console.error('Error fetching debts:', error);
+    res.status(500).json({ error: 'Failed to fetch debts' });
+  }
+});
+
+app.post('/api/v1/debts', async (req, res) => {
+  try {
+    const debt = await prisma.debt.create({ data: req.body });
+    res.json(debt);
+  } catch (error) {
+    console.error('Error creating debt:', error);
+    res.status(500).json({ error: 'Failed to create debt' });
+  }
+});
+
+app.put('/api/v1/debts/:id', async (req, res) => {
+  try {
+    const debt = await prisma.debt.update({
+      where: { id: req.params.id },
+      data: req.body,
+    });
+    res.json(debt);
+  } catch (error) {
+    console.error('Error updating debt:', error);
+    res.status(500).json({ error: 'Failed to update debt' });
+  }
+});
+
+app.delete('/api/v1/debts/:id', async (req, res) => {
+  try {
+    await prisma.debt.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting debt:', error);
+    res.status(500).json({ error: 'Failed to delete debt' });
+  }
+});
+
+// ===========================================
 // GLOBAL FACTORS API
 // ===========================================
 

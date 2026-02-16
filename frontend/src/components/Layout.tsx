@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Pickaxe,
   Wallet,
+  Landmark,
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -22,6 +23,7 @@ const navItems = [
   { path: '/projects', label: 'Projects', icon: Building2 },
   { path: '/mining-valuation', label: 'Mining Val', icon: Pickaxe },
   { path: '/net-liquid-assets', label: 'Net Liquid', icon: Wallet },
+  { path: '/debt', label: 'Debt', icon: Landmark },
   { path: '/factors', label: 'Factors', icon: Settings2 },
   { path: '/data-quality', label: 'Data Quality', icon: AlertTriangle },
   { path: '/map', label: 'Map', icon: Map },
