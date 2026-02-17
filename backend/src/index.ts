@@ -202,21 +202,33 @@ function computePeriodValuation(
   buildingFactor: number,
   helpers: ReturnType<typeof createFactorHelpers>,
   f: Record<string, any>
-): { valuationM: number; method: string; grossValue: number; noiAnnual: number; capRate: number; periodFactor: number; tenantMult: number; leaseStructMult: number; timeValueMult: number } {
+): { valuationM: number; method: string; grossValue: number; noiAnnual: number; capRate: number; periodFactor: number; tenantMult: number; leaseStructMult: number; timeValueMult: number; capexDeductionM: number } {
   // Per-period factors
   const timeValueMult = helpers.getTimeValueMult(up.leaseStart ?? null, building.energizationDate);
   const tenantMult = helpers.getTenantMult(up.tenant ?? null);
   const leaseStructMult = helpers.getLeaseStructMult(up.leaseStructure ?? null);
   const periodFactor = buildingFactor * timeValueMult * tenantMult * leaseStructMult;
 
+  // CapEx deduction for non-operational buildings: use-period > building > global
+  const phase = building.developmentPhase || 'DILIGENCE';
+  const isOperational = phase === 'OPERATIONAL';
+  const resolvedCapexPerMw = Number(up.capexPerMwOverride) || Number(building.capexPerMwOverride) || (f.capexPerMw ?? 10);
+  const debtFundingPct = f.debtFundingPct ?? 0.65;
+  const equityCapex = isOperational ? 0 : resolvedCapexPerMw * (1 - debtFundingPct) * periodMw;
+
   const useType = up.useType || 'UNCONTRACTED';
   const hasLease = up.tenant && up.leaseValueM;
+
+  const makeResult = (val: number, method: string, grossValue: number, noiAnnual: number, capRate: number) => {
+    const netVal = Math.max(0, val - equityCapex);
+    return { valuationM: isFinite(netVal) ? netVal : 0, method, grossValue, noiAnnual, capRate, periodFactor, tenantMult, leaseStructMult, timeValueMult, capexDeductionM: equityCapex };
+  };
 
   // BTC Mining — simple $/MW
   if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
     const gross = periodMw * (f.mwValueBtcMining ?? 0.3);
     const val = gross * periodFactor;
-    return { valuationM: isFinite(val) ? val : 0, method: 'MW_VALUE', grossValue: gross, noiAnnual: 0, capRate: 0, periodFactor, tenantMult, leaseStructMult, timeValueMult };
+    return makeResult(val, 'MW_VALUE', gross, 0, 0);
   }
 
   // HPC/AI with lease — Direct Capitalization: NOI / Cap Rate
@@ -226,19 +238,18 @@ function computePeriodValuation(
     if (noiAnnual > 0 && capRate > 0) {
       const grossValue = noiAnnual / capRate;
       const val = grossValue * periodFactor;
-      return { valuationM: isFinite(val) ? val : 0, method: 'NOI_CAP_RATE', grossValue, noiAnnual, capRate, periodFactor, tenantMult, leaseStructMult, timeValueMult };
+      return makeResult(val, 'NOI_CAP_RATE', grossValue, noiAnnual, capRate);
     } else {
-      // Fallback: use lease value as gross
       const leaseValM = Number(up.leaseValueM) || 0;
       const val = leaseValM * periodFactor;
-      return { valuationM: isFinite(val) ? val : 0, method: 'LEASE_VALUE', grossValue: leaseValM, noiAnnual: 0, capRate: 0, periodFactor, tenantMult, leaseStructMult, timeValueMult };
+      return makeResult(val, 'LEASE_VALUE', leaseValM, 0, 0);
     }
   }
 
   // Pipeline / uncontracted — $/MW
   const gross = periodMw * (f.mwValueHpcUncontracted ?? 8);
   const val = gross * periodFactor;
-  return { valuationM: isFinite(val) ? val : 0, method: 'MW_PIPELINE', grossValue: gross, noiAnnual: 0, capRate: 0, periodFactor, tenantMult, leaseStructMult, timeValueMult };
+  return makeResult(val, 'MW_PIPELINE', gross, 0, 0);
 }
 
 // Compute MW for a period, handling remainder logic for splits
@@ -659,6 +670,7 @@ app.patch('/api/v1/use-periods/:id', async (req, res) => {
     if (body.isCurrent !== undefined) data.isCurrent = body.isCurrent;
     if (body.annualRevM !== undefined) data.annualRevM = body.annualRevM;
     if (body.noiAnnualM !== undefined) data.noiAnnualM = body.noiAnnualM;
+    if (body.capexPerMwOverride !== undefined) data.capexPerMwOverride = body.capexPerMwOverride;
 
     // Recompute noiAnnualM if lease data changed
     if (body.leaseValueM !== undefined || body.leaseYears !== undefined || body.noiPct !== undefined) {
@@ -1038,6 +1050,10 @@ const DEFAULT_FACTORS: Record<string, any> = {
   networkHashrateEh: 0, // Network hashrate in EH/s (0 = auto-derive dailyRevPerEh from btcPrice)
   blockReward: 3.125, // BTC block reward (post-2024 halving)
   poolFeePct: 0.02,
+
+  // Development costs
+  capexPerMw: 10, // $10M per MW default build cost
+  debtFundingPct: 0.65, // 65% of capex financed with project debt
 
   // Phase probabilities
   probOperational: 1.0,
@@ -1425,6 +1441,12 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         final: helpers.getTimeValueMult(leaseDetails.leaseStart, building.energizationDate),
       },
       fidoodleFactor: { value: fidoodleFactor },
+      capexPerMw: {
+        global: factors.capexPerMw ?? 10,
+        buildingOverride: Number(building.capexPerMwOverride) || null,
+        debtFundingPct: factors.debtFundingPct ?? 0.65,
+        resolved: Number(building.capexPerMwOverride) || (factors.capexPerMw ?? 10),
+      },
     };
 
     // Building-level factor (shared across all splits)
@@ -1453,6 +1475,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         tenantMult: result.tenantMult,
         leaseStructMult: result.leaseStructMult,
         timeValueMult: result.timeValueMult,
+        capexDeductionM: result.capexDeductionM,
         valuationM: result.valuationM,
         // Lease summary for display
         leaseValueM: leaseValM,
@@ -1461,6 +1484,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         annualRev,
         leaseStart: up.leaseStart || up.startDate,
         leaseStructure: up.leaseStructure,
+        capexPerMwOverride: Number(up.capexPerMwOverride) || null,
       };
     });
 
@@ -1471,6 +1495,12 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
       const grossVal = unallocatedMw * pipelineRate;
       const pFactor = bFactor * timeVal;
       const valM = grossVal * pFactor;
+      // CapEx deduction for unallocated pipeline (non-operational)
+      const phase = building.developmentPhase || 'DILIGENCE';
+      const isOp = phase === 'OPERATIONAL';
+      const resolvedCapex = Number(building.capexPerMwOverride) || (factors.capexPerMw ?? 10);
+      const equityCapex = isOp ? 0 : resolvedCapex * (1 - (factors.debtFundingPct ?? 0.65)) * unallocatedMw;
+      const netValM = Math.max(0, valM - equityCapex);
       periodValuations.push({
         usePeriodId: null,
         tenant: 'Unallocated Pipeline',
@@ -1484,13 +1514,15 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         tenantMult: 1,
         leaseStructMult: 1,
         timeValueMult: timeVal,
-        valuationM: isFinite(valM) ? valM : 0,
+        capexDeductionM: equityCapex,
+        valuationM: isFinite(netValM) ? netValM : 0,
         leaseValueM: 0,
         leaseYears: 0,
         noiPct: 0,
         annualRev: 0,
         leaseStart: null,
         leaseStructure: null,
+        capexPerMwOverride: null,
       });
     }
 
@@ -1672,6 +1704,7 @@ app.patch('/api/v1/buildings/:id/valuation-details', async (req, res) => {
       if (factors.powerAuthMultOverride !== undefined) buildingUpdate.powerAuthMultOverride = factors.powerAuthMultOverride;
       if (factors.ownershipMultOverride !== undefined) buildingUpdate.ownershipMultOverride = factors.ownershipMultOverride;
       if (factors.tierMultOverride !== undefined) buildingUpdate.tierMultOverride = factors.tierMultOverride;
+      if (factors.capexPerMwOverride !== undefined) buildingUpdate.capexPerMwOverride = factors.capexPerMwOverride;
     }
 
     // Update building if there are changes
@@ -1786,6 +1819,15 @@ httpServer.listen(PORT, async () => {
 
     // Remove any saved dailyRevPerEh override so it derives from btcPrice
     await prisma.settings.deleteMany({ where: { key: 'dailyRevPerEh' } });
+
+    // Add capexPerMwOverride columns if they don't exist
+    try {
+      await prisma.$executeRawUnsafe(`ALTER TABLE buildings ADD COLUMN IF NOT EXISTS "capexPerMwOverride" DECIMAL(12,2)`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE use_periods ADD COLUMN IF NOT EXISTS "capexPerMwOverride" DECIMAL(12,2)`);
+      console.log('✅ Ensured capexPerMwOverride columns exist');
+    } catch (e) {
+      console.log('capexPerMwOverride columns may already exist:', (e as any).message);
+    }
   } catch (e) {
     console.error('Migration error (non-fatal):', e);
   }

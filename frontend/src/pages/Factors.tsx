@@ -93,6 +93,10 @@ const FACTOR_CONFIGS: Record<string, FactorConfig[]> = {
     { key: 'tcOther', label: 'Other', min: -3, max: 5, step: 0.25, format: (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`, defaultValue: 1.00 },
     { key: 'tcSelf', label: 'Self (No Tenant)', min: -3, max: 5, step: 0.25, format: (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`, defaultValue: 3.00 },
   ],
+  development: [
+    { key: 'capexPerMw', label: 'CapEx per MW', min: 0, max: 30, step: 0.5, format: (v) => `$${v.toFixed(1)}M`, defaultValue: 10 },
+    { key: 'debtFundingPct', label: 'Debt Funding %', min: 0, max: 1, step: 0.05, format: (v) => `${(v * 100).toFixed(0)}%`, defaultValue: 0.65 },
+  ],
   siteSize: [
     { key: 'sizeGte500', label: '≥500 MW', min: 0.5, max: 1.5, step: 0.05, format: (v) => `${v.toFixed(2)}x`, defaultValue: 1.10 },
     { key: 'size250to499', label: '250-499 MW', min: 0.5, max: 1.5, step: 0.05, format: (v) => `${v.toFixed(2)}x`, defaultValue: 1.00 },
@@ -104,6 +108,7 @@ const FACTOR_CONFIGS: Record<string, FactorConfig[]> = {
 // Section metadata for collapsible panels
 const SECTIONS = [
   { id: 'market', title: 'Market Prices', color: 'orange', configs: FACTOR_CONFIGS.market },
+  { id: 'development', title: 'Development Costs', color: 'rose', configs: FACTOR_CONFIGS.development },
   { id: 'hpc', title: 'HPC/AI Valuation', color: 'purple', configs: FACTOR_CONFIGS.hpc },
   { id: 'mining', title: 'Mining Valuation', color: 'orange', configs: FACTOR_CONFIGS.mining },
   { id: 'phases', title: 'Phase Probabilities', color: 'blue', configs: FACTOR_CONFIGS.phases },
@@ -128,6 +133,7 @@ const colorClasses: Record<string, string> = {
   indigo: 'text-indigo-400',
   amber: 'text-amber-400',
   emerald: 'text-emerald-400',
+  rose: 'text-rose-400',
 };
 
 const dotColorClasses: Record<string, string> = {
@@ -142,6 +148,7 @@ const dotColorClasses: Record<string, string> = {
   indigo: 'bg-indigo-400',
   amber: 'bg-amber-400',
   emerald: 'bg-emerald-400',
+  rose: 'bg-rose-400',
 };
 
 export default function Factors() {

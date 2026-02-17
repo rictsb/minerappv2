@@ -134,6 +134,7 @@ model Building {
   capRateOverride         Decimal? @db.Decimal(5, 4)  // e.g., 0.0750 for 7.5%
   exitCapRateOverride     Decimal? @db.Decimal(5, 4)
   terminalGrowthOverride  Decimal? @db.Decimal(5, 4)
+  capexPerMwOverride      Decimal? @db.Decimal(12, 2)  // CapEx $/MW override (null = use global)
 
   // Notes & Source
   notes               String?
@@ -183,6 +184,9 @@ model UsePeriod {
   miningHashrateEh    Decimal? @db.Decimal(10, 2)
   miningEfficiencyJth Decimal? @db.Decimal(6, 2)
   miningPowerCostKwh  Decimal? @db.Decimal(6, 4)
+
+  // CapEx override
+  capexPerMwOverride  Decimal? @db.Decimal(12, 2)  // CapEx $/MW override (null = use building/global)
 
   // Allocation tracking
   allocationMethod    String?  @db.VarChar(50)  // Disclosed, Pro-rata, Estimated

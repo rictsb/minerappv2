@@ -387,6 +387,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
               leaseStart: pv.leaseStart ? pv.leaseStart.split('T')[0] : '',
               mwAllocation: pv.mw?.toString() || '',
               useType: pv.useType || 'HPC_AI_HOSTING',
+              capexPerMw: pv.capexPerMwOverride?.toString() || '',
             };
           }
         }
@@ -404,6 +405,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         tenantCredit: fd.tenantCredit?.final ?? fd.tenantCredit?.auto ?? 1.0,
         timeValue: fd.timeValue?.final ?? fd.timeValue?.auto ?? 1.0,
         fidoodleFactor: bld.fidoodleFactor ?? 1.0,
+        capexPerMw: fd.capexPerMw?.resolved ?? fd.capexPerMw?.global ?? 10,
       });
     }
   }, [data]);
@@ -455,6 +457,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         powerAuthMultOverride: factorOverrides.powerAuthority !== (fd.powerAuthority?.auto ?? 1) ? factorOverrides.powerAuthority : null,
         ownershipMultOverride: factorOverrides.ownership !== (fd.ownership?.auto ?? 1) ? factorOverrides.ownership : null,
         tierMultOverride: factorOverrides.datacenterTier !== (fd.datacenterTier?.auto ?? 1) ? factorOverrides.datacenterTier : null,
+        capexPerMwOverride: factorOverrides.capexPerMw !== (fd.capexPerMw?.global ?? 10) ? factorOverrides.capexPerMw : null,
       },
     });
   };
@@ -484,6 +487,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         tenantCredit: fd.tenantCredit?.auto ?? 1.0,
         timeValue: fd.timeValue?.auto ?? 1.0,
         fidoodleFactor: 1.0,
+        capexPerMw: fd.capexPerMw?.global ?? 10,
       });
 
       setHasChanges(true);
@@ -515,6 +519,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         startDate: edits.leaseStart || null,
         mwAllocation: edits.mwAllocation ? parseFloat(edits.mwAllocation) : null,
         useType: edits.useType || undefined,
+        capexPerMwOverride: edits.capexPerMw ? parseFloat(edits.capexPerMw) : null,
       };
 
       try {
@@ -652,9 +657,17 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                       <span>× Adj Factor</span>
                       <span className="text-orange-400 font-medium">× {safeToFixed(p.periodFactor, 3)}x</span>
                     </div>
+                    {(p.capexDeductionM ?? 0) > 0 && (
+                      <>
+                        <div className="flex justify-between text-rose-400">
+                          <span>− Equity CapEx</span>
+                          <span>−{formatMoney(p.capexDeductionM)}</span>
+                        </div>
+                      </>
+                    )}
                     <div className="border-t border-dashed border-orange-500/30 my-1" />
                     <div className="flex justify-between text-sm">
-                      <span className="text-orange-400 font-bold">Adjusted Value</span>
+                      <span className="text-orange-400 font-bold">{(p.capexDeductionM ?? 0) > 0 ? 'Net Value' : 'Adjusted Value'}</span>
                       <span className="text-orange-400 font-bold">{formatMoney(p.valuationM)}</span>
                     </div>
                   </div>
@@ -670,9 +683,15 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                       <span>× Adj Factor</span>
                       <span className="text-orange-400 font-medium">× {safeToFixed(p.periodFactor, 3)}x</span>
                     </div>
+                    {(p.capexDeductionM ?? 0) > 0 && (
+                      <div className="flex justify-between text-rose-400">
+                        <span>− Equity CapEx</span>
+                        <span>−{formatMoney(p.capexDeductionM)}</span>
+                      </div>
+                    )}
                     <div className="border-t border-dashed border-orange-500/30 my-1" />
                     <div className="flex justify-between text-sm">
-                      <span className="text-orange-400 font-bold">Adjusted Value</span>
+                      <span className="text-orange-400 font-bold">{(p.capexDeductionM ?? 0) > 0 ? 'Net Value' : 'Adjusted Value'}</span>
                       <span className="text-orange-400 font-bold">{formatMoney(p.valuationM)}</span>
                     </div>
                   </div>
@@ -689,9 +708,15 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                       <span>× Adj Factor</span>
                       <span className="text-orange-400 font-medium">× {safeToFixed(p.periodFactor, 3)}x</span>
                     </div>
+                    {(p.capexDeductionM ?? 0) > 0 && (
+                      <div className="flex justify-between text-rose-400">
+                        <span>− Equity CapEx</span>
+                        <span>−{formatMoney(p.capexDeductionM)}</span>
+                      </div>
+                    )}
                     <div className="border-t border-dashed border-orange-500/30 my-1" />
                     <div className="flex justify-between text-sm">
-                      <span className="text-orange-400 font-bold">Adjusted Value</span>
+                      <span className="text-orange-400 font-bold">{(p.capexDeductionM ?? 0) > 0 ? 'Net Value' : 'Adjusted Value'}</span>
                       <span className="text-orange-400 font-bold">{formatMoney(p.valuationM)}</span>
                     </div>
                   </div>
@@ -734,8 +759,14 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                         <span className="text-gray-500" title={`Bldg: ${safeToFixed(p.periodFactor / ((p.timeValueMult || 1) * (p.tenantMult || 1) * (p.leaseStructMult || 1)), 3)}x × Time: ${safeToFixed(p.timeValueMult || 1, 3)}x × Tenant: ${safeToFixed(p.tenantMult || 1, 3)}x × Lease: ${safeToFixed(p.leaseStructMult || 1, 3)}x`}>
                           × {safeToFixed(p.periodFactor, 3)}x → Adj
                         </span>
-                        <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span>
+                        <span className="text-orange-400 font-medium">{formatMoney((p.capexDeductionM ?? 0) > 0 ? p.valuationM + p.capexDeductionM : p.valuationM)}</span>
                       </div>
+                      {(p.capexDeductionM ?? 0) > 0 && (
+                        <div className="flex justify-between text-rose-400">
+                          <span>− Equity CapEx</span>
+                          <span>−{formatMoney(p.capexDeductionM)} → <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span></span>
+                        </div>
+                      )}
                       {(p.timeValueMult ?? 1) < 0.99 && (
                         <div className="flex justify-between text-gray-600 text-[10px]">
                           <span>⤷ incl. time discount {safeToFixed(p.timeValueMult, 3)}x</span>
@@ -750,8 +781,14 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-500">× {safeToFixed(p.periodFactor, 3)}x → Adj</span>
-                        <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span>
+                        <span className="text-orange-400 font-medium">{formatMoney((p.capexDeductionM ?? 0) > 0 ? p.valuationM + p.capexDeductionM : p.valuationM)}</span>
                       </div>
+                      {(p.capexDeductionM ?? 0) > 0 && (
+                        <div className="flex justify-between text-rose-400">
+                          <span>− Equity CapEx</span>
+                          <span>−{formatMoney(p.capexDeductionM)} → <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span></span>
+                        </div>
+                      )}
                       {(p.timeValueMult ?? 1) < 0.99 && (
                         <div className="flex justify-between text-gray-600 text-[10px]">
                           <span>⤷ incl. time discount {safeToFixed(p.timeValueMult, 3)}x</span>
@@ -766,8 +803,14 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-500">× {safeToFixed(p.periodFactor, 3)}x → Adj</span>
-                        <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span>
+                        <span className="text-orange-400 font-medium">{formatMoney((p.capexDeductionM ?? 0) > 0 ? p.valuationM + p.capexDeductionM : p.valuationM)}</span>
                       </div>
+                      {(p.capexDeductionM ?? 0) > 0 && (
+                        <div className="flex justify-between text-rose-400">
+                          <span>− Equity CapEx</span>
+                          <span>−{formatMoney(p.capexDeductionM)} → <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span></span>
+                        </div>
+                      )}
                       {(p.timeValueMult ?? 1) < 0.99 && (
                         <div className="flex justify-between text-gray-600 text-[10px]">
                           <span>⤷ incl. time discount {safeToFixed(p.timeValueMult, 3)}x</span>
@@ -1024,6 +1067,19 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                               placeholder="e.g. 85"
                             />
                           </div>
+                          {building.developmentPhase !== 'OPERATIONAL' && (
+                            <div>
+                              <label className="text-[10px] text-gray-500 block mb-0.5">CapEx $/MW</label>
+                              <input
+                                type="number"
+                                value={edits.capexPerMw ?? ''}
+                                onChange={(e) => handleSplitLeaseChange(upId, 'capexPerMw', e.target.value)}
+                                className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white"
+                                placeholder={`${factorDetails.capexPerMw?.resolved ?? 10}`}
+                                step="0.5"
+                              />
+                            </div>
+                          )}
                         </div>
                         {/* Calculated NOI preview */}
                         {edits.leaseValueM && edits.leaseYears && edits.noiPct && (
@@ -1210,6 +1266,19 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 format={formatMultiplier}
                 description={factorDetails.datacenterTier?.tier || 'Tier III'}
               />
+              {building.developmentPhase !== 'OPERATIONAL' && (
+                <SliderRow
+                  label="CapEx $/MW"
+                  autoValue={factorDetails.capexPerMw?.global ?? 10}
+                  currentValue={factorOverrides.capexPerMw ?? factorDetails.capexPerMw?.resolved ?? 10}
+                  onChange={(v) => handleFactorChange('capexPerMw', v)}
+                  min={0}
+                  max={30}
+                  step={0.5}
+                  format={(v) => `$${v.toFixed(1)}M`}
+                  description="building override"
+                />
+              )}
               {!isSplitBuilding && (
                 <>
                   <SliderRow
@@ -1266,6 +1335,12 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                           {formatMultiplier(pv.timeValueMult ?? 1)}
                           {pv.leaseStart && <span className="text-gray-600 ml-1">({new Date(pv.leaseStart).toLocaleDateString()})</span>}
                         </span>
+                        {(pv.capexDeductionM ?? 0) > 0 && (
+                          <>
+                            <span className="text-gray-500">CapEx Deduction</span>
+                            <span className="text-rose-400 col-span-2">−{formatMoney(pv.capexDeductionM)}</span>
+                          </>
+                        )}
                         <span className="text-gray-500 border-t border-gray-700/50 pt-0.5">Combined</span>
                         <span className="text-orange-400 font-medium col-span-2 border-t border-gray-700/50 pt-0.5">{formatMultiplier(pv.periodFactor ?? 1)}</span>
                       </div>
