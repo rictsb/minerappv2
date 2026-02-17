@@ -1626,6 +1626,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         energizationDate: building.energizationDate,
         datacenterTier,
         fidoodleFactor,
+        capexInFinancials: !!(building as any).capexInFinancials,
       },
       site: {
         id: building.campus.site.id,
