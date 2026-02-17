@@ -455,8 +455,8 @@ app.patch('/api/v1/companies/:ticker/capex-in-financials', async (req, res) => {
     }
     // Get all building IDs for this company through the site→campus→building chain
     const sites = await prisma.site.findMany({
-      where: { companyTicker: req.params.ticker },
-      include: { campuses: { include: { buildings: { select: { id: true } } } } },
+      where: { ticker: req.params.ticker },
+      include: { campuses: { include: { buildings: true } } },
     });
     const buildingIds: string[] = [];
     for (const site of sites) {
