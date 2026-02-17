@@ -942,14 +942,14 @@ export default function Projects() {
                           {isEditing ? (
                             <>
                               <button
-                                onClick={saveBuilding}
+                                onClick={(e) => { e.stopPropagation(); saveBuilding(); }}
                                 disabled={updateBuildingMutation.isPending}
                                 className="p-1 bg-green-600 text-white rounded hover:bg-green-700"
                               >
                                 <Save className="h-3 w-3" />
                               </button>
                               <button
-                                onClick={() => { setEditingBuilding(null); setEditFormData({}); }}
+                                onClick={(e) => { e.stopPropagation(); setEditingBuilding(null); setEditFormData({}); }}
                                 className="p-1 bg-gray-600 text-white rounded hover:bg-gray-500"
                               >
                                 <X className="h-3 w-3" />
@@ -958,14 +958,14 @@ export default function Projects() {
                           ) : (
                             <>
                               <button
-                                onClick={() => startEditBuilding(row)}
+                                onClick={(e) => { e.stopPropagation(); startEditBuilding(row); }}
                                 className="p-1 hover:bg-gray-600 rounded"
                                 title="Edit"
                               >
                                 <Edit2 className="h-3 w-3 text-gray-500" />
                               </button>
                               <button
-                                onClick={() => setDeleteConfirm({ id: row.buildingId, name: row.buildingName })}
+                                onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ id: row.buildingId, name: row.buildingName }); }}
                                 className="p-1 hover:bg-red-900/50 rounded"
                                 title="Delete"
                               >
