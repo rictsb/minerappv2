@@ -214,13 +214,13 @@ function computePeriodValuation(
   const phase = building.developmentPhase || 'DILIGENCE';
   const isOperational = phase === 'OPERATIONAL';
   const capexInFinancials = !!(building as any).capexInFinancials;
-  const skipCapex = isOperational || capexInFinancials;
+  const useType = up.useType || 'UNCONTRACTED';
+  const hasLease = up.tenant && up.leaseValueM;
+  // Only deduct capex when there's an actual lease — pipeline/uncontracted MW gets no capex treatment
+  const skipCapex = isOperational || capexInFinancials || !hasLease;
   const resolvedCapexPerMw = Number(up.capexPerMwOverride) || Number(building.capexPerMwOverride) || (f.capexPerMw ?? 10);
   const debtFundingPct = f.debtFundingPct ?? 0.65;
   const equityCapex = skipCapex ? 0 : resolvedCapexPerMw * (1 - debtFundingPct) * periodMw;
-
-  const useType = up.useType || 'UNCONTRACTED';
-  const hasLease = up.tenant && up.leaseValueM;
 
   const makeResult = (val: number, method: string, grossValue: number, noiAnnual: number, capRate: number) => {
     const netVal = Math.max(0, val - equityCapex);
@@ -355,7 +355,9 @@ app.get('/api/v1/companies', async (req, res) => {
               const mw = computePeriodMw(up, buildingMw, currentUses, explicitAlloc);
               const result = computePeriodValuation(up, mw, bld, bFactor, helpers, f);
               (up as any).computedValuationM = result.valuationM;
-              if (!skipCapex) {
+              // Only accumulate implied debt when there's a lease (not pipeline)
+              const upHasLease = up.tenant && up.leaseValueM;
+              if (!skipCapex && upHasLease) {
                 const resolvedCapex = Number(up.capexPerMwOverride) || Number(bld.capexPerMwOverride) || (f.capexPerMw ?? 10);
                 companyImpliedDebt += resolvedCapex * (f.debtFundingPct ?? 0.65) * mw;
               }
@@ -366,10 +368,7 @@ app.get('/api/v1/companies', async (req, res) => {
               const timeVal = helpers.getTimeValueMult(null, bld.energizationDate);
               const pipelineVal = buildingMw * (f.mwValueHpcUncontracted ?? 8) * bFactor * timeVal;
               (bld as any).computedValuationM = isFinite(pipelineVal) ? pipelineVal : 0;
-              if (!skipCapex) {
-                const resolvedCapex = Number(bld.capexPerMwOverride) || (f.capexPerMw ?? 10);
-                companyImpliedDebt += resolvedCapex * (f.debtFundingPct ?? 0.65) * buildingMw;
-              }
+              // No implied debt for buildings with no use periods — pure pipeline
             }
 
             // For split buildings with unallocated remainder, add synthetic entry
@@ -381,10 +380,7 @@ app.get('/api/v1/companies', async (req, res) => {
                 const pipelineVal = unallocMw * (f.mwValueHpcUncontracted ?? 8) * bFactor * timeVal;
                 (bld as any).unallocatedMw = unallocMw;
                 (bld as any).unallocatedValuationM = isFinite(pipelineVal) ? pipelineVal : 0;
-                if (!skipCapex) {
-                  const resolvedCapex = Number(bld.capexPerMwOverride) || (f.capexPerMw ?? 10);
-                  companyImpliedDebt += resolvedCapex * (f.debtFundingPct ?? 0.65) * unallocMw;
-                }
+                // No implied debt for unallocated remainder — pipeline
               }
             }
           }
@@ -1274,11 +1270,7 @@ app.get('/api/v1/valuation', async (req, res) => {
               mwHpcPipeline += buildingMw;
               evHpcPipeline += pipelineVal;
               periodValuations.push({ buildingId: building.id, usePeriodId: null, valuationM: pipelineVal });
-              // Implied debt for entire building MW
-              if (!skipCapexDeductions) {
-                const resolvedCapex = Number((building as any).capexPerMwOverride) || (factors.capexPerMw ?? 10);
-                impliedProjectDebtM += resolvedCapex * (factors.debtFundingPct ?? 0.65) * buildingMw;
-              }
+              // No implied debt for buildings with no use periods — they're pure pipeline
             } else {
               const explicitlyAllocated = currentUses.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
 
@@ -1312,8 +1304,8 @@ app.get('/api/v1/valuation', async (req, res) => {
 
                 periodValuations.push({ buildingId: building.id, usePeriodId: currentUse.id, valuationM: result.valuationM });
 
-                // Implied debt for this period's MW
-                if (!skipCapexDeductions) {
+                // Implied debt for this period's MW — only when a lease exists (not pipeline)
+                if (!skipCapexDeductions && hasLease) {
                   const resolvedCapex = Number(currentUse.capexPerMwOverride) || Number((building as any).capexPerMwOverride) || (factors.capexPerMw ?? 10);
                   impliedProjectDebtM += resolvedCapex * (factors.debtFundingPct ?? 0.65) * mw;
                 }
@@ -1328,11 +1320,7 @@ app.get('/api/v1/valuation', async (req, res) => {
                 mwHpcPipeline += unallocMw;
                 evHpcPipeline += pipelineVal;
                 periodValuations.push({ buildingId: building.id, usePeriodId: null, valuationM: pipelineVal });
-                // Implied debt for unallocated remainder
-                if (!skipCapexDeductions) {
-                  const resolvedCapex = Number((building as any).capexPerMwOverride) || (factors.capexPerMw ?? 10);
-                  impliedProjectDebtM += resolvedCapex * (factors.debtFundingPct ?? 0.65) * unallocMw;
-                }
+                // No implied debt for unallocated remainder — it's pipeline
               }
             }
           }
