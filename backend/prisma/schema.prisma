@@ -135,6 +135,7 @@ model Building {
   exitCapRateOverride     Decimal? @db.Decimal(5, 4)
   terminalGrowthOverride  Decimal? @db.Decimal(5, 4)
   capexPerMwOverride      Decimal? @db.Decimal(12, 2)  // CapEx $/MW override (null = use global)
+  capexInFinancials       Boolean  @default(false)     // true = financing already arranged, skip capex/debt deduction
 
   // Notes & Source
   notes               String?

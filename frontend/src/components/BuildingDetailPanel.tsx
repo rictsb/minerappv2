@@ -249,6 +249,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
   const [splitLeaseEdits, setSplitLeaseEdits] = useState<Record<string, Record<string, any>>>({});
   // Factor overrides
   const [factorOverrides, setFactorOverrides] = useState<Record<string, number>>({});
+  const [capexInFinancials, setCapexInFinancials] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
   const { data, isLoading, error } = useQuery({
@@ -364,6 +365,8 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       const fd = data.factorDetails || {};
       const bld = data.building || {};
 
+      setCapexInFinancials(!!bld.capexInFinancials);
+
       setLeaseEdits({
         tenant: ld.tenant || '',
         leaseStructure: ld.leaseStructure || 'NNN',
@@ -458,6 +461,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         ownershipMultOverride: factorOverrides.ownership !== (fd.ownership?.auto ?? 1) ? factorOverrides.ownership : null,
         tierMultOverride: factorOverrides.datacenterTier !== (fd.datacenterTier?.auto ?? 1) ? factorOverrides.datacenterTier : null,
         capexPerMwOverride: factorOverrides.capexPerMw !== (fd.capexPerMw?.global ?? 10) ? factorOverrides.capexPerMw : null,
+        capexInFinancials,
       },
     });
   };
@@ -1267,17 +1271,33 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 description={factorDetails.datacenterTier?.tier || 'Tier III'}
               />
               {building.developmentPhase !== 'OPERATIONAL' && (
-                <SliderRow
-                  label="CapEx $/MW"
-                  autoValue={factorDetails.capexPerMw?.global ?? 10}
-                  currentValue={factorOverrides.capexPerMw ?? factorDetails.capexPerMw?.resolved ?? 10}
-                  onChange={(v) => handleFactorChange('capexPerMw', v)}
-                  min={0}
-                  max={30}
-                  step={0.5}
-                  format={(v) => `$${v.toFixed(1)}M`}
-                  description="building override"
-                />
+                <div className="mt-2 pt-2 border-t border-gray-700">
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <span className="text-xs font-medium text-gray-300">CapEx in Financials</span>
+                      <p className="text-[10px] text-gray-500">Financing already arranged — skip capex & implied debt deductions</p>
+                    </div>
+                    <button
+                      onClick={() => { setCapexInFinancials(!capexInFinancials); setHasChanges(true); }}
+                      className={`relative w-10 h-5 rounded-full transition-colors ${capexInFinancials ? 'bg-green-600' : 'bg-gray-600'}`}
+                    >
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${capexInFinancials ? 'translate-x-5' : ''}`} />
+                    </button>
+                  </div>
+                  {!capexInFinancials && (
+                    <SliderRow
+                      label="CapEx $/MW"
+                      autoValue={factorDetails.capexPerMw?.global ?? 10}
+                      currentValue={factorOverrides.capexPerMw ?? factorDetails.capexPerMw?.resolved ?? 10}
+                      onChange={(v) => handleFactorChange('capexPerMw', v)}
+                      min={0}
+                      max={30}
+                      step={0.5}
+                      format={(v) => `$${v.toFixed(1)}M`}
+                      description="building override"
+                    />
+                  )}
+                </div>
               )}
               {!isSplitBuilding && (
                 <>

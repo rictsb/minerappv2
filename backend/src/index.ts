@@ -210,11 +210,14 @@ function computePeriodValuation(
   const periodFactor = buildingFactor * timeValueMult * tenantMult * leaseStructMult;
 
   // CapEx deduction for non-operational buildings: use-period > building > global
+  // Skip if building is operational OR if financing is already in reported financials
   const phase = building.developmentPhase || 'DILIGENCE';
   const isOperational = phase === 'OPERATIONAL';
+  const capexInFinancials = !!(building as any).capexInFinancials;
+  const skipCapex = isOperational || capexInFinancials;
   const resolvedCapexPerMw = Number(up.capexPerMwOverride) || Number(building.capexPerMwOverride) || (f.capexPerMw ?? 10);
   const debtFundingPct = f.debtFundingPct ?? 0.65;
-  const equityCapex = isOperational ? 0 : resolvedCapexPerMw * (1 - debtFundingPct) * periodMw;
+  const equityCapex = skipCapex ? 0 : resolvedCapexPerMw * (1 - debtFundingPct) * periodMw;
 
   const useType = up.useType || 'UNCONTRACTED';
   const hasLease = up.tenant && up.leaseValueM;
@@ -343,6 +346,7 @@ app.get('/api/v1/companies', async (req, res) => {
             const bFactor = computeBuildingFactor(bld, siteTotalMw, helpers);
             const phase = bld.developmentPhase || 'DILIGENCE';
             const isOp = phase === 'OPERATIONAL';
+            const skipCapex = isOp || !!(bld as any).capexInFinancials;
 
             const currentUses = (bld.usePeriods || []).filter((up: any) => up.isCurrent);
             const explicitAlloc = currentUses.reduce((s: number, up: any) => s + (Number(up.mwAllocation) || 0), 0);
@@ -351,7 +355,7 @@ app.get('/api/v1/companies', async (req, res) => {
               const mw = computePeriodMw(up, buildingMw, currentUses, explicitAlloc);
               const result = computePeriodValuation(up, mw, bld, bFactor, helpers, f);
               (up as any).computedValuationM = result.valuationM;
-              if (!isOp) {
+              if (!skipCapex) {
                 const resolvedCapex = Number(up.capexPerMwOverride) || Number(bld.capexPerMwOverride) || (f.capexPerMw ?? 10);
                 companyImpliedDebt += resolvedCapex * (f.debtFundingPct ?? 0.65) * mw;
               }
@@ -362,7 +366,7 @@ app.get('/api/v1/companies', async (req, res) => {
               const timeVal = helpers.getTimeValueMult(null, bld.energizationDate);
               const pipelineVal = buildingMw * (f.mwValueHpcUncontracted ?? 8) * bFactor * timeVal;
               (bld as any).computedValuationM = isFinite(pipelineVal) ? pipelineVal : 0;
-              if (!isOp) {
+              if (!skipCapex) {
                 const resolvedCapex = Number(bld.capexPerMwOverride) || (f.capexPerMw ?? 10);
                 companyImpliedDebt += resolvedCapex * (f.debtFundingPct ?? 0.65) * buildingMw;
               }
@@ -377,7 +381,7 @@ app.get('/api/v1/companies', async (req, res) => {
                 const pipelineVal = unallocMw * (f.mwValueHpcUncontracted ?? 8) * bFactor * timeVal;
                 (bld as any).unallocatedMw = unallocMw;
                 (bld as any).unallocatedValuationM = isFinite(pipelineVal) ? pipelineVal : 0;
-                if (!isOp) {
+                if (!skipCapex) {
                   const resolvedCapex = Number(bld.capexPerMwOverride) || (f.capexPerMw ?? 10);
                   companyImpliedDebt += resolvedCapex * (f.debtFundingPct ?? 0.65) * unallocMw;
                 }
@@ -1240,8 +1244,11 @@ app.get('/api/v1/valuation', async (req, res) => {
             const currentUses = building.usePeriods.filter((up: any) => up.isCurrent);
 
             // Accumulate implied project debt for non-operational buildings
+            // Skip if operational OR financing already in reported financials
             const phase = (building as any).developmentPhase || 'DILIGENCE';
             const isOperational = phase === 'OPERATIONAL';
+            const bldCapexInFinancials = !!(building as any).capexInFinancials;
+            const skipCapexDeductions = isOperational || bldCapexInFinancials;
 
             if (currentUses.length === 0) {
               const timeVal = helpers.getTimeValueMult(null, building.energizationDate);
@@ -1250,7 +1257,7 @@ app.get('/api/v1/valuation', async (req, res) => {
               evHpcPipeline += pipelineVal;
               periodValuations.push({ buildingId: building.id, usePeriodId: null, valuationM: pipelineVal });
               // Implied debt for entire building MW
-              if (!isOperational) {
+              if (!skipCapexDeductions) {
                 const resolvedCapex = Number((building as any).capexPerMwOverride) || (factors.capexPerMw ?? 10);
                 impliedProjectDebtM += resolvedCapex * (factors.debtFundingPct ?? 0.65) * buildingMw;
               }
@@ -1288,7 +1295,7 @@ app.get('/api/v1/valuation', async (req, res) => {
                 periodValuations.push({ buildingId: building.id, usePeriodId: currentUse.id, valuationM: result.valuationM });
 
                 // Implied debt for this period's MW
-                if (!isOperational) {
+                if (!skipCapexDeductions) {
                   const resolvedCapex = Number(currentUse.capexPerMwOverride) || Number((building as any).capexPerMwOverride) || (factors.capexPerMw ?? 10);
                   impliedProjectDebtM += resolvedCapex * (factors.debtFundingPct ?? 0.65) * mw;
                 }
@@ -1304,7 +1311,7 @@ app.get('/api/v1/valuation', async (req, res) => {
                 evHpcPipeline += pipelineVal;
                 periodValuations.push({ buildingId: building.id, usePeriodId: null, valuationM: pipelineVal });
                 // Implied debt for unallocated remainder
-                if (!isOperational) {
+                if (!skipCapexDeductions) {
                   const resolvedCapex = Number((building as any).capexPerMwOverride) || (factors.capexPerMw ?? 10);
                   impliedProjectDebtM += resolvedCapex * (factors.debtFundingPct ?? 0.65) * unallocMw;
                 }
@@ -1535,11 +1542,12 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
       const grossVal = unallocatedMw * pipelineRate;
       const pFactor = bFactor * timeVal;
       const valM = grossVal * pFactor;
-      // CapEx deduction for unallocated pipeline (non-operational)
+      // CapEx deduction for unallocated pipeline (non-operational, financing not yet arranged)
       const phase = building.developmentPhase || 'DILIGENCE';
       const isOp = phase === 'OPERATIONAL';
+      const bldCapexInFin = !!(building as any).capexInFinancials;
       const resolvedCapex = Number(building.capexPerMwOverride) || (factors.capexPerMw ?? 10);
-      const equityCapex = isOp ? 0 : resolvedCapex * (1 - (factors.debtFundingPct ?? 0.65)) * unallocatedMw;
+      const equityCapex = (isOp || bldCapexInFin) ? 0 : resolvedCapex * (1 - (factors.debtFundingPct ?? 0.65)) * unallocatedMw;
       const netValM = Math.max(0, valM - equityCapex);
       periodValuations.push({
         usePeriodId: null,
@@ -1745,6 +1753,7 @@ app.patch('/api/v1/buildings/:id/valuation-details', async (req, res) => {
       if (factors.ownershipMultOverride !== undefined) buildingUpdate.ownershipMultOverride = factors.ownershipMultOverride;
       if (factors.tierMultOverride !== undefined) buildingUpdate.tierMultOverride = factors.tierMultOverride;
       if (factors.capexPerMwOverride !== undefined) buildingUpdate.capexPerMwOverride = factors.capexPerMwOverride;
+      if (factors.capexInFinancials !== undefined) buildingUpdate.capexInFinancials = factors.capexInFinancials;
     }
 
     // Update building if there are changes
@@ -1867,6 +1876,14 @@ httpServer.listen(PORT, async () => {
       console.log('✅ Ensured capexPerMwOverride columns exist');
     } catch (e) {
       console.log('capexPerMwOverride columns may already exist:', (e as any).message);
+    }
+
+    // Add capexInFinancials boolean column
+    try {
+      await prisma.$executeRawUnsafe(`ALTER TABLE buildings ADD COLUMN IF NOT EXISTS "capexInFinancials" BOOLEAN NOT NULL DEFAULT false`);
+      console.log('✅ Ensured capexInFinancials column exists');
+    } catch (e) {
+      console.log('capexInFinancials column may already exist:', (e as any).message);
     }
   } catch (e) {
     console.error('Migration error (non-fatal):', e);
