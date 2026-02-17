@@ -34,6 +34,7 @@ interface Valuation {
   evHpcPipeline: number;
   evGpu: number;
   totalEv: number;
+  impliedProjectDebtM?: number;
   totalValueM: number;
   fairValuePerShare: number | null;
   totalLeaseValueM?: number;
@@ -104,8 +105,9 @@ export default function Dashboard() {
       evHpcPipeline: acc.evHpcPipeline + v.evHpcPipeline,
       evGpu: acc.evGpu + v.evGpu,
       totalEv: acc.totalEv + v.totalEv,
+      impliedProjectDebt: acc.impliedProjectDebt + (v.impliedProjectDebtM ?? 0),
     }),
-    { evMining: 0, evHpcContracted: 0, evHpcPipeline: 0, evGpu: 0, totalEv: 0 }
+    { evMining: 0, evHpcContracted: 0, evHpcPipeline: 0, evGpu: 0, totalEv: 0, impliedProjectDebt: 0 }
   );
 
   if (isLoading) {
@@ -171,7 +173,7 @@ export default function Dashboard() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className={`grid grid-cols-1 gap-4 mb-6 ${totals.impliedProjectDebt > 0 ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
         <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
           <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Mining EV</p>
           <p className="text-2xl font-bold text-orange-500">${formatNumber(totals.evMining)}M</p>
@@ -184,6 +186,12 @@ export default function Dashboard() {
           <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">HPC Pipeline EV</p>
           <p className="text-2xl font-bold text-purple-300">${formatNumber(totals.evHpcPipeline)}M</p>
         </div>
+        {totals.impliedProjectDebt > 0 && (
+          <div className="bg-gray-800 border border-rose-900/50 rounded-lg p-4">
+            <p className="text-xs text-rose-400 uppercase tracking-wider mb-1">Implied Project Debt</p>
+            <p className="text-2xl font-bold text-rose-400">−${formatNumber(totals.impliedProjectDebt)}M</p>
+          </div>
+        )}
         <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
           <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Total EV</p>
           <p className="text-2xl font-bold text-orange-500">${formatNumber(totals.totalEv)}M</p>
@@ -322,6 +330,14 @@ export default function Dashboard() {
                                 ${formatNumber(v.netLiquid ?? 0, 0)}M
                               </span>
                             </div>
+                            {(v.impliedProjectDebtM ?? 0) > 0 && (
+                              <div>
+                                <span className="text-gray-500">Implied Project Debt:</span>{' '}
+                                <span className="font-mono text-rose-400">
+                                  −${formatNumber(v.impliedProjectDebtM ?? 0, 0)}M
+                                </span>
+                              </div>
+                            )}
                           </div>
                           {/* HPC Sites detail table */}
                           {Array.isArray(v.hpcSites) && v.hpcSites.length > 0 ? (

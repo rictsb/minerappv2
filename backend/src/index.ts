@@ -327,6 +327,8 @@ app.get('/api/v1/companies', async (req, res) => {
 
     // --- Compute per-period valuations and attach to response ---
     const enriched = companies.map((company: any) => {
+      let companyImpliedDebt = 0;
+
       for (const site of (company.sites || [])) {
         let siteTotalMw = 0;
         for (const campus of (site.campuses || [])) {
@@ -339,6 +341,8 @@ app.get('/api/v1/companies', async (req, res) => {
           for (const bld of (campus.buildings || [])) {
             const buildingMw = Number(bld.itMw) || 0;
             const bFactor = computeBuildingFactor(bld, siteTotalMw, helpers);
+            const phase = bld.developmentPhase || 'DILIGENCE';
+            const isOp = phase === 'OPERATIONAL';
 
             const currentUses = (bld.usePeriods || []).filter((up: any) => up.isCurrent);
             const explicitAlloc = currentUses.reduce((s: number, up: any) => s + (Number(up.mwAllocation) || 0), 0);
@@ -347,6 +351,10 @@ app.get('/api/v1/companies', async (req, res) => {
               const mw = computePeriodMw(up, buildingMw, currentUses, explicitAlloc);
               const result = computePeriodValuation(up, mw, bld, bFactor, helpers, f);
               (up as any).computedValuationM = result.valuationM;
+              if (!isOp) {
+                const resolvedCapex = Number(up.capexPerMwOverride) || Number(bld.capexPerMwOverride) || (f.capexPerMw ?? 10);
+                companyImpliedDebt += resolvedCapex * (f.debtFundingPct ?? 0.65) * mw;
+              }
             }
 
             // For buildings with no use periods, treat as pipeline
@@ -354,6 +362,10 @@ app.get('/api/v1/companies', async (req, res) => {
               const timeVal = helpers.getTimeValueMult(null, bld.energizationDate);
               const pipelineVal = buildingMw * (f.mwValueHpcUncontracted ?? 8) * bFactor * timeVal;
               (bld as any).computedValuationM = isFinite(pipelineVal) ? pipelineVal : 0;
+              if (!isOp) {
+                const resolvedCapex = Number(bld.capexPerMwOverride) || (f.capexPerMw ?? 10);
+                companyImpliedDebt += resolvedCapex * (f.debtFundingPct ?? 0.65) * buildingMw;
+              }
             }
 
             // For split buildings with unallocated remainder, add synthetic entry
@@ -365,11 +377,17 @@ app.get('/api/v1/companies', async (req, res) => {
                 const pipelineVal = unallocMw * (f.mwValueHpcUncontracted ?? 8) * bFactor * timeVal;
                 (bld as any).unallocatedMw = unallocMw;
                 (bld as any).unallocatedValuationM = isFinite(pipelineVal) ? pipelineVal : 0;
+                if (!isOp) {
+                  const resolvedCapex = Number(bld.capexPerMwOverride) || (f.capexPerMw ?? 10);
+                  companyImpliedDebt += resolvedCapex * (f.debtFundingPct ?? 0.65) * unallocMw;
+                }
               }
             }
           }
         }
       }
+
+      (company as any).impliedProjectDebtM = Math.round(companyImpliedDebt);
       return company;
     });
 
@@ -1201,6 +1219,7 @@ app.get('/api/v1/valuation', async (req, res) => {
       let evHpcPipeline = 0;
       const hpcSites: any[] = [];
       let totalLeaseValueM = 0;
+      let impliedProjectDebtM = 0;
       const periodValuations: { buildingId: string; usePeriodId: string | null; valuationM: number }[] = [];
 
       for (const site of company.sites) {
@@ -1220,12 +1239,21 @@ app.get('/api/v1/valuation', async (req, res) => {
             const bFactor = computeBuildingFactor(building, siteTotalMw, helpers);
             const currentUses = building.usePeriods.filter((up: any) => up.isCurrent);
 
+            // Accumulate implied project debt for non-operational buildings
+            const phase = (building as any).developmentPhase || 'DILIGENCE';
+            const isOperational = phase === 'OPERATIONAL';
+
             if (currentUses.length === 0) {
               const timeVal = helpers.getTimeValueMult(null, building.energizationDate);
               const pipelineVal = buildingMw * (factors.mwValueHpcUncontracted ?? 8) * bFactor * timeVal;
               mwHpcPipeline += buildingMw;
               evHpcPipeline += pipelineVal;
               periodValuations.push({ buildingId: building.id, usePeriodId: null, valuationM: pipelineVal });
+              // Implied debt for entire building MW
+              if (!isOperational) {
+                const resolvedCapex = Number((building as any).capexPerMwOverride) || (factors.capexPerMw ?? 10);
+                impliedProjectDebtM += resolvedCapex * (factors.debtFundingPct ?? 0.65) * buildingMw;
+              }
             } else {
               const explicitlyAllocated = currentUses.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
 
@@ -1258,6 +1286,12 @@ app.get('/api/v1/valuation', async (req, res) => {
                 }
 
                 periodValuations.push({ buildingId: building.id, usePeriodId: currentUse.id, valuationM: result.valuationM });
+
+                // Implied debt for this period's MW
+                if (!isOperational) {
+                  const resolvedCapex = Number(currentUse.capexPerMwOverride) || Number((building as any).capexPerMwOverride) || (factors.capexPerMw ?? 10);
+                  impliedProjectDebtM += resolvedCapex * (factors.debtFundingPct ?? 0.65) * mw;
+                }
               }
 
               // Add unallocated remainder as pipeline
@@ -1269,6 +1303,11 @@ app.get('/api/v1/valuation', async (req, res) => {
                 mwHpcPipeline += unallocMw;
                 evHpcPipeline += pipelineVal;
                 periodValuations.push({ buildingId: building.id, usePeriodId: null, valuationM: pipelineVal });
+                // Implied debt for unallocated remainder
+                if (!isOperational) {
+                  const resolvedCapex = Number((building as any).capexPerMwOverride) || (factors.capexPerMw ?? 10);
+                  impliedProjectDebtM += resolvedCapex * (factors.debtFundingPct ?? 0.65) * unallocMw;
+                }
               }
             }
           }
@@ -1276,7 +1315,7 @@ app.get('/api/v1/valuation', async (req, res) => {
       }
 
       const totalEv = (evMining || 0) + (evHpcContracted || 0) + (evHpcPipeline || 0);
-      const totalValueM = (netLiquid || 0) + totalEv;
+      const totalValueM = (netLiquid || 0) + totalEv - impliedProjectDebtM;
       const fdSharesM = Number(company.fdSharesM) || 0;
       const fairValuePerShare = fdSharesM > 0 ? totalValueM / fdSharesM : null;
 
@@ -1292,6 +1331,7 @@ app.get('/api/v1/valuation', async (req, res) => {
         evHpcPipeline: Math.round(evHpcPipeline),
         evGpu: 0,
         totalEv: Math.round(totalEv),
+        impliedProjectDebtM: Math.round(impliedProjectDebtM),
         totalValueM: Math.round(totalValueM),
         fairValuePerShare: fairValuePerShare !== null ? Math.round(fairValuePerShare * 100) / 100 : null,
         totalLeaseValueM: Math.round(totalLeaseValueM),
