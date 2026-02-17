@@ -948,7 +948,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                   Add Split
                 </button>
                 <button
-                  onClick={() => { setSplitType('transition'); setShowSplitModal(true); setNewUsePeriod({ isCurrent: false }); }}
+                  onClick={() => { setSplitType('transition'); setShowSplitModal(true); setNewUsePeriod({ isCurrent: true }); }}
                   className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-blue-600/20 border border-blue-600/50 text-blue-400 rounded hover:bg-blue-600/30 text-xs"
                 >
                   <Calendar className="h-3 w-3" />
@@ -1537,7 +1537,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 onClick={() => {
                   const payload: Record<string, any> = {
                     buildingId,
-                    isCurrent: splitType === 'split',
+                    isCurrent: true,
                     isSplit: splitType === 'split',
                     useType: newUsePeriod.useType || 'HPC_AI_HOSTING',
                     tenant: newUsePeriod.tenant || null,

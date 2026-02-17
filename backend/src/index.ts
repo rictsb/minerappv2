@@ -1582,13 +1582,9 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
       const grossVal = unallocatedMw * pipelineRate;
       const pFactor = bFactor * timeVal;
       const valM = grossVal * pFactor;
-      // CapEx deduction for unallocated pipeline (non-operational, financing not yet arranged)
-      const phase = building.developmentPhase || 'DILIGENCE';
-      const isOp = phase === 'OPERATIONAL';
-      const bldCapexInFin = !!(building as any).capexInFinancials;
-      const resolvedCapex = Number(building.capexPerMwOverride) || (factors.capexPerMw ?? 10);
-      const equityCapex = (isOp || bldCapexInFin) ? 0 : resolvedCapex * (1 - (factors.debtFundingPct ?? 0.65)) * unallocatedMw;
-      const netValM = Math.max(0, valM - equityCapex);
+      // No capex deduction for unallocated pipeline — capex only applies when a lease exists
+      const equityCapex = 0;
+      const netValM = valM;
       periodValuations.push({
         usePeriodId: null,
         tenant: 'Unallocated Pipeline',
