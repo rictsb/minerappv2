@@ -829,10 +829,19 @@ app.get('/api/v1/net-liquid-assets', async (req, res) => {
 
 app.post('/api/v1/net-liquid-assets', async (req, res) => {
   try {
+    const { ticker, cashM, btcCount, ethCount, totalDebtM, sourceDate, notes } = req.body;
+    const data: Record<string, any> = {};
+    if (cashM !== undefined) data.cashM = cashM;
+    if (btcCount !== undefined) data.btcCount = btcCount;
+    if (ethCount !== undefined) data.ethCount = ethCount;
+    if (totalDebtM !== undefined) data.totalDebtM = totalDebtM;
+    if (sourceDate !== undefined) data.sourceDate = sourceDate ? new Date(sourceDate) : null;
+    if (notes !== undefined) data.notes = notes;
+
     const asset = await prisma.netLiquidAssets.upsert({
-      where: { ticker: req.body.ticker },
-      update: req.body,
-      create: req.body,
+      where: { ticker },
+      update: data,
+      create: { ticker, ...data },
     });
     res.json(asset);
   } catch (error) {
@@ -843,9 +852,18 @@ app.post('/api/v1/net-liquid-assets', async (req, res) => {
 
 app.patch('/api/v1/net-liquid-assets/:ticker', async (req, res) => {
   try {
+    const { cashM, btcCount, ethCount, totalDebtM, sourceDate, notes } = req.body;
+    const data: Record<string, any> = {};
+    if (cashM !== undefined) data.cashM = cashM;
+    if (btcCount !== undefined) data.btcCount = btcCount;
+    if (ethCount !== undefined) data.ethCount = ethCount;
+    if (totalDebtM !== undefined) data.totalDebtM = totalDebtM;
+    if (sourceDate !== undefined) data.sourceDate = sourceDate ? new Date(sourceDate) : null;
+    if (notes !== undefined) data.notes = notes;
+
     const asset = await prisma.netLiquidAssets.update({
       where: { ticker: req.params.ticker },
-      data: req.body,
+      data,
     });
     res.json(asset);
   } catch (error) {
