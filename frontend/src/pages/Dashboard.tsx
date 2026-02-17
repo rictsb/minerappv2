@@ -331,11 +331,33 @@ export default function Dashboard() {
                               </span>
                             </div>
                             {(v.impliedProjectDebtM ?? 0) > 0 && (
-                              <div>
-                                <span className="text-gray-500">Implied Project Debt:</span>{' '}
-                                <span className="font-mono text-rose-400">
-                                  −${formatNumber(v.impliedProjectDebtM ?? 0, 0)}M
-                                </span>
+                              <div className="flex items-center gap-3">
+                                <div>
+                                  <span className="text-gray-500">Implied Project Debt:</span>{' '}
+                                  <span className="font-mono text-rose-400">
+                                    −${formatNumber(v.impliedProjectDebtM ?? 0, 0)}M
+                                  </span>
+                                </div>
+                                <button
+                                  className="text-[10px] px-2 py-0.5 rounded bg-rose-900/40 text-rose-300 hover:bg-rose-800/60 transition-colors"
+                                  title="Mark all buildings' capex as already in reported financials — removes implied project debt"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    try {
+                                      await fetch(`${getApiUrl()}/api/v1/companies/${v.ticker}/capex-in-financials`, {
+                                        method: 'PATCH',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ value: true }),
+                                      });
+                                      queryClient.invalidateQueries({ queryKey: ['valuation'] });
+                                      queryClient.invalidateQueries({ queryKey: ['companies'] });
+                                    } catch (err) {
+                                      console.error('Failed to set capexInFinancials:', err);
+                                    }
+                                  }}
+                                >
+                                  CapEx in Financials
+                                </button>
                               </div>
                             )}
                           </div>

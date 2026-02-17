@@ -446,6 +446,40 @@ app.put('/api/v1/companies/:ticker', async (req, res) => {
   }
 });
 
+// Bulk-set capexInFinancials for ALL buildings of a company
+app.patch('/api/v1/companies/:ticker/capex-in-financials', async (req, res) => {
+  try {
+    const { value } = req.body; // boolean
+    if (typeof value !== 'boolean') {
+      return res.status(400).json({ error: 'value must be a boolean' });
+    }
+    // Get all building IDs for this company through the site→campus→building chain
+    const sites = await prisma.site.findMany({
+      where: { companyTicker: req.params.ticker },
+      include: { campuses: { include: { buildings: { select: { id: true } } } } },
+    });
+    const buildingIds: string[] = [];
+    for (const site of sites) {
+      for (const campus of site.campuses) {
+        for (const bld of campus.buildings) {
+          buildingIds.push(bld.id);
+        }
+      }
+    }
+    if (buildingIds.length === 0) {
+      return res.json({ updated: 0 });
+    }
+    const result = await prisma.building.updateMany({
+      where: { id: { in: buildingIds } },
+      data: { capexInFinancials: value },
+    });
+    res.json({ updated: result.count, value });
+  } catch (error) {
+    console.error('Error bulk-setting capexInFinancials:', error);
+    res.status(500).json({ error: 'Failed to update' });
+  }
+});
+
 // ===========================================
 // SITES API
 // ===========================================
