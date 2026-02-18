@@ -211,6 +211,7 @@ function computePeriodValuation(
 
   // CapEx deduction logic:
   // - If use-period has its own capexPerMwOverride → always deduct (conversion/transition capex)
+  // - Planned transitions (isCurrent=false) with a lease → always deduct (conversion capex for HPC)
   // - Otherwise skip if: operational, capexInFinancials, or no lease
   const phase = building.developmentPhase || 'DILIGENCE';
   const isOperational = phase === 'OPERATIONAL';
@@ -218,6 +219,7 @@ function computePeriodValuation(
   const useType = up.useType || 'UNCONTRACTED';
   const hasLease = up.tenant && up.leaseValueM;
   const hasPerPeriodCapex = !!Number(up.capexPerMwOverride); // explicit conversion capex on this period
+  const isPlannedTransition = !up.isCurrent; // planned future transition (not yet activated)
   // Always compute capex values for informational display
   const resolvedCapexPerMw = Number(up.capexPerMwOverride) || Number(building.capexPerMwOverride) || (f.capexPerMw ?? 10);
   const debtFundingPct = f.debtFundingPct ?? 0.80;
@@ -225,9 +227,10 @@ function computePeriodValuation(
   const equityCapexM = resolvedCapexPerMw * (1 - debtFundingPct) * periodMw;
   const debtCapexM = resolvedCapexPerMw * debtFundingPct * periodMw;
   // If period has its own capex override (e.g., conversion capex for transition), always deduct
+  // Planned transitions with leases always deduct (implies conversion capex even on operational buildings)
   // Otherwise, only deduct when there's a lease on a non-operational building
-  const skipCapex = hasPerPeriodCapex ? false : (isOperational || capexInFinancials || !hasLease);
-  const capexSkipReason = hasPerPeriodCapex ? null : (isOperational ? 'operational' : capexInFinancials ? 'in_financials' : !hasLease ? 'no_lease' : null);
+  const skipCapex = hasPerPeriodCapex ? false : (isPlannedTransition && hasLease) ? false : (isOperational || capexInFinancials || !hasLease);
+  const capexSkipReason = hasPerPeriodCapex ? null : (isPlannedTransition && hasLease) ? null : (isOperational ? 'operational' : capexInFinancials ? 'in_financials' : !hasLease ? 'no_lease' : null);
   const equityCapexDeducted = skipCapex ? 0 : equityCapexM;
 
   const makeResult = (val: number, method: string, grossValue: number, noiAnnual: number, capRate: number) => {
@@ -354,7 +357,7 @@ app.get('/api/v1/companies', async (req, res) => {
             const bFactor = computeBuildingFactor(bld, siteTotalMw, helpers);
             const phase = bld.developmentPhase || 'DILIGENCE';
             const isOp = phase === 'OPERATIONAL';
-            const skipCapex = isOp || !!(bld as any).capexInFinancials;
+            const bldCapexInFin = !!(bld as any).capexInFinancials;
 
             // Include current + planned transitions (no endDate) in valuation
             const currentUses = (bld.usePeriods || []).filter((up: any) => up.isCurrent || (!up.isCurrent && !up.endDate));
@@ -364,9 +367,13 @@ app.get('/api/v1/companies', async (req, res) => {
               const mw = computePeriodMw(up, buildingMw, currentUses, explicitAlloc);
               const result = computePeriodValuation(up, mw, bld, bFactor, helpers, f);
               (up as any).computedValuationM = result.valuationM;
-              // Only accumulate implied debt when there's a lease (not pipeline)
+              // Accumulate implied debt: deduct when there's a lease and capex is not skipped
+              // Planned transitions with leases always get implied debt (conversion capex)
               const upHasLease = up.tenant && up.leaseValueM;
-              if (!skipCapex && upHasLease) {
+              const hasPerPeriodCapex = !!Number(up.capexPerMwOverride);
+              const isPlannedTransition = !up.isCurrent;
+              const skipDebt = hasPerPeriodCapex ? false : (isPlannedTransition && upHasLease) ? false : (isOp || bldCapexInFin);
+              if (!skipDebt && upHasLease) {
                 const resolvedCapex = Number(up.capexPerMwOverride) || Number(bld.capexPerMwOverride) || (f.capexPerMw ?? 10);
                 companyImpliedDebt += resolvedCapex * (f.debtFundingPct ?? 0.80) * mw;
               }
@@ -1333,10 +1340,10 @@ app.get('/api/v1/valuation', async (req, res) => {
 
             // Accumulate implied project debt for non-operational buildings
             // Skip if operational OR financing already in reported financials
+            // Exception: planned transitions with leases always get capex (conversion capex)
             const phase = (building as any).developmentPhase || 'DILIGENCE';
             const isOperational = phase === 'OPERATIONAL';
             const bldCapexInFinancials = !!(building as any).capexInFinancials;
-            const skipCapexDeductions = isOperational || bldCapexInFinancials;
 
             if (currentUses.length === 0) {
               const timeVal = helpers.getTimeValueMult(null, building.energizationDate);
@@ -1379,7 +1386,11 @@ app.get('/api/v1/valuation', async (req, res) => {
                 periodValuations.push({ buildingId: building.id, usePeriodId: currentUse.id, valuationM: result.valuationM });
 
                 // Implied debt for this period's MW — only when a lease exists (not pipeline)
-                if (!skipCapexDeductions && hasLease) {
+                // Planned transitions with leases always get implied debt (conversion capex)
+                const hasPerPeriodCapexV = !!Number(currentUse.capexPerMwOverride);
+                const isPlannedTransitionV = !currentUse.isCurrent;
+                const skipDebtV = hasPerPeriodCapexV ? false : (isPlannedTransitionV && hasLease) ? false : (isOperational || bldCapexInFinancials);
+                if (!skipDebtV && hasLease) {
                   const resolvedCapex = Number(currentUse.capexPerMwOverride) || Number((building as any).capexPerMwOverride) || (factors.capexPerMw ?? 10);
                   impliedProjectDebtM += resolvedCapex * (factors.debtFundingPct ?? 0.80) * mw;
                 }
