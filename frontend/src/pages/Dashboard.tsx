@@ -20,6 +20,7 @@ interface HpcSite {
   noiAnnualM: number;
   valuation: number;
   phase: string;
+  dollarsPerMwYr?: number;
 }
 
 interface Valuation {
@@ -99,15 +100,19 @@ export default function Dashboard() {
 
   // Calculate totals
   const totals = valuations.reduce(
-    (acc, v) => ({
-      evMining: acc.evMining + v.evMining,
-      evHpcContracted: acc.evHpcContracted + v.evHpcContracted,
-      evHpcPipeline: acc.evHpcPipeline + v.evHpcPipeline,
-      evGpu: acc.evGpu + v.evGpu,
-      totalEv: acc.totalEv + v.totalEv,
-      impliedProjectDebt: acc.impliedProjectDebt + (v.impliedProjectDebtM ?? 0),
-    }),
-    { evMining: 0, evHpcContracted: 0, evHpcPipeline: 0, evGpu: 0, totalEv: 0, impliedProjectDebt: 0 }
+    (acc, v) => {
+      const mktCap = v.stockPrice && v.fdSharesM ? v.stockPrice * v.fdSharesM : 0;
+      return {
+        marketCapM: acc.marketCapM + mktCap,
+        totalValueM: acc.totalValueM + (v.totalValueM || 0),
+        evMining: acc.evMining + v.evMining,
+        evHpcContracted: acc.evHpcContracted + v.evHpcContracted,
+        evHpcPipeline: acc.evHpcPipeline + v.evHpcPipeline,
+        totalEv: acc.totalEv + v.totalEv,
+        impliedProjectDebt: acc.impliedProjectDebt + (v.impliedProjectDebtM ?? 0),
+      };
+    },
+    { marketCapM: 0, totalValueM: 0, evMining: 0, evHpcContracted: 0, evHpcPipeline: 0, totalEv: 0, impliedProjectDebt: 0 }
   );
 
   if (isLoading) {
@@ -206,15 +211,18 @@ export default function Dashboard() {
               <tr className="border-b border-gray-700">
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Ticker</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Price</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Mkt Cap</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Net Liquid</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">IT MW</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-orange-500 uppercase tracking-wider" colSpan={4}>
+                <th className="px-4 py-3 text-center text-xs font-medium text-orange-500 uppercase tracking-wider" colSpan={3}>
                   Enterprise Value ($M)
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Fair Value</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Upside</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">$/MW/yr</th>
               </tr>
               <tr className="border-b border-gray-600 bg-gray-800/50">
+                <th className="px-4 py-2"></th>
                 <th className="px-4 py-2"></th>
                 <th className="px-4 py-2"></th>
                 <th className="px-4 py-2"></th>
@@ -222,7 +230,7 @@ export default function Dashboard() {
                 <th className="px-4 py-2 text-right text-xs font-normal text-orange-400/70">Mining</th>
                 <th className="px-4 py-2 text-right text-xs font-normal text-purple-400/70">Contracted</th>
                 <th className="px-4 py-2 text-right text-xs font-normal text-purple-300/70">Pipeline</th>
-                <th className="px-4 py-2 text-right text-xs font-normal text-blue-400/70">GPU</th>
+                <th className="px-4 py-2"></th>
                 <th className="px-4 py-2"></th>
                 <th className="px-4 py-2"></th>
               </tr>
@@ -233,6 +241,12 @@ export default function Dashboard() {
                 const upside = v.stockPrice && v.stockPrice > 0 && v.fairValuePerShare
                   ? ((v.fairValuePerShare / v.stockPrice) - 1) * 100
                   : null;
+                // Market cap ($M)
+                const marketCapM = v.stockPrice && v.fdSharesM ? v.stockPrice * v.fdSharesM : null;
+                // $/MW/yr: total HPC NOI / total contracted MW
+                const totalHpcNoi = v.hpcSites?.reduce((sum, s) => sum + (s.noiAnnualM || 0), 0) || 0;
+                const totalHpcMw = v.hpcSites?.reduce((sum, s) => sum + (s.mw || 0), 0) || 0;
+                const dollarPerMwYr = totalHpcMw > 0 ? totalHpcNoi / totalHpcMw : null;
                 const isExpanded = expandedTickers.has(v.ticker);
                 const toggleExpand = (e: React.MouseEvent) => {
                   e.stopPropagation();
@@ -263,6 +277,9 @@ export default function Dashboard() {
                       <td className="px-4 py-3 text-right font-mono text-green-400">
                         {v.stockPrice ? formatMoney(v.stockPrice) : '-'}
                       </td>
+                      <td className="px-4 py-3 text-right font-mono text-gray-300">
+                        {marketCapM ? `$${formatNumber(marketCapM, 0)}M` : '-'}
+                      </td>
                       <td className={`px-4 py-3 text-right font-mono ${v.netLiquid >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                         {formatNumber(v.netLiquid, 0)}
                       </td>
@@ -277,9 +294,6 @@ export default function Dashboard() {
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-purple-300">
                         {v.evHpcPipeline > 0 ? formatNumber(v.evHpcPipeline, 0) : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-blue-400">
-                        {v.evGpu > 0 ? formatNumber(v.evGpu, 0) : '-'}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-orange-500 font-semibold">
                         {v.fairValuePerShare ? formatMoney(v.fairValuePerShare) : '-'}
@@ -300,10 +314,13 @@ export default function Dashboard() {
                           <span className="text-gray-600">-</span>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-right font-mono text-cyan-300">
+                        {dollarPerMwYr !== null ? `$${formatNumber(dollarPerMwYr, 2)}M` : '-'}
+                      </td>
                     </tr>
                     {isExpanded && (
                       <tr className="bg-gray-850">
-                        <td colSpan={10} className="px-6 py-4 bg-gray-800/60">
+                        <td colSpan={11} className="px-6 py-4 bg-gray-800/60">
                           {/* Summary stats */}
                           <div className="flex items-center gap-8 mb-3 text-xs">
                             <div>
@@ -374,18 +391,22 @@ export default function Dashboard() {
                                   <th className="py-1.5 text-right text-gray-500 font-medium">Lease Value ($M)</th>
                                   <th className="py-1.5 text-right text-gray-500 font-medium">NOI ($M/yr)</th>
                                   <th className="py-1.5 text-right text-gray-500 font-medium">Valuation ($M)</th>
+                                  <th className="py-1.5 text-right text-gray-500 font-medium">$/MW/yr</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-gray-700/50">
-                                {v.hpcSites.map((site, i) => (
+                                {v.hpcSites.map((site, i) => {
+                                  const siteNoiPerMw = site.mw > 0 && site.noiAnnualM > 0 ? site.noiAnnualM / site.mw : null;
+                                  return (
                                   <tr key={i} className="hover:bg-gray-700/30">
                                     <td className="py-1.5 text-gray-300">{site.siteName}</td>
                                     <td className="py-1.5 text-gray-400">{site.buildingName}</td>
                                     <td className="py-1.5 text-cyan-400">{site.tenant || '-'}</td>
                                     <td className="py-1.5">
                                       <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                        site.phase === 'Operating' ? 'bg-green-900/50 text-green-400' :
-                                        site.phase === 'Under Construction' ? 'bg-yellow-900/50 text-yellow-400' :
+                                        site.phase === 'OPERATIONAL' ? 'bg-green-900/50 text-green-400' :
+                                        site.phase === 'CONSTRUCTION' ? 'bg-yellow-900/50 text-yellow-400' :
+                                        site.phase === 'DEVELOPMENT' ? 'bg-blue-900/50 text-blue-400' :
                                         'bg-gray-700 text-gray-400'
                                       }`}>
                                         {site.phase}
@@ -401,8 +422,12 @@ export default function Dashboard() {
                                     <td className="py-1.5 text-right font-mono text-orange-400">
                                       {formatNumber(site.valuation, 0)}
                                     </td>
+                                    <td className="py-1.5 text-right font-mono text-cyan-300">
+                                      {siteNoiPerMw !== null ? `$${formatNumber(siteNoiPerMw, 2)}M` : '-'}
+                                    </td>
                                   </tr>
-                                ))}
+                                  );
+                                })}
                               </tbody>
                             </table>
                           ) : (
@@ -416,7 +441,7 @@ export default function Dashboard() {
               })}
               {valuations.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="text-center py-8 text-gray-500">
+                  <td colSpan={11} className="text-center py-8 text-gray-500">
                     No companies found. Import data to get started.
                   </td>
                 </tr>
@@ -441,8 +466,8 @@ export default function Dashboard() {
           <span>HPC/AI Pipeline</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded bg-blue-400" />
-          <span>GPU Cloud</span>
+          <div className="w-3 h-3 rounded bg-cyan-300" />
+          <span>$/MW/yr (NOI)</span>
         </div>
       </div>
     </div>
