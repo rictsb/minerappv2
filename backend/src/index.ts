@@ -220,7 +220,7 @@ function computePeriodValuation(
   const hasPerPeriodCapex = !!Number(up.capexPerMwOverride); // explicit conversion capex on this period
   // Always compute capex values for informational display
   const resolvedCapexPerMw = Number(up.capexPerMwOverride) || Number(building.capexPerMwOverride) || (f.capexPerMw ?? 10);
-  const debtFundingPct = f.debtFundingPct ?? 0.65;
+  const debtFundingPct = f.debtFundingPct ?? 0.80;
   const totalCapexM = resolvedCapexPerMw * periodMw;
   const equityCapexM = resolvedCapexPerMw * (1 - debtFundingPct) * periodMw;
   const debtCapexM = resolvedCapexPerMw * debtFundingPct * periodMw;
@@ -367,7 +367,7 @@ app.get('/api/v1/companies', async (req, res) => {
               const upHasLease = up.tenant && up.leaseValueM;
               if (!skipCapex && upHasLease) {
                 const resolvedCapex = Number(up.capexPerMwOverride) || Number(bld.capexPerMwOverride) || (f.capexPerMw ?? 10);
-                companyImpliedDebt += resolvedCapex * (f.debtFundingPct ?? 0.65) * mw;
+                companyImpliedDebt += resolvedCapex * (f.debtFundingPct ?? 0.80) * mw;
               }
             }
 
@@ -1131,7 +1131,7 @@ const DEFAULT_FACTORS: Record<string, any> = {
 
   // Development costs
   capexPerMw: 10, // $10M per MW default build cost
-  debtFundingPct: 0.65, // 65% of capex financed with project debt
+  debtFundingPct: 0.80, // 80% of capex financed with project debt
 
   // Phase probabilities
   probOperational: 1.0,
@@ -1349,7 +1349,7 @@ app.get('/api/v1/valuation', async (req, res) => {
                 // Implied debt for this period's MW — only when a lease exists (not pipeline)
                 if (!skipCapexDeductions && hasLease) {
                   const resolvedCapex = Number(currentUse.capexPerMwOverride) || Number((building as any).capexPerMwOverride) || (factors.capexPerMw ?? 10);
-                  impliedProjectDebtM += resolvedCapex * (factors.debtFundingPct ?? 0.65) * mw;
+                  impliedProjectDebtM += resolvedCapex * (factors.debtFundingPct ?? 0.80) * mw;
                 }
               }
 
@@ -1539,7 +1539,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
       capexPerMw: {
         global: factors.capexPerMw ?? 10,
         buildingOverride: Number(building.capexPerMwOverride) || null,
-        debtFundingPct: factors.debtFundingPct ?? 0.65,
+        debtFundingPct: factors.debtFundingPct ?? 0.80,
         resolved: Number(building.capexPerMwOverride) || (factors.capexPerMw ?? 10),
       },
     };
