@@ -1592,15 +1592,29 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">NOI %</label>
-                <input
-                  type="number"
-                  value={newUsePeriod.noiPct || ''}
-                  onChange={(e) => setNewUsePeriod({ ...newUsePeriod, noiPct: e.target.value })}
-                  placeholder="e.g., 85"
-                  className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">NOI %</label>
+                  <input
+                    type="number"
+                    value={newUsePeriod.noiPct || ''}
+                    onChange={(e) => setNewUsePeriod({ ...newUsePeriod, noiPct: e.target.value })}
+                    placeholder="e.g., 85"
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">CapEx $/MW {splitType === 'transition' ? '(conversion)' : ''}</label>
+                  <input
+                    type="number"
+                    value={newUsePeriod.capexPerMw || ''}
+                    onChange={(e) => setNewUsePeriod({ ...newUsePeriod, capexPerMw: e.target.value })}
+                    placeholder="Default: 10"
+                    step="0.5"
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
+                  />
+                  <p className="text-[9px] text-gray-600 mt-0.5">Set to override building/global default. Forces capex deduction.</p>
+                </div>
               </div>
 
               {/* MW validation warning */}
@@ -1630,6 +1644,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                     leaseValueM: newUsePeriod.leaseValueM ? parseFloat(newUsePeriod.leaseValueM) : null,
                     leaseYears: newUsePeriod.leaseYears ? parseFloat(newUsePeriod.leaseYears) : null,
                     noiPct: newUsePeriod.noiPct ? parseFloat(newUsePeriod.noiPct) / 100 : null,
+                    capexPerMwOverride: newUsePeriod.capexPerMw ? parseFloat(newUsePeriod.capexPerMw) : null,
                     startDate: newUsePeriod.startDate ? new Date(newUsePeriod.startDate) : null,
                     leaseStart: newUsePeriod.startDate ? new Date(newUsePeriod.startDate) : null,
                   };

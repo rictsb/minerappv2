@@ -209,22 +209,25 @@ function computePeriodValuation(
   const leaseStructMult = helpers.getLeaseStructMult(up.leaseStructure ?? null);
   const periodFactor = buildingFactor * timeValueMult * tenantMult * leaseStructMult;
 
-  // CapEx deduction for non-operational buildings: use-period > building > global
-  // Skip if building is operational OR if financing is already in reported financials
+  // CapEx deduction logic:
+  // - If use-period has its own capexPerMwOverride → always deduct (conversion/transition capex)
+  // - Otherwise skip if: operational, capexInFinancials, or no lease
   const phase = building.developmentPhase || 'DILIGENCE';
   const isOperational = phase === 'OPERATIONAL';
   const capexInFinancials = !!(building as any).capexInFinancials;
   const useType = up.useType || 'UNCONTRACTED';
   const hasLease = up.tenant && up.leaseValueM;
+  const hasPerPeriodCapex = !!Number(up.capexPerMwOverride); // explicit conversion capex on this period
   // Always compute capex values for informational display
   const resolvedCapexPerMw = Number(up.capexPerMwOverride) || Number(building.capexPerMwOverride) || (f.capexPerMw ?? 10);
   const debtFundingPct = f.debtFundingPct ?? 0.65;
   const totalCapexM = resolvedCapexPerMw * periodMw;
   const equityCapexM = resolvedCapexPerMw * (1 - debtFundingPct) * periodMw;
   const debtCapexM = resolvedCapexPerMw * debtFundingPct * periodMw;
-  // Only deduct capex when there's an actual lease — pipeline/uncontracted MW gets no capex treatment
-  const skipCapex = isOperational || capexInFinancials || !hasLease;
-  const capexSkipReason = isOperational ? 'operational' : capexInFinancials ? 'in_financials' : !hasLease ? 'no_lease' : null;
+  // If period has its own capex override (e.g., conversion capex for transition), always deduct
+  // Otherwise, only deduct when there's a lease on a non-operational building
+  const skipCapex = hasPerPeriodCapex ? false : (isOperational || capexInFinancials || !hasLease);
+  const capexSkipReason = hasPerPeriodCapex ? null : (isOperational ? 'operational' : capexInFinancials ? 'in_financials' : !hasLease ? 'no_lease' : null);
   const equityCapexDeducted = skipCapex ? 0 : equityCapexM;
 
   const makeResult = (val: number, method: string, grossValue: number, noiAnnual: number, capRate: number) => {
