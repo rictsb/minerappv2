@@ -26,6 +26,7 @@ model Company {
   cashM           Decimal? @db.Decimal(12, 2)
   debtM           Decimal? @db.Decimal(12, 2)
   fdSharesM       Decimal? @db.Decimal(12, 4)
+  sharesOutM      Decimal? @db.Decimal(12, 4) // Basic shares outstanding (for market cap)
 
   // Market Data
   stockPrice      Decimal? @db.Decimal(10, 4)

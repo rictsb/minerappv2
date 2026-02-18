@@ -28,6 +28,7 @@ interface Valuation {
   name: string;
   stockPrice: number | null;
   fdSharesM: number | null;
+  sharesOutM: number | null;
   netLiquid: number;
   totalMw: number;
   evMining: number;
@@ -101,7 +102,8 @@ export default function Dashboard() {
   // Calculate totals
   const totals = valuations.reduce(
     (acc, v) => {
-      const mktCap = v.stockPrice && v.fdSharesM ? v.stockPrice * v.fdSharesM : 0;
+      const sharesForMktCap = v.sharesOutM || v.fdSharesM;
+      const mktCap = v.stockPrice && sharesForMktCap ? v.stockPrice * sharesForMktCap : 0;
       return {
         marketCapM: acc.marketCapM + mktCap,
         totalValueM: acc.totalValueM + (v.totalValueM || 0),
@@ -241,8 +243,9 @@ export default function Dashboard() {
                 const upside = v.stockPrice && v.stockPrice > 0 && v.fairValuePerShare
                   ? ((v.fairValuePerShare / v.stockPrice) - 1) * 100
                   : null;
-                // Market cap ($M)
-                const marketCapM = v.stockPrice && v.fdSharesM ? v.stockPrice * v.fdSharesM : null;
+                // Market cap ($M) — uses basic shares outstanding (not FD)
+                const sharesForMktCap = v.sharesOutM || v.fdSharesM;
+                const marketCapM = v.stockPrice && sharesForMktCap ? v.stockPrice * sharesForMktCap : null;
                 // $/MW/yr: total HPC NOI / total contracted MW
                 const totalHpcNoi = v.hpcSites?.reduce((sum, s) => sum + (s.noiAnnualM || 0), 0) || 0;
                 const totalHpcMw = v.hpcSites?.reduce((sum, s) => sum + (s.mw || 0), 0) || 0;
@@ -323,6 +326,12 @@ export default function Dashboard() {
                         <td colSpan={11} className="px-6 py-4 bg-gray-800/60">
                           {/* Summary stats */}
                           <div className="flex items-center gap-8 mb-3 text-xs">
+                            <div>
+                              <span className="text-gray-500">Shares Out:</span>{' '}
+                              <span className="font-mono text-gray-300">
+                                {v.sharesOutM ? `${formatNumber(v.sharesOutM, 1)}M` : '-'}
+                              </span>
+                            </div>
                             <div>
                               <span className="text-gray-500">FD Shares:</span>{' '}
                               <span className="font-mono text-gray-300">

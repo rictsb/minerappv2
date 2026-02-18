@@ -1394,6 +1394,7 @@ app.get('/api/v1/valuation', async (req, res) => {
       const totalEv = (evMining || 0) + (evHpcContracted || 0) + (evHpcPipeline || 0);
       const totalValueM = (netLiquid || 0) + totalEv - impliedProjectDebtM;
       const fdSharesM = Number(company.fdSharesM) || 0;
+      const sharesOutM = Number((company as any).sharesOutM) || 0;
       const fairValuePerShare = fdSharesM > 0 ? totalValueM / fdSharesM : null;
 
       return {
@@ -1401,6 +1402,7 @@ app.get('/api/v1/valuation', async (req, res) => {
         name: company.name,
         stockPrice: Number(company.stockPrice) || null,
         fdSharesM: fdSharesM > 0 ? Math.round(fdSharesM * 10) / 10 : null,
+        sharesOutM: sharesOutM > 0 ? Math.round(sharesOutM * 10) / 10 : null,
         netLiquid: Math.round(netLiquid * 10) / 10,
         totalMw: Math.round(totalItMw),
         evMining: Math.round(evMining),
