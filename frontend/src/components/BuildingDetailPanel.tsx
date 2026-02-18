@@ -552,7 +552,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         startDate: edits.leaseStart || null,
         mwAllocation: edits.mwAllocation ? parseFloat(edits.mwAllocation) : null,
         useType: edits.useType || undefined,
-        capexPerMwOverride: edits.capexPerMw ? parseFloat(edits.capexPerMw) : null,
+        capexPerMwOverride: edits.capexPerMw !== '' && edits.capexPerMw != null ? parseFloat(edits.capexPerMw) : null,
       };
 
       try {
@@ -1646,8 +1646,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                               placeholder="e.g. 85"
                             />
                           </div>
-                          {building.developmentPhase !== 'OPERATIONAL' && (
-                            <div>
+                          <div>
                               <label className="text-[10px] text-gray-500 block mb-0.5">CapEx $/MW</label>
                               <input
                                 type="number"
@@ -1658,7 +1657,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                                 step="0.5"
                               />
                             </div>
-                          )}
                         </div>
                         {/* Calculated NOI preview */}
                         {edits.leaseValueM && edits.leaseYears && edits.noiPct && (
@@ -1845,8 +1843,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 format={formatMultiplier}
                 description={factorDetails.datacenterTier?.tier || 'Tier III'}
               />
-              {building.developmentPhase !== 'OPERATIONAL' && (
-                <div className="mt-2 pt-2 border-t border-gray-700">
+              <div className="mt-2 pt-2 border-t border-gray-700">
                   <div className="flex items-center justify-between py-2">
                     <div>
                       <span className="text-xs font-medium text-gray-300">CapEx in Financials</span>
@@ -1873,7 +1870,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                     />
                   )}
                 </div>
-              )}
               {!isSplitBuilding && (
                 <>
                   <SliderRow
@@ -2134,7 +2130,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                     leaseValueM: newUsePeriod.leaseValueM ? parseFloat(newUsePeriod.leaseValueM) : null,
                     leaseYears: newUsePeriod.leaseYears ? parseFloat(newUsePeriod.leaseYears) : null,
                     noiPct: newUsePeriod.noiPct ? parseFloat(newUsePeriod.noiPct) / 100 : null,
-                    capexPerMwOverride: newUsePeriod.capexPerMw ? parseFloat(newUsePeriod.capexPerMw) : null,
+                    capexPerMwOverride: newUsePeriod.capexPerMw !== '' && newUsePeriod.capexPerMw != null ? parseFloat(newUsePeriod.capexPerMw) : null,
                     startDate: newUsePeriod.startDate ? new Date(newUsePeriod.startDate) : null,
                     leaseStart: newUsePeriod.startDate ? new Date(newUsePeriod.startDate) : null,
                   };
