@@ -809,10 +809,13 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
             // Multi-period (split) waterfall
             <div className="text-[11px] font-mono space-y-1.5">
               {periodValuations.map((p: any, i: number) => (
-                <div key={p.usePeriodId || i} className="bg-gray-800/50 rounded px-2 py-1.5">
+                <div key={p.usePeriodId || i} className={`rounded px-2 py-1.5 ${p.isCurrent === false ? 'bg-blue-950/30 border border-blue-800/30' : 'bg-gray-800/50'}`}>
                   {/* Period header */}
                   <div className="flex justify-between text-gray-400 mb-1">
-                    <span className="text-cyan-400 font-medium">{p.tenant || 'Uncontracted'}</span>
+                    <span className="flex items-center gap-1.5">
+                      {p.isCurrent === false && <span className="text-[9px] px-1 py-0.5 rounded bg-blue-900/50 text-blue-400">Planned</span>}
+                      <span className="text-cyan-400 font-medium">{p.tenant || 'Uncontracted'}</span>
+                    </span>
                     <span className="text-gray-500">{safeToFixed(p.mw, 0)} MW · {p.useType?.replace(/_/g, ' ')}</span>
                   </div>
                   {p.leaseStart && (

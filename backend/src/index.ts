@@ -321,7 +321,7 @@ app.get('/api/v1/companies', async (req, res) => {
                 buildings: {
                   include: {
                     usePeriods: {
-                      where: { isCurrent: true },
+                      where: { OR: [{ isCurrent: true }, { isCurrent: false, endDate: null }] },
                     },
                   },
                 },
@@ -356,7 +356,8 @@ app.get('/api/v1/companies', async (req, res) => {
             const isOp = phase === 'OPERATIONAL';
             const skipCapex = isOp || !!(bld as any).capexInFinancials;
 
-            const currentUses = (bld.usePeriods || []).filter((up: any) => up.isCurrent);
+            // Include current + planned transitions (no endDate) in valuation
+            const currentUses = (bld.usePeriods || []).filter((up: any) => up.isCurrent || (!up.isCurrent && !up.endDate));
             const explicitAlloc = currentUses.reduce((s: number, up: any) => s + (Number(up.mwAllocation) || 0), 0);
 
             for (const up of currentUses) {
@@ -1254,7 +1255,7 @@ app.get('/api/v1/valuation', async (req, res) => {
               include: {
                 buildings: {
                   include: {
-                    usePeriods: { where: { isCurrent: true } },
+                    usePeriods: { where: { OR: [{ isCurrent: true }, { isCurrent: false, endDate: null }] } },
                   },
                 },
               },
@@ -1327,7 +1328,8 @@ app.get('/api/v1/valuation', async (req, res) => {
 
             const buildingMw = Number(building.itMw) || 0;
             const bFactor = computeBuildingFactor(building, siteTotalMw, helpers);
-            const currentUses = building.usePeriods.filter((up: any) => up.isCurrent);
+            // Include current + planned transitions (no endDate) in valuation
+            const currentUses = building.usePeriods.filter((up: any) => up.isCurrent || (!up.isCurrent && !up.endDate));
 
             // Accumulate implied project debt for non-operational buildings
             // Skip if operational OR financing already in reported financials
@@ -1479,13 +1481,16 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
     const mw = Number(building.grossMw) || 0;
     const itMw = Number(building.itMw) || 0;
 
-    const currentUsePeriods = building.usePeriods.filter((up: any) => up.isCurrent);
+    // Include current periods AND planned transitions (isCurrent=false, endDate=null) in valuation
+    // Exclude ended/historical periods (isCurrent=false, endDate set)
+    const activeAndPlannedPeriods = building.usePeriods.filter((up: any) => up.isCurrent || (!up.isCurrent && !up.endDate));
+    const currentUsePeriods = activeAndPlannedPeriods; // Used for valuation computation
     const allUsePeriods = building.usePeriods;
-    const currentUse = currentUsePeriods[0];
+    const currentUse = building.usePeriods.find((up: any) => up.isCurrent) || activeAndPlannedPeriods[0];
     const useType = currentUse?.useType || 'UNCONTRACTED';
 
-    const explicitAllocatedMw = currentUsePeriods.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
-    const effectiveAllocatedMw = computeEffectiveAllocated(currentUsePeriods, itMw);
+    const explicitAllocatedMw = activeAndPlannedPeriods.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
+    const effectiveAllocatedMw = computeEffectiveAllocated(activeAndPlannedPeriods, itMw);
     const allocatedMw = explicitAllocatedMw; // For display: what's explicitly set
     const unallocatedMw = Math.max(0, itMw - effectiveAllocatedMw);
 
@@ -1589,6 +1594,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
       const annualRev = leaseValM > 0 && leaseYrs > 0 ? leaseValM / leaseYrs : 0;
       return {
         usePeriodId: up.id,
+        isCurrent: up.isCurrent,
         tenant: up.tenant,
         useType: up.useType,
         mw: periodMw,
