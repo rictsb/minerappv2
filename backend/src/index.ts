@@ -226,11 +226,11 @@ function computePeriodValuation(
   const totalCapexM = resolvedCapexPerMw * periodMw;
   const equityCapexM = resolvedCapexPerMw * (1 - debtFundingPct) * periodMw;
   const debtCapexM = resolvedCapexPerMw * debtFundingPct * periodMw;
-  // If period has its own capex override (e.g., conversion capex for transition), always deduct
-  // Planned transitions with leases always deduct (implies conversion capex even on operational buildings)
-  // Otherwise, only deduct when there's a lease on a non-operational building
-  const skipCapex = hasPerPeriodCapex ? false : (isPlannedTransition && hasLease) ? false : (isOperational || capexInFinancials || !hasLease);
-  const capexSkipReason = hasPerPeriodCapex ? null : (isPlannedTransition && hasLease) ? null : (isOperational ? 'operational' : capexInFinancials ? 'in_financials' : !hasLease ? 'no_lease' : null);
+  // If capexInFinancials is set, always skip capex (company has already accounted for it)
+  // Otherwise: per-period overrides and planned transitions with leases always deduct
+  // Otherwise skip if operational or no lease
+  const skipCapex = capexInFinancials ? true : hasPerPeriodCapex ? false : (isPlannedTransition && hasLease) ? false : (isOperational || !hasLease);
+  const capexSkipReason = capexInFinancials ? 'in_financials' : hasPerPeriodCapex ? null : (isPlannedTransition && hasLease) ? null : (isOperational ? 'operational' : !hasLease ? 'no_lease' : null);
   const equityCapexDeducted = skipCapex ? 0 : equityCapexM;
 
   // impliedDebtM: the debt portion that should accumulate as implied project debt
