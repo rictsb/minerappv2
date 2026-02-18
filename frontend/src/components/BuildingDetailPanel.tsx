@@ -661,13 +661,28 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                       <span>× Adj Factor</span>
                       <span className="text-orange-400 font-medium">× {safeToFixed(p.periodFactor, 3)}x</span>
                     </div>
-                    {(p.capexDeductionM ?? 0) > 0 && (
-                      <>
-                        <div className="flex justify-between text-rose-400">
-                          <span>− Equity CapEx</span>
-                          <span>−{formatMoney(p.capexDeductionM)}</span>
+                    {(p.totalCapexM ?? 0) > 0 && (
+                      <div className="space-y-0.5">
+                        <div className="flex justify-between text-gray-600 text-[10px]">
+                          <span>Total CapEx ({safeToFixed(p.mw, 0)} MW × ${safeToFixed((p.totalCapexM || 0) / Math.max(p.mw, 1), 1)}M/MW)</span>
+                          <span>{formatMoney(p.totalCapexM)}</span>
                         </div>
-                      </>
+                        {(p.capexDeductionM ?? 0) > 0 ? (
+                          <div className="flex justify-between text-rose-400">
+                            <span>− Equity CapEx (deducted)</span>
+                            <span>−{formatMoney(p.capexDeductionM)}</span>
+                          </div>
+                        ) : (
+                          <div className="flex justify-between text-gray-600 text-[10px]">
+                            <span>  Equity ({p.capexSkipReason === 'operational' ? 'operational — not deducted' : p.capexSkipReason === 'in_financials' ? 'in financials' : 'not deducted'})</span>
+                            <span>{formatMoney(p.equityCapexM)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between text-gray-600 text-[10px]">
+                          <span>  Debt Financing ({safeToFixed((p.debtCapexM || 0) / Math.max(p.totalCapexM || 1, 1) * 100, 0)}%)</span>
+                          <span>{formatMoney(p.debtCapexM)}</span>
+                        </div>
+                      </div>
                     )}
                     <div className="border-t border-dashed border-orange-500/30 my-1" />
                     <div className="flex justify-between text-sm">
@@ -687,10 +702,27 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                       <span>× Adj Factor</span>
                       <span className="text-orange-400 font-medium">× {safeToFixed(p.periodFactor, 3)}x</span>
                     </div>
-                    {(p.capexDeductionM ?? 0) > 0 && (
-                      <div className="flex justify-between text-rose-400">
-                        <span>− Equity CapEx</span>
-                        <span>−{formatMoney(p.capexDeductionM)}</span>
+                    {(p.totalCapexM ?? 0) > 0 && (
+                      <div className="space-y-0.5">
+                        <div className="flex justify-between text-gray-600 text-[10px]">
+                          <span>Total CapEx ({safeToFixed(p.mw, 0)} MW × ${safeToFixed((p.totalCapexM || 0) / Math.max(p.mw, 1), 1)}M/MW)</span>
+                          <span>{formatMoney(p.totalCapexM)}</span>
+                        </div>
+                        {(p.capexDeductionM ?? 0) > 0 ? (
+                          <div className="flex justify-between text-rose-400">
+                            <span>− Equity CapEx (deducted)</span>
+                            <span>−{formatMoney(p.capexDeductionM)}</span>
+                          </div>
+                        ) : (
+                          <div className="flex justify-between text-gray-600 text-[10px]">
+                            <span>  Equity ({p.capexSkipReason === 'operational' ? 'operational — not deducted' : p.capexSkipReason === 'in_financials' ? 'in financials' : 'not deducted'})</span>
+                            <span>{formatMoney(p.equityCapexM)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between text-gray-600 text-[10px]">
+                          <span>  Debt Financing ({safeToFixed((p.debtCapexM || 0) / Math.max(p.totalCapexM || 1, 1) * 100, 0)}%)</span>
+                          <span>{formatMoney(p.debtCapexM)}</span>
+                        </div>
                       </div>
                     )}
                     <div className="border-t border-dashed border-orange-500/30 my-1" />
@@ -712,10 +744,27 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                       <span>× Adj Factor</span>
                       <span className="text-orange-400 font-medium">× {safeToFixed(p.periodFactor, 3)}x</span>
                     </div>
-                    {(p.capexDeductionM ?? 0) > 0 && (
-                      <div className="flex justify-between text-rose-400">
-                        <span>− Equity CapEx</span>
-                        <span>−{formatMoney(p.capexDeductionM)}</span>
+                    {(p.totalCapexM ?? 0) > 0 && (
+                      <div className="space-y-0.5">
+                        <div className="flex justify-between text-gray-600 text-[10px]">
+                          <span>Total CapEx ({safeToFixed(p.mw, 0)} MW × ${safeToFixed((p.totalCapexM || 0) / Math.max(p.mw, 1), 1)}M/MW)</span>
+                          <span>{formatMoney(p.totalCapexM)}</span>
+                        </div>
+                        {(p.capexDeductionM ?? 0) > 0 ? (
+                          <div className="flex justify-between text-rose-400">
+                            <span>− Equity CapEx (deducted)</span>
+                            <span>−{formatMoney(p.capexDeductionM)}</span>
+                          </div>
+                        ) : (
+                          <div className="flex justify-between text-gray-600 text-[10px]">
+                            <span>  Equity ({p.capexSkipReason === 'operational' ? 'operational — not deducted' : p.capexSkipReason === 'in_financials' ? 'in financials' : 'no lease'})</span>
+                            <span>{formatMoney(p.equityCapexM)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between text-gray-600 text-[10px]">
+                          <span>  Debt Financing ({safeToFixed((p.debtCapexM || 0) / Math.max(p.totalCapexM || 1, 1) * 100, 0)}%)</span>
+                          <span>{formatMoney(p.debtCapexM)}</span>
+                        </div>
                       </div>
                     )}
                     <div className="border-t border-dashed border-orange-500/30 my-1" />
@@ -765,10 +814,22 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                         </span>
                         <span className="text-orange-400 font-medium">{formatMoney((p.capexDeductionM ?? 0) > 0 ? p.valuationM + p.capexDeductionM : p.valuationM)}</span>
                       </div>
-                      {(p.capexDeductionM ?? 0) > 0 && (
-                        <div className="flex justify-between text-rose-400">
-                          <span>− Equity CapEx</span>
-                          <span>−{formatMoney(p.capexDeductionM)} → <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span></span>
+                      {(p.totalCapexM ?? 0) > 0 && (
+                        <div className="mt-0.5 space-y-0.5">
+                          <div className="flex justify-between text-gray-600 text-[10px]">
+                            <span>Total CapEx ({safeToFixed(p.mw, 0)} MW × ${safeToFixed((p.totalCapexM || 0) / Math.max(p.mw, 1), 1)}M/MW)</span>
+                            <span>{formatMoney(p.totalCapexM)}</span>
+                          </div>
+                          <div className="flex justify-between text-rose-400">
+                            <span>{(p.capexDeductionM ?? 0) > 0 ? '− Equity CapEx (deducted)' : `  Equity (${p.capexSkipReason === 'operational' ? 'operational' : p.capexSkipReason === 'in_financials' ? 'in financials' : 'not deducted'})`}</span>
+                            <span className={(p.capexDeductionM ?? 0) > 0 ? '' : 'text-gray-600'}>
+                              {(p.capexDeductionM ?? 0) > 0 ? `−${formatMoney(p.capexDeductionM)} → ` : ''}{(p.capexDeductionM ?? 0) > 0 ? <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span> : formatMoney(p.equityCapexM)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-gray-600 text-[10px]">
+                            <span>  Debt Financing ({safeToFixed((p.debtCapexM || 0) / Math.max(p.totalCapexM || 1, 1) * 100, 0)}%){p.capexSkipReason !== 'operational' && p.capexSkipReason !== 'in_financials' && p.capexSkipReason !== 'no_lease' ? ' → implied debt' : ''}</span>
+                            <span>{formatMoney(p.debtCapexM)}</span>
+                          </div>
                         </div>
                       )}
                       {(p.timeValueMult ?? 1) < 0.99 && (
@@ -787,10 +848,22 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                         <span className="text-gray-500">× {safeToFixed(p.periodFactor, 3)}x → Adj</span>
                         <span className="text-orange-400 font-medium">{formatMoney((p.capexDeductionM ?? 0) > 0 ? p.valuationM + p.capexDeductionM : p.valuationM)}</span>
                       </div>
-                      {(p.capexDeductionM ?? 0) > 0 && (
-                        <div className="flex justify-between text-rose-400">
-                          <span>− Equity CapEx</span>
-                          <span>−{formatMoney(p.capexDeductionM)} → <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span></span>
+                      {(p.totalCapexM ?? 0) > 0 && (
+                        <div className="mt-0.5 space-y-0.5">
+                          <div className="flex justify-between text-gray-600 text-[10px]">
+                            <span>Total CapEx ({safeToFixed(p.mw, 0)} MW × ${safeToFixed((p.totalCapexM || 0) / Math.max(p.mw, 1), 1)}M/MW)</span>
+                            <span>{formatMoney(p.totalCapexM)}</span>
+                          </div>
+                          <div className="flex justify-between text-rose-400">
+                            <span>{(p.capexDeductionM ?? 0) > 0 ? '− Equity CapEx (deducted)' : `  Equity (${p.capexSkipReason === 'operational' ? 'operational' : p.capexSkipReason === 'in_financials' ? 'in financials' : 'not deducted'})`}</span>
+                            <span className={(p.capexDeductionM ?? 0) > 0 ? '' : 'text-gray-600'}>
+                              {(p.capexDeductionM ?? 0) > 0 ? `−${formatMoney(p.capexDeductionM)} → ` : ''}{(p.capexDeductionM ?? 0) > 0 ? <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span> : formatMoney(p.equityCapexM)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-gray-600 text-[10px]">
+                            <span>  Debt Financing ({safeToFixed((p.debtCapexM || 0) / Math.max(p.totalCapexM || 1, 1) * 100, 0)}%)</span>
+                            <span>{formatMoney(p.debtCapexM)}</span>
+                          </div>
                         </div>
                       )}
                       {(p.timeValueMult ?? 1) < 0.99 && (
@@ -809,10 +882,22 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                         <span className="text-gray-500">× {safeToFixed(p.periodFactor, 3)}x → Adj</span>
                         <span className="text-orange-400 font-medium">{formatMoney((p.capexDeductionM ?? 0) > 0 ? p.valuationM + p.capexDeductionM : p.valuationM)}</span>
                       </div>
-                      {(p.capexDeductionM ?? 0) > 0 && (
-                        <div className="flex justify-between text-rose-400">
-                          <span>− Equity CapEx</span>
-                          <span>−{formatMoney(p.capexDeductionM)} → <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span></span>
+                      {(p.totalCapexM ?? 0) > 0 && (
+                        <div className="mt-0.5 space-y-0.5">
+                          <div className="flex justify-between text-gray-600 text-[10px]">
+                            <span>Total CapEx ({safeToFixed(p.mw, 0)} MW × ${safeToFixed((p.totalCapexM || 0) / Math.max(p.mw, 1), 1)}M/MW)</span>
+                            <span>{formatMoney(p.totalCapexM)}</span>
+                          </div>
+                          <div className="flex justify-between text-rose-400">
+                            <span>{(p.capexDeductionM ?? 0) > 0 ? '− Equity CapEx (deducted)' : `  Equity (${p.capexSkipReason === 'operational' ? 'operational' : p.capexSkipReason === 'in_financials' ? 'in financials' : 'not deducted'})`}</span>
+                            <span className={(p.capexDeductionM ?? 0) > 0 ? '' : 'text-gray-600'}>
+                              {(p.capexDeductionM ?? 0) > 0 ? `−${formatMoney(p.capexDeductionM)} → ` : ''}{(p.capexDeductionM ?? 0) > 0 ? <span className="text-orange-400 font-medium">{formatMoney(p.valuationM)}</span> : formatMoney(p.equityCapexM)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-gray-600 text-[10px]">
+                            <span>  Debt Financing ({safeToFixed((p.debtCapexM || 0) / Math.max(p.totalCapexM || 1, 1) * 100, 0)}%)</span>
+                            <span>{formatMoney(p.debtCapexM)}</span>
+                          </div>
                         </div>
                       )}
                       {(p.timeValueMult ?? 1) < 0.99 && (

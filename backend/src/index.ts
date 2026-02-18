@@ -202,7 +202,7 @@ function computePeriodValuation(
   buildingFactor: number,
   helpers: ReturnType<typeof createFactorHelpers>,
   f: Record<string, any>
-): { valuationM: number; method: string; grossValue: number; noiAnnual: number; capRate: number; periodFactor: number; tenantMult: number; leaseStructMult: number; timeValueMult: number; capexDeductionM: number } {
+): { valuationM: number; method: string; grossValue: number; noiAnnual: number; capRate: number; periodFactor: number; tenantMult: number; leaseStructMult: number; timeValueMult: number; capexDeductionM: number; totalCapexM: number; equityCapexM: number; debtCapexM: number; capexSkipReason: string | null } {
   // Per-period factors
   const timeValueMult = helpers.getTimeValueMult(up.leaseStart ?? null, building.energizationDate);
   const tenantMult = helpers.getTenantMult(up.tenant ?? null);
@@ -216,15 +216,20 @@ function computePeriodValuation(
   const capexInFinancials = !!(building as any).capexInFinancials;
   const useType = up.useType || 'UNCONTRACTED';
   const hasLease = up.tenant && up.leaseValueM;
-  // Only deduct capex when there's an actual lease — pipeline/uncontracted MW gets no capex treatment
-  const skipCapex = isOperational || capexInFinancials || !hasLease;
+  // Always compute capex values for informational display
   const resolvedCapexPerMw = Number(up.capexPerMwOverride) || Number(building.capexPerMwOverride) || (f.capexPerMw ?? 10);
   const debtFundingPct = f.debtFundingPct ?? 0.65;
-  const equityCapex = skipCapex ? 0 : resolvedCapexPerMw * (1 - debtFundingPct) * periodMw;
+  const totalCapexM = resolvedCapexPerMw * periodMw;
+  const equityCapexM = resolvedCapexPerMw * (1 - debtFundingPct) * periodMw;
+  const debtCapexM = resolvedCapexPerMw * debtFundingPct * periodMw;
+  // Only deduct capex when there's an actual lease — pipeline/uncontracted MW gets no capex treatment
+  const skipCapex = isOperational || capexInFinancials || !hasLease;
+  const capexSkipReason = isOperational ? 'operational' : capexInFinancials ? 'in_financials' : !hasLease ? 'no_lease' : null;
+  const equityCapexDeducted = skipCapex ? 0 : equityCapexM;
 
   const makeResult = (val: number, method: string, grossValue: number, noiAnnual: number, capRate: number) => {
-    const netVal = Math.max(0, val - equityCapex);
-    return { valuationM: isFinite(netVal) ? netVal : 0, method, grossValue, noiAnnual, capRate, periodFactor, tenantMult, leaseStructMult, timeValueMult, capexDeductionM: equityCapex };
+    const netVal = Math.max(0, val - equityCapexDeducted);
+    return { valuationM: isFinite(netVal) ? netVal : 0, method, grossValue, noiAnnual, capRate, periodFactor, tenantMult, leaseStructMult, timeValueMult, capexDeductionM: equityCapexDeducted, totalCapexM, equityCapexM, debtCapexM, capexSkipReason };
   };
 
   // BTC Mining — simple $/MW
@@ -1563,6 +1568,10 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         leaseStructMult: result.leaseStructMult,
         timeValueMult: result.timeValueMult,
         capexDeductionM: result.capexDeductionM,
+        totalCapexM: result.totalCapexM,
+        equityCapexM: result.equityCapexM,
+        debtCapexM: result.debtCapexM,
+        capexSkipReason: result.capexSkipReason,
         valuationM: result.valuationM,
         // Lease summary for display
         leaseValueM: leaseValM,
