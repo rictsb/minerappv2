@@ -137,10 +137,11 @@ interface FlatBuilding {
   ownershipStatus: string | null;
   includeInValuation: boolean;
   computedValuationM: number | null;
+  dollarPerMwYr: number | null;
   building: Building;
 }
 
-type SortKey = 'ticker' | 'siteName' | 'buildingName' | 'phase' | 'useType' | 'tenant' | 'itMw' | 'noiAnnualM' | 'energizationDate';
+type SortKey = 'ticker' | 'siteName' | 'buildingName' | 'phase' | 'useType' | 'tenant' | 'itMw' | 'noiAnnualM' | 'dollarPerMwYr' | 'energizationDate';
 type SortDir = 'asc' | 'desc';
 
 interface ColumnDef {
@@ -164,7 +165,7 @@ const columns: ColumnDef[] = [
   { key: 'tenant', label: 'Tenant', sortable: true, width: '120px', minWidth: '80px', align: 'left' },
   { key: 'itMw', label: 'IT MW', sortable: true, width: '65px', minWidth: '55px', align: 'right' },
   { key: 'noiAnnualM', label: 'Value', sortable: true, width: '80px', minWidth: '70px', align: 'right' },
-  { key: 'dollarPerMwYr' as any, label: '$/MW/yr', sortable: false, width: '75px', minWidth: '65px', align: 'right' },
+  { key: 'dollarPerMwYr', label: '$/MW/yr', sortable: true, width: '75px', minWidth: '65px', align: 'right' },
   { key: 'energizationDate', label: 'Energized', sortable: true, width: '85px', minWidth: '70px', align: 'right' },
   { key: 'actions', label: 'Edit', sortable: false, width: '60px', minWidth: '60px', align: 'center' },
 ];
@@ -369,6 +370,7 @@ export default function Projects() {
                 ownershipStatus: building.ownershipStatus || null,
                 includeInValuation: building.includeInValuation ?? true,
                 computedValuationM: currentUse.computedValuationM ?? building.computedValuationM ?? null,
+                dollarPerMwYr: (periodMw && periodMw > 0 && noiAnnualM && noiAnnualM > 0) ? noiAnnualM / periodMw : null,
                 building,
               });
             }
@@ -408,6 +410,7 @@ export default function Projects() {
                   ownershipStatus: building.ownershipStatus || null,
                   includeInValuation: building.includeInValuation ?? true,
                   computedValuationM: (building as any).unallocatedValuationM ?? null,
+                  dollarPerMwYr: null,
                   building,
                 });
               }
@@ -446,6 +449,7 @@ export default function Projects() {
                   ownershipStatus: building.ownershipStatus || null,
                   includeInValuation: building.includeInValuation ?? true,
                   computedValuationM: building.computedValuationM ?? null,
+                  dollarPerMwYr: null,
                   building,
                 });
               }
@@ -936,15 +940,11 @@ export default function Projects() {
                         })()}
                       </td>
                       <td className="px-2 py-1.5 text-right font-mono">
-                        {(() => {
-                          const mw = row.itMw || 0;
-                          const noi = row.noiAnnualM || 0;
-                          if (mw > 0 && noi > 0) {
-                            const perMwYr = noi / mw;
-                            return <span className="text-cyan-300 text-xs">${perMwYr.toFixed(2)}M</span>;
-                          }
-                          return <span className="text-gray-600 text-xs">-</span>;
-                        })()}
+                        {row.dollarPerMwYr !== null ? (
+                          <span className="text-cyan-300 text-xs">${row.dollarPerMwYr.toFixed(2)}M</span>
+                        ) : (
+                          <span className="text-gray-600 text-xs">-</span>
+                        )}
                       </td>
                       <td className="px-2 py-1.5 text-right text-xs text-gray-400">
                         {formatDate(row.energizationDate)}
