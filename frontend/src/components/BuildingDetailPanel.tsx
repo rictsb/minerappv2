@@ -1,4 +1,4 @@
-import { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
+import { useState, useEffect, useMemo, Component, ErrorInfo, ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   X,
@@ -588,6 +588,230 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     setHasChanges(true);
   };
 
+  // ── Live client-side valuation preview ──
+  // Mirrors the server's computePeriodValuation so the waterfall updates as you type
+  const liveValuation = useMemo(() => {
+    if (!data) return null;
+    const building = data.building || {};
+    const fd = data.factorDetails || {};
+    const itMw = Number(building.itMw) || 0;
+    const capRate = fd.capexPerMw?.debtFundingPct !== undefined
+      ? (data.valuation?.inputs?.capRate ?? 0.075)
+      : 0.075;
+    const hpcCapRate = capRate;
+    const debtFundingPct = fd.capexPerMw?.debtFundingPct ?? 0.80;
+
+    // Build building factor from current overrides
+    const bldFactor =
+      (factorOverrides.phaseProbability ?? 0.5) *
+      (factorOverrides.regulatoryRisk ?? 1.0) *
+      (factorOverrides.sizeMultiplier ?? 1.0) *
+      (factorOverrides.powerAuthority ?? 1.0) *
+      (factorOverrides.ownership ?? 1.0) *
+      (factorOverrides.datacenterTier ?? 1.0) *
+      (factorOverrides.fidoodleFactor ?? 1.0);
+
+    const phase = building.developmentPhase || 'DILIGENCE';
+    const isOperational = phase === 'OPERATIONAL';
+    const capexInFin = capexInFinancials;
+    const resolvedCapexGlobal = factorOverrides.capexPerMw ?? fd.capexPerMw?.resolved ?? 10;
+
+    const serverPeriods: any[] = data.periodValuations || [];
+    const isSplit = serverPeriods.length > 1;
+
+    if (!isSplit) {
+      // Single-period building — use leaseEdits
+      const tenant = leaseEdits.tenant || null;
+      const leaseValM = parseFloat(leaseEdits.leaseValueM) || 0;
+      const leaseYrs = parseFloat(leaseEdits.leaseYears) || 0;
+      const noiPctVal = parseFloat(leaseEdits.noiPct) || 0;
+      const annualRev = leaseValM > 0 && leaseYrs > 0 ? leaseValM / Math.max(leaseYrs, 0.1) : 0;
+      const noiAnnual = annualRev * (noiPctVal / 100);
+      const hasLease = !!tenant && leaseValM > 0;
+      const mw = itMw;
+
+      // Time/tenant/lease structure multipliers — use overrides if available
+      const tenantMult = factorOverrides.tenantCredit ?? fd.tenantCredit?.auto ?? 1.0;
+      const leaseStructMult = factorOverrides.leaseStructure ?? fd.leaseStructure?.auto ?? 1.0;
+      const timeValueMult = factorOverrides.timeValue ?? fd.timeValue?.auto ?? 1.0;
+      const periodFactor = bldFactor * timeValueMult * tenantMult * leaseStructMult;
+
+      // CapEx
+      const resolvedCapex = resolvedCapexGlobal;
+      const totalCapexM = resolvedCapex * mw;
+      const equityCapexM = resolvedCapex * (1 - debtFundingPct) * mw;
+      const debtCapexM = resolvedCapex * debtFundingPct * mw;
+
+      // Determine method + valuation
+      let method = 'MW_PIPELINE';
+      let grossValue = 0;
+      let valuationM = 0;
+
+      const currentUse = (data.usePeriods || [])[0];
+      const useType = currentUse?.useType || 'UNCONTRACTED';
+
+      if ((useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') && !hasLease) {
+        method = 'MW_VALUE';
+        grossValue = mw * 0.3;
+        const adj = grossValue * periodFactor;
+        valuationM = adj;
+      } else if (hasLease && noiAnnual > 0) {
+        method = 'NOI_CAP_RATE';
+        grossValue = noiAnnual / hpcCapRate;
+        const adj = grossValue * periodFactor;
+        const skipCapex = isOperational || capexInFin || !hasLease;
+        const eqDeducted = skipCapex ? 0 : equityCapexM;
+        valuationM = Math.max(0, adj - eqDeducted);
+      } else if (hasLease) {
+        method = 'NOI_CAP_RATE';
+        grossValue = 0;
+        valuationM = 0;
+      } else {
+        method = 'MW_PIPELINE';
+        grossValue = mw * 8;
+        valuationM = grossValue * periodFactor;
+      }
+
+      const skipCapex = isOperational || capexInFin || !hasLease;
+      const capexSkipReason = isOperational ? 'operational' : capexInFin ? 'in_financials' : !hasLease ? 'no_lease' : null;
+      const capexDeductionM = skipCapex ? 0 : equityCapexM;
+
+      const periods = [{
+        usePeriodId: currentUse?.id || null,
+        isCurrent: true,
+        tenant,
+        useType,
+        mw,
+        method,
+        grossValue,
+        noiAnnual,
+        noiPct: noiPctVal / 100,
+        capRate: hpcCapRate,
+        periodFactor,
+        tenantMult,
+        leaseStructMult,
+        timeValueMult,
+        totalCapexM,
+        equityCapexM,
+        debtCapexM,
+        capexDeductionM,
+        capexSkipReason,
+        valuationM,
+        leaseValueM: leaseValM,
+        leaseYears: leaseYrs,
+        annualRev,
+        leaseStart: currentUse?.leaseStart || currentUse?.startDate || null,
+      }];
+
+      return {
+        periods,
+        totalValuation: valuationM,
+        dollarsPerMwPerYr: mw > 0 && leaseValM > 0 && leaseYrs > 0 ? annualRev / mw : null,
+        noiPerMwPerYr: mw > 0 && noiAnnual > 0 ? noiAnnual / mw : null,
+      };
+    }
+
+    // Multi-period (split) building — use splitLeaseEdits
+    const livePeriods: any[] = [];
+    let totalVal = 0;
+    let totalLeaseRevPerYr = 0;
+    let totalMw = 0;
+    let totalNoi = 0;
+
+    for (const sp of serverPeriods) {
+      const upId = sp.usePeriodId;
+      const edits = upId ? splitLeaseEdits[upId] : null;
+
+      // Use edits if available, otherwise server values
+      const tenant = edits ? (edits.tenant || null) : (sp.tenant || null);
+      const leaseValM = edits ? (parseFloat(edits.leaseValueM) || 0) : (sp.leaseValueM || 0);
+      const leaseYrs = edits ? (parseFloat(edits.leaseYears) || 0) : (sp.leaseYears || 0);
+      const noiPctVal = edits ? (parseFloat(edits.noiPct) || 0) : ((sp.noiPct || 0) * 100);
+      const mw = edits ? (parseFloat(edits.mwAllocation) || sp.mw || 0) : (sp.mw || 0);
+      const useType = edits ? (edits.useType || sp.useType) : (sp.useType || 'UNCONTRACTED');
+      const capexPerMwOvr = edits ? (parseFloat(edits.capexPerMw) || 0) : (sp.capexPerMwOverride || 0);
+      const isPeriodCurrent = sp.isCurrent !== false;
+
+      const annualRev = leaseValM > 0 && leaseYrs > 0 ? leaseValM / Math.max(leaseYrs, 0.1) : 0;
+      const noiPctFrac = noiPctVal / 100;
+      const noiAnnual = annualRev * noiPctFrac;
+      const hasLease = !!tenant && leaseValM > 0;
+
+      // Use server factors for per-period multipliers (they come from the tenant/lease/time)
+      const tenantMult = sp.tenantMult ?? 1;
+      const leaseStructMult = sp.leaseStructMult ?? 1;
+      const timeValueMult = sp.timeValueMult ?? 1;
+      const periodFactor = bldFactor * timeValueMult * tenantMult * leaseStructMult;
+
+      // CapEx
+      const resolvedCapex = capexPerMwOvr || resolvedCapexGlobal;
+      const totalCapexM = resolvedCapex * mw;
+      const equityCapexM = resolvedCapex * (1 - debtFundingPct) * mw;
+      const debtCapexM = resolvedCapex * debtFundingPct * mw;
+
+      const hasPerPeriodCapex = !!capexPerMwOvr;
+      const isPlannedTransition = !isPeriodCurrent;
+      const skipCapex = hasPerPeriodCapex ? false : (isPlannedTransition && hasLease) ? false : (isOperational || capexInFin || !hasLease);
+      const capexSkipReason = hasPerPeriodCapex ? null : (isPlannedTransition && hasLease) ? null : (isOperational ? 'operational' : capexInFin ? 'in_financials' : !hasLease ? 'no_lease' : null);
+      const capexDeductionM = skipCapex ? 0 : equityCapexM;
+
+      let method = 'MW_PIPELINE';
+      let grossValue = 0;
+      let valuationM = 0;
+
+      if ((useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') && !hasLease) {
+        method = 'MW_VALUE';
+        grossValue = mw * 0.3;
+        valuationM = Math.max(0, grossValue * periodFactor - capexDeductionM);
+      } else if (hasLease && noiAnnual > 0) {
+        method = 'NOI_CAP_RATE';
+        grossValue = noiAnnual / hpcCapRate;
+        valuationM = Math.max(0, grossValue * periodFactor - capexDeductionM);
+      } else {
+        method = 'MW_PIPELINE';
+        grossValue = mw * 8;
+        valuationM = Math.max(0, grossValue * periodFactor);
+      }
+
+      totalVal += valuationM;
+      totalLeaseRevPerYr += annualRev;
+      totalMw += mw;
+      totalNoi += noiAnnual;
+
+      livePeriods.push({
+        ...sp,
+        tenant,
+        useType,
+        mw,
+        method,
+        grossValue,
+        noiAnnual,
+        noiPct: noiPctFrac,
+        capRate: hpcCapRate,
+        periodFactor,
+        tenantMult,
+        leaseStructMult,
+        timeValueMult,
+        totalCapexM,
+        equityCapexM,
+        debtCapexM,
+        capexDeductionM,
+        capexSkipReason,
+        valuationM,
+        leaseValueM: leaseValM,
+        leaseYears: leaseYrs,
+        annualRev,
+      });
+    }
+
+    return {
+      periods: livePeriods,
+      totalValuation: totalVal,
+      dollarsPerMwPerYr: totalMw > 0 && totalLeaseRevPerYr > 0 ? totalLeaseRevPerYr / totalMw : null,
+      noiPerMwPerYr: totalMw > 0 && totalNoi > 0 ? totalNoi / totalMw : null,
+    };
+  }, [data, leaseEdits, splitLeaseEdits, factorOverrides, capexInFinancials]);
+
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
@@ -620,9 +844,12 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
   const campus = data.campus || {};
   const factorDetails = data.factorDetails || {};
 
-  // Server-computed valuations — single source of truth
-  const periodValuations: any[] = data.periodValuations || [];
-  const totalValuation = data.totalValuation || 0;
+  // Use live client-side valuations (update as you type) with server data as fallback
+  const serverPeriodValuations: any[] = data.periodValuations || [];
+  const periodValuations = liveValuation?.periods ?? serverPeriodValuations;
+  const totalValuation = liveValuation?.totalValuation ?? (data.totalValuation || 0);
+  const dollarsPerMwPerYr = liveValuation?.dollarsPerMwPerYr ?? null;
+  const noiPerMwPerYr = liveValuation?.noiPerMwPerYr ?? null;
   const currentUses = (data.usePeriods || []).filter((up: any) => up.isCurrent);
   const isSplitBuilding = periodValuations.length > 1;
 
@@ -656,9 +883,26 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
           <div className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-orange-500" />
             <span className="text-sm font-medium text-gray-300">Valuation</span>
+            {hasChanges && <span className="text-[9px] px-1.5 py-0.5 rounded bg-yellow-900/50 text-yellow-400 animate-pulse">Live Preview</span>}
           </div>
-          <div className="text-2xl font-bold text-orange-400">
-            {formatMoney(totalValuation)}
+          <div className="text-right">
+            <div className="text-2xl font-bold text-orange-400">
+              {formatMoney(totalValuation)}
+            </div>
+            {(dollarsPerMwPerYr !== null || noiPerMwPerYr !== null) && (
+              <div className="flex items-center gap-2 justify-end mt-0.5">
+                {dollarsPerMwPerYr !== null && (
+                  <span className="text-[10px] text-blue-400 font-mono">
+                    ${safeToFixed(dollarsPerMwPerYr, 2)}M/MW/yr rev
+                  </span>
+                )}
+                {noiPerMwPerYr !== null && (
+                  <span className="text-[10px] text-green-400 font-mono">
+                    ${safeToFixed(noiPerMwPerYr, 2)}M/MW/yr NOI
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
