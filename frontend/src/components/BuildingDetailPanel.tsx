@@ -14,6 +14,7 @@ import {
   Split,
   Calendar,
   Trash2,
+  Edit2,
 } from 'lucide-react';
 
 // Error Boundary
@@ -345,6 +346,34 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       setConfirmDelete(null);
     },
   });
+
+  // Activate a planned transition — ends current periods and makes this one current
+  const activateTransitionMutation = useMutation({
+    mutationFn: async (usePeriodId: string) => {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/use-periods/${usePeriodId}/activate`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to activate transition');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['building-valuation', buildingId] });
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['valuation'] });
+      setConfirmActivate(null);
+    },
+    onError: (err: any) => {
+      alert(err.message || 'Failed to activate transition');
+      setConfirmActivate(null);
+    },
+  });
+
+  // Track which transition is being confirmed for activation
+  const [confirmActivate, setConfirmActivate] = useState<string | null>(null);
 
   // Slide-in animation state
   const [isVisible, setIsVisible] = useState(false);
@@ -1023,6 +1052,220 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 ))}
               </div>
 
+              {/* Planned Transitions — show non-current future periods */}
+              {(() => {
+                const plannedTransitions = (data?.usePeriods || []).filter((up: any) => !up.isCurrent);
+                if (plannedTransitions.length === 0) return null;
+                return (
+                  <div className="mb-3">
+                    <div className="text-[10px] text-blue-400 uppercase tracking-wider mb-1.5 font-medium">Planned Transitions</div>
+                    <div className="space-y-2">
+                      {plannedTransitions.map((up: any) => {
+                        const upId = up.id;
+                        const edits = splitLeaseEdits[upId];
+                        const isEditing = !!edits;
+                        return (
+                          <div key={up.id} className="bg-blue-950/20 border border-blue-600/30 rounded p-2">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs px-1.5 py-0.5 rounded bg-blue-900/50 text-blue-400">
+                                  Planned
+                                </span>
+                                <span className="text-sm font-medium text-white">{up.tenant || 'No tenant yet'}</span>
+                                {up.mwAllocation && (
+                                  <span className="text-xs text-blue-400">{up.mwAllocation} MW</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                  up.useType === 'HPC_AI_HOSTING' ? 'bg-purple-900/50 text-purple-400' :
+                                  up.useType === 'BTC_MINING' ? 'bg-orange-900/50 text-orange-400' :
+                                  'bg-gray-700 text-gray-400'
+                                }`}>
+                                  {up.useType === 'HPC_AI_HOSTING' ? 'HPC/AI' : up.useType === 'BTC_MINING' ? 'BTC' : up.useType}
+                                </span>
+                                {/* Edit button */}
+                                {!isEditing ? (
+                                  <button
+                                    onClick={() => {
+                                      setSplitLeaseEdits(prev => ({
+                                        ...prev,
+                                        [upId]: {
+                                          tenant: up.tenant || '',
+                                          leaseValueM: up.leaseValueM?.toString() || '',
+                                          leaseYears: up.leaseYears?.toString() || '',
+                                          noiPct: up.noiPct ? (Number(up.noiPct) * 100).toString() : '',
+                                          mwAllocation: up.mwAllocation?.toString() || '',
+                                          useType: up.useType || 'HPC_AI_HOSTING',
+                                          capexPerMw: up.capexPerMwOverride?.toString() || '',
+                                          leaseStart: up.startDate ? new Date(up.startDate).toISOString().split('T')[0] : '',
+                                        },
+                                      }));
+                                      setHasChanges(true);
+                                    }}
+                                    className="p-1 hover:bg-blue-900/30 rounded text-blue-400/70 hover:text-blue-300"
+                                    title="Edit transition"
+                                  >
+                                    <Edit2 className="h-3 w-3" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      setSplitLeaseEdits(prev => {
+                                        const next = { ...prev };
+                                        delete next[upId];
+                                        return next;
+                                      });
+                                    }}
+                                    className="p-1 hover:bg-gray-700 rounded text-gray-400"
+                                    title="Cancel edit"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                )}
+                                {/* Activate button */}
+                                {confirmActivate === up.id ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => activateTransitionMutation.mutate(up.id)}
+                                      className="text-[10px] px-1.5 py-0.5 bg-green-600 text-white rounded hover:bg-green-700"
+                                    >
+                                      Confirm
+                                    </button>
+                                    <button
+                                      onClick={() => setConfirmActivate(null)}
+                                      className="text-[10px] px-1.5 py-0.5 bg-gray-600 text-gray-200 rounded hover:bg-gray-500"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => setConfirmActivate(up.id)}
+                                    className="text-[10px] px-1.5 py-0.5 bg-green-900/40 text-green-400 rounded hover:bg-green-800/60"
+                                    title="Activate — ends current periods and makes this one live"
+                                  >
+                                    Activate
+                                  </button>
+                                )}
+                                {/* Delete button */}
+                                {confirmDelete === up.id ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => deleteUsePeriodMutation.mutate(up.id)}
+                                      className="text-[10px] px-1.5 py-0.5 bg-red-600 text-white rounded hover:bg-red-700"
+                                    >
+                                      Delete
+                                    </button>
+                                    <button
+                                      onClick={() => setConfirmDelete(null)}
+                                      className="text-[10px] px-1.5 py-0.5 bg-gray-600 text-gray-200 rounded hover:bg-gray-500"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => setConfirmDelete(up.id)}
+                                    className="p-1 hover:bg-red-900/30 rounded text-red-500/70 hover:text-red-400"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            {/* Dates */}
+                            {(up.startDate || up.endDate) && !isEditing && (
+                              <div className="flex items-center gap-1 mt-1 text-[10px] text-gray-500">
+                                <Calendar className="h-3 w-3" />
+                                <span>
+                                  {up.startDate ? new Date(up.startDate).toLocaleDateString() : 'TBD'}
+                                  {up.endDate ? ` → ${new Date(up.endDate).toLocaleDateString()}` : ''}
+                                </span>
+                              </div>
+                            )}
+                            {/* Lease info summary (when not editing) */}
+                            {!isEditing && up.leaseValueM && (
+                              <div className="text-[10px] text-gray-500 mt-1">
+                                Lease: ${Number(up.leaseValueM).toLocaleString()}M
+                                {up.leaseYears ? ` · ${up.leaseYears}yr` : ''}
+                                {up.noiPct ? ` · ${(Number(up.noiPct) * 100).toFixed(0)}% NOI` : ''}
+                              </div>
+                            )}
+                            {!isEditing && !up.tenant && !up.leaseValueM && (
+                              <div className="text-[10px] text-gray-500/60 mt-1 italic">
+                                Click edit to add lease details
+                              </div>
+                            )}
+                            {/* Inline edit fields */}
+                            {isEditing && edits && (
+                              <div className="mt-2 space-y-1.5">
+                                <div className="grid grid-cols-3 gap-1.5">
+                                  <div>
+                                    <label className="text-[9px] text-gray-500">Tenant</label>
+                                    <select
+                                      value={edits.tenant || ''}
+                                      onChange={(e) => handleSplitLeaseChange(upId, 'tenant', e.target.value)}
+                                      className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white"
+                                    >
+                                      {tenantOptions.map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] text-gray-500">Use Type</label>
+                                    <select
+                                      value={edits.useType || 'HPC_AI_HOSTING'}
+                                      onChange={(e) => handleSplitLeaseChange(upId, 'useType', e.target.value)}
+                                      className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white"
+                                    >
+                                      <option value="HPC_AI_HOSTING">HPC/AI</option>
+                                      <option value="BTC_MINING">BTC Mining</option>
+                                      <option value="GPU_CLOUD">GPU Cloud</option>
+                                      <option value="UNCONTRACTED">Uncontracted</option>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] text-gray-500">MW</label>
+                                    <input type="number" value={edits.mwAllocation ?? ''} onChange={(e) => handleSplitLeaseChange(upId, 'mwAllocation', e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white" />
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-3 gap-1.5">
+                                  <div>
+                                    <label className="text-[9px] text-gray-500">Lease Value ($M)</label>
+                                    <input type="number" value={edits.leaseValueM ?? ''} onChange={(e) => handleSplitLeaseChange(upId, 'leaseValueM', e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white" />
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] text-gray-500">Lease Term (yr)</label>
+                                    <input type="number" value={edits.leaseYears ?? ''} onChange={(e) => handleSplitLeaseChange(upId, 'leaseYears', e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white" />
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] text-gray-500">NOI %</label>
+                                    <input type="number" value={edits.noiPct ?? ''} onChange={(e) => handleSplitLeaseChange(upId, 'noiPct', e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white" />
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <div>
+                                    <label className="text-[9px] text-gray-500">Lease Start</label>
+                                    <input type="date" value={edits.leaseStart ?? ''} onChange={(e) => handleSplitLeaseChange(upId, 'leaseStart', e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white" />
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] text-gray-500">CapEx $/MW</label>
+                                    <input type="number" step="0.5" value={edits.capexPerMw ?? ''} onChange={(e) => handleSplitLeaseChange(upId, 'capexPerMw', e.target.value)} placeholder="Default: 10" className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white" />
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Action Buttons */}
               <div className="flex gap-2">
                 <button
@@ -1033,7 +1276,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                   Add Split
                 </button>
                 <button
-                  onClick={() => { setSplitType('transition'); setShowSplitModal(true); setNewUsePeriod({ isCurrent: true }); }}
+                  onClick={() => { setSplitType('transition'); setShowSplitModal(true); setNewUsePeriod({ isCurrent: false }); }}
                   className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-blue-600/20 border border-blue-600/50 text-blue-400 rounded hover:bg-blue-600/30 text-xs"
                 >
                   <Calendar className="h-3 w-3" />
@@ -1636,7 +1879,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 onClick={() => {
                   const payload: Record<string, any> = {
                     buildingId,
-                    isCurrent: true,
+                    isCurrent: splitType === 'split', // splits are current, transitions are planned
                     isSplit: splitType === 'split',
                     useType: newUsePeriod.useType || 'HPC_AI_HOSTING',
                     tenant: newUsePeriod.tenant || null,

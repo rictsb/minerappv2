@@ -796,6 +796,36 @@ app.delete('/api/v1/use-periods/:id', async (req, res) => {
   }
 });
 
+// Activate a planned transition — ends current periods and makes this one current (atomic)
+app.post('/api/v1/use-periods/:id/activate', async (req, res) => {
+  try {
+    const transition = await prisma.usePeriod.findUnique({ where: { id: req.params.id } });
+    if (!transition) {
+      return res.status(404).json({ error: 'Use period not found' });
+    }
+    if (transition.isCurrent) {
+      return res.status(400).json({ error: 'This use period is already current' });
+    }
+
+    // Atomic: end all current periods for this building, then activate the transition
+    await prisma.$transaction([
+      prisma.usePeriod.updateMany({
+        where: { buildingId: transition.buildingId, isCurrent: true },
+        data: { isCurrent: false, endDate: new Date() },
+      }),
+      prisma.usePeriod.update({
+        where: { id: req.params.id },
+        data: { isCurrent: true, startDate: new Date() },
+      }),
+    ]);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error activating transition:', error);
+    res.status(500).json({ error: 'Failed to activate transition' });
+  }
+});
+
 // ===========================================
 // MINING VALUATION API
 // ===========================================
