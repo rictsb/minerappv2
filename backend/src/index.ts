@@ -1635,6 +1635,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
       const netValM = valM;
       periodValuations.push({
         usePeriodId: null,
+        isCurrent: true,
         tenant: 'Unallocated Pipeline',
         useType: 'UNCONTRACTED',
         mw: unallocatedMw,
