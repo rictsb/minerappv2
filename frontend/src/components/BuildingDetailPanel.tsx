@@ -595,10 +595,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     const building = data.building || {};
     const fd = data.factorDetails || {};
     const itMw = Number(building.itMw) || 0;
-    const capRate = fd.capexPerMw?.debtFundingPct !== undefined
-      ? (data.valuation?.inputs?.capRate ?? 0.075)
-      : 0.075;
-    const hpcCapRate = capRate;
+    const hpcCapRate = data.valuation?.inputs?.capRate ?? 0.075;
     const debtFundingPct = fd.capexPerMw?.debtFundingPct ?? 0.80;
 
     // Build building factor from current overrides
