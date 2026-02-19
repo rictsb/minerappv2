@@ -72,6 +72,34 @@ export async function fetchStockPrice(ticker: string): Promise<FinnhubQuote | nu
 }
 
 /**
+ * Fetch company profile from Finnhub (market cap + shares outstanding)
+ */
+export async function fetchCompanyProfile(ticker: string): Promise<{ marketCapM: number; sharesOutM: number } | null> {
+  if (!FINNHUB_API_KEY) return null;
+
+  try {
+    const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_API_KEY}`;
+    const response = await fetch(url);
+    if (!response.ok) return null;
+
+    const data = await response.json() as {
+      marketCapitalization?: number; // in millions
+      shareOutstanding?: number;     // in millions
+    };
+
+    if (!data.marketCapitalization && !data.shareOutstanding) return null;
+
+    return {
+      marketCapM: data.marketCapitalization || 0,
+      sharesOutM: data.shareOutstanding || 0,
+    };
+  } catch (error) {
+    console.error(`Error fetching profile for ${ticker}:`, error);
+    return null;
+  }
+}
+
+/**
  * Fetch prices for multiple tickers
  */
 export async function fetchMultipleStockPrices(tickers: string[]): Promise<Map<string, FinnhubQuote>> {
@@ -170,12 +198,21 @@ export async function updateAllStockPrices(): Promise<{
     const quote = quotes.get(ticker);
 
     if (quote) {
+      // Also fetch company profile for market cap & shares outstanding
+      const profile = await fetchCompanyProfile(ticker);
+      await new Promise(resolve => setTimeout(resolve, 100)); // rate limit
+
+      const updateData: Record<string, any> = {
+        stockPrice: quote.price,
+        updatedAt: new Date(),
+      };
+      if (profile && profile.sharesOutM > 0) {
+        updateData.sharesOutM = profile.sharesOutM;
+      }
+
       await prisma.company.update({
         where: { ticker },
-        data: {
-          stockPrice: quote.price,
-          updatedAt: new Date(),
-        },
+        data: updateData,
       });
       prices[ticker] = quote.price;
       updated++;
