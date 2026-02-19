@@ -277,7 +277,7 @@ export default function Dashboard() {
                           <span className="font-medium text-orange-500">{v.ticker}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-green-400 cursor-help" title={marketCapM ? `Mkt Cap: $${formatNumber(marketCapM, 0)}M` : undefined}>
+                      <td className="px-4 py-3 text-right font-mono text-green-400 cursor-help" title={marketCapM != null ? `Mkt Cap: $${formatNumber(marketCapM, 0)}M` : v.stockPrice ? 'Mkt Cap: shares outstanding not set' : undefined}>
                         {v.stockPrice ? formatMoney(v.stockPrice) : '-'}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-gray-300">
@@ -298,7 +298,7 @@ export default function Dashboard() {
                       <td className="px-4 py-3 text-right font-mono text-purple-300">
                         {v.evHpcPipeline > 0 ? formatNumber(v.evHpcPipeline, 0) : '-'}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-orange-500 font-semibold cursor-help" title={v.totalValueM ? `SOTP EV: $${formatNumber(v.totalValueM, 0)}M (Net Liq: ${formatNumber(v.netLiquid, 0)} + EV: ${formatNumber(v.totalEv, 0)}${(v.impliedProjectDebtM ?? 0) > 0 ? ` − Debt: ${formatNumber(v.impliedProjectDebtM, 0)}` : ''})` : undefined}>
+                      <td className="px-4 py-3 text-right font-mono text-orange-500 font-semibold cursor-help" title={`SOTP: $${formatNumber(v.totalValueM, 0)}M (Net Liq: ${formatNumber(v.netLiquid, 0)} + EV: ${formatNumber(v.totalEv, 0)}${(v.impliedProjectDebtM ?? 0) > 0 ? ` − Debt: ${formatNumber(v.impliedProjectDebtM, 0)}` : ''})${v.fdSharesM ? ` ÷ ${formatNumber(v.fdSharesM, 1)}M FD shares` : ''}`}>
                         {v.fairValuePerShare ? formatMoney(v.fairValuePerShare) : '-'}
                       </td>
                       <td className="px-4 py-3 text-right">
