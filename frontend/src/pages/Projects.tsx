@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Filter,
@@ -187,8 +188,18 @@ function usePersistedState<T>(key: string, defaultValue: T): [T, (val: T) => voi
 
 export default function Projects() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = usePersistedState('projects-search', '');
   const [filterTicker, setFilterTicker] = usePersistedState('projects-ticker', '');
+
+  // If ?ticker=XXXX is in the URL, apply it as a filter and clean up the URL
+  useEffect(() => {
+    const urlTicker = searchParams.get('ticker');
+    if (urlTicker) {
+      setFilterTicker(urlTicker.toUpperCase());
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setFilterTicker, setSearchParams]);
   const [filterPhase, setFilterPhase] = usePersistedState('projects-phase', '');
   const [filterUseType, setFilterUseType] = usePersistedState('projects-useType', '');
   const [filterTenant, setFilterTenant] = usePersistedState('projects-tenant', '');

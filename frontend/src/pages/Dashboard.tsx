@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { RefreshCw, TrendingUp, TrendingDown, ChevronDown, ChevronRight } from 'lucide-react';
 
 
@@ -442,6 +443,15 @@ export default function Dashboard() {
                           ) : (
                             <p className="text-xs text-gray-500 italic">No contracted HPC sites</p>
                           )}
+                          <div className="mt-2">
+                            <Link
+                              to={`/projects?ticker=${v.ticker}`}
+                              className="text-xs text-orange-400/70 hover:text-orange-400 transition"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              View all sites →
+                            </Link>
+                          </div>
                         </td>
                       </tr>
                     )}
