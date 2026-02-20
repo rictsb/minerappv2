@@ -208,6 +208,13 @@ export async function updateAllStockPrices(): Promise<{
       };
       if (profile && profile.sharesOutM > 0) {
         updateData.sharesOutM = profile.sharesOutM;
+        // FD shares must always be >= shares outstanding; auto-correct if stale
+        const existing = await prisma.company.findUnique({ where: { ticker }, select: { fdSharesM: true } });
+        const currentFd = Number(existing?.fdSharesM) || 0;
+        if (currentFd > 0 && profile.sharesOutM > currentFd) {
+          updateData.fdSharesM = profile.sharesOutM;
+          console.log(`[stock-prices] ${ticker}: FD shares ${currentFd}M < shares out ${profile.sharesOutM}M — bumping FD to match`);
+        }
       }
 
       await prisma.company.update({
