@@ -455,6 +455,28 @@ app.put('/api/v1/companies/:ticker', async (req, res) => {
   }
 });
 
+// Seed/update FD shares for all companies from latest SEC filings
+app.post('/api/v1/seed-fd-shares', async (req, res) => {
+  try {
+    const fdSharesData: Record<string, number> = {
+      MARA: 470.1, CLSK: 328.6, RIOT: 402.0, APLD: 282.0,
+      CORZ: 363.3, IREN: 272.0, BITF: 555.8, HUT: 110.0,
+      CIFR: 398.0, WULF: 420.0, BTDR: 238.0,
+    };
+    let updated = 0;
+    for (const [ticker, fdSharesM] of Object.entries(fdSharesData)) {
+      try {
+        await prisma.company.update({ where: { ticker }, data: { fdSharesM } });
+        updated++;
+      } catch { /* company may not exist */ }
+    }
+    res.json({ updated, fdSharesData });
+  } catch (error) {
+    console.error('Error seeding FD shares:', error);
+    res.status(500).json({ error: 'Failed to seed FD shares' });
+  }
+});
+
 // Bulk-set capexInFinancials for ALL buildings of a company
 app.patch('/api/v1/companies/:ticker/capex-in-financials', async (req, res) => {
   try {
@@ -1968,6 +1990,35 @@ httpServer.listen(PORT, async () => {
       console.log('✅ Ensured capexInFinancials column exists');
     } catch (e) {
       console.log('capexInFinancials column may already exist:', (e as any).message);
+    }
+    // Add sharesOutM column if missing
+    try {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "Company" ADD COLUMN IF NOT EXISTS "sharesOutM" DECIMAL(12,4)`);
+      console.log('✅ Ensured sharesOutM column exists');
+    } catch (e) {
+      console.log('sharesOutM column may already exist:', (e as any).message);
+    }
+
+    // Seed FD shares from latest SEC filings (Q3 2025 / Q2 FY2026)
+    try {
+      const fdShares: Record<string, number> = {
+        MARA: 470.1, CLSK: 328.6, RIOT: 402.0, APLD: 282.0,
+        CORZ: 363.3, IREN: 272.0, BITF: 555.8, HUT: 110.0,
+        CIFR: 398.0, WULF: 420.0, BTDR: 238.0,
+      };
+      for (const [ticker, fd] of Object.entries(fdShares)) {
+        try {
+          // Only update if current value is null or stale (< 200 for companies that should be higher)
+          const co = await prisma.company.findUnique({ where: { ticker }, select: { fdSharesM: true } });
+          const current = co?.fdSharesM ? Number(co.fdSharesM) : 0;
+          if (!current || Math.abs(current - fd) > 10) {
+            await prisma.company.update({ where: { ticker }, data: { fdSharesM: fd } });
+          }
+        } catch { /* company may not exist */ }
+      }
+      console.log('✅ FD shares seeded/updated');
+    } catch (e) {
+      console.log('FD shares seed error (non-fatal):', (e as any).message);
     }
   } catch (e) {
     console.error('Migration error (non-fatal):', e);
