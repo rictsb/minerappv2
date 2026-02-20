@@ -22,6 +22,7 @@ interface HpcSite {
   valuation: number;
   phase: string;
   dollarsPerMwYr?: number;
+  category?: 'HPC_CONTRACTED' | 'PIPELINE' | 'MINING';
 }
 
 interface Valuation {
@@ -388,13 +389,14 @@ export default function Dashboard() {
                               </div>
                             )}
                           </div>
-                          {/* HPC Sites detail table */}
+                          {/* Valued Sites detail table */}
                           {Array.isArray(v.hpcSites) && v.hpcSites.length > 0 ? (
                             <table className="w-full text-xs">
                               <thead>
                                 <tr className="border-b border-gray-700">
                                   <th className="py-1.5 text-left text-gray-500 font-medium">Site</th>
                                   <th className="py-1.5 text-left text-gray-500 font-medium">Building</th>
+                                  <th className="py-1.5 text-left text-gray-500 font-medium">Type</th>
                                   <th className="py-1.5 text-left text-gray-500 font-medium">Tenant</th>
                                   <th className="py-1.5 text-left text-gray-500 font-medium">Phase</th>
                                   <th className="py-1.5 text-right text-gray-500 font-medium">MW</th>
@@ -407,10 +409,22 @@ export default function Dashboard() {
                               <tbody className="divide-y divide-gray-700/50">
                                 {v.hpcSites.map((site, i) => {
                                   const siteNoiPerMw = site.mw > 0 && site.noiAnnualM > 0 ? site.noiAnnualM / site.mw : null;
+                                  const catLabel = site.category === 'MINING' ? 'Mining' :
+                                    site.category === 'HPC_CONTRACTED' ? 'HPC' :
+                                    site.category === 'PIPELINE' ? 'Pipeline' : '-';
+                                  const catColor = site.category === 'MINING' ? 'bg-orange-900/50 text-orange-400' :
+                                    site.category === 'HPC_CONTRACTED' ? 'bg-cyan-900/50 text-cyan-400' :
+                                    site.category === 'PIPELINE' ? 'bg-purple-900/50 text-purple-400' :
+                                    'bg-gray-700 text-gray-400';
                                   return (
                                   <tr key={i} className="hover:bg-gray-700/30">
                                     <td className="py-1.5 text-gray-300">{site.siteName}</td>
                                     <td className="py-1.5 text-gray-400">{site.buildingName}</td>
+                                    <td className="py-1.5">
+                                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${catColor}`}>
+                                        {catLabel}
+                                      </span>
+                                    </td>
                                     <td className="py-1.5 text-cyan-400">{site.tenant || '-'}</td>
                                     <td className="py-1.5">
                                       <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
@@ -441,7 +455,7 @@ export default function Dashboard() {
                               </tbody>
                             </table>
                           ) : (
-                            <p className="text-xs text-gray-500 italic">No contracted HPC sites</p>
+                            <p className="text-xs text-gray-500 italic">No valued sites</p>
                           )}
                           <div className="mt-2">
                             <Link

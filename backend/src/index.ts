@@ -1359,6 +1359,17 @@ app.get('/api/v1/valuation', async (req, res) => {
               mwHpcPipeline += buildingMw;
               evHpcPipeline += pipelineVal;
               periodValuations.push({ buildingId: building.id, usePeriodId: null, valuationM: pipelineVal });
+              hpcSites.push({
+                siteName: site.name,
+                buildingName: building.name,
+                tenant: '',
+                mw: buildingMw,
+                leaseValueM: 0,
+                noiAnnualM: 0,
+                valuation: Math.round(pipelineVal),
+                phase: building.developmentPhase,
+                category: 'PIPELINE',
+              });
               // No implied debt for buildings with no use periods — they're pure pipeline
             } else {
               const explicitlyAllocated = currentUses.reduce((sum: number, up: any) => sum + (Number(up.mwAllocation) || 0), 0);
@@ -1371,7 +1382,18 @@ app.get('/api/v1/valuation', async (req, res) => {
                 const leaseValM = Number(currentUse.leaseValueM) || 0;
 
                 if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-                  // Mining period already handled
+                  // Mining value already computed above via mining record
+                  hpcSites.push({
+                    siteName: site.name,
+                    buildingName: building.name,
+                    tenant: currentUse.tenant || '',
+                    mw,
+                    leaseValueM: leaseValM,
+                    noiAnnualM: result.noiAnnual,
+                    valuation: Math.round(result.valuationM),
+                    phase: building.developmentPhase,
+                    category: 'MINING',
+                  });
                 } else if ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && hasLease) {
                   mwHpcContracted += mw;
                   totalLeaseValueM += leaseValM;
@@ -1385,10 +1407,22 @@ app.get('/api/v1/valuation', async (req, res) => {
                     noiAnnualM: result.noiAnnual,
                     valuation: Math.round(result.valuationM),
                     phase: building.developmentPhase,
+                    category: 'HPC_CONTRACTED',
                   });
                 } else {
                   mwHpcPipeline += mw;
                   evHpcPipeline += result.valuationM;
+                  hpcSites.push({
+                    siteName: site.name,
+                    buildingName: building.name,
+                    tenant: currentUse.tenant || '',
+                    mw,
+                    leaseValueM: leaseValM,
+                    noiAnnualM: result.noiAnnual,
+                    valuation: Math.round(result.valuationM),
+                    phase: building.developmentPhase,
+                    category: 'PIPELINE',
+                  });
                 }
 
                 periodValuations.push({ buildingId: building.id, usePeriodId: currentUse.id, valuationM: result.valuationM });
@@ -1406,6 +1440,17 @@ app.get('/api/v1/valuation', async (req, res) => {
                 mwHpcPipeline += unallocMw;
                 evHpcPipeline += pipelineVal;
                 periodValuations.push({ buildingId: building.id, usePeriodId: null, valuationM: pipelineVal });
+                hpcSites.push({
+                  siteName: site.name,
+                  buildingName: building.name + ' (unalloc)',
+                  tenant: '',
+                  mw: unallocMw,
+                  leaseValueM: 0,
+                  noiAnnualM: 0,
+                  valuation: Math.round(pipelineVal),
+                  phase: building.developmentPhase,
+                  category: 'PIPELINE',
+                });
                 // No implied debt for unallocated remainder — it's pipeline
               }
             }
