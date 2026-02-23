@@ -2041,10 +2041,10 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                 </div>
               </div>
 
-              {/* MW validation warning */}
-              {newUsePeriod.mwAllocation && parseFloat(newUsePeriod.mwAllocation) > (data?.capacityAllocation?.unallocatedMw || 0) && (
+              {/* MW validation warning — warn if new allocation exceeds total building MW */}
+              {newUsePeriod.mwAllocation && parseFloat(newUsePeriod.mwAllocation) > (data?.capacityAllocation?.totalItMw || 0) && (
                 <div className="text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-700/30 rounded p-2">
-                  Warning: MW allocation ({newUsePeriod.mwAllocation}) exceeds unallocated capacity ({data?.capacityAllocation?.unallocatedMw || 0} MW)
+                  Warning: MW allocation ({newUsePeriod.mwAllocation}) exceeds building capacity ({data?.capacityAllocation?.totalItMw || 0} MW)
                 </div>
               )}
             </div>
