@@ -492,29 +492,28 @@ export default function Projects() {
     }
 
     // Sort
+    const nullVal = sortDir === 'asc' ? Infinity : -Infinity;
     rows = [...rows].sort((a, b) => {
       let aVal: any = a[sortKey];
       let bVal: any = b[sortKey];
 
-      // Handle nulls
-      if (aVal === null || aVal === undefined) aVal = sortDir === 'asc' ? Infinity : -Infinity;
-      if (bVal === null || bVal === undefined) bVal = sortDir === 'asc' ? Infinity : -Infinity;
-
-      // Handle strings
-      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
-      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
-
-      // Handle dates
+      // Handle dates — convert to timestamps before general comparison
       if (sortKey === 'energizationDate') {
-        aVal = aVal === Infinity || aVal === -Infinity ? aVal : new Date(aVal).getTime();
-        bVal = bVal === Infinity || bVal === -Infinity ? bVal : new Date(bVal).getTime();
+        aVal = aVal ? new Date(aVal).getTime() : nullVal;
+        bVal = bVal ? new Date(bVal).getTime() : nullVal;
+      } else {
+        // Handle nulls
+        if (aVal === null || aVal === undefined || aVal === '') aVal = nullVal;
+        if (bVal === null || bVal === undefined || bVal === '') bVal = nullVal;
+
+        // Handle strings
+        if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+        if (typeof bVal === 'string') bVal = bVal.toLowerCase();
       }
 
       if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
-      // Tiebreaker: when primary sort values are equal, sort by building name
-      // to interleave companies rather than preserving ticker grouping
-      return a.buildingName.localeCompare(b.buildingName);
+      return 0;
     });
 
     return rows;
