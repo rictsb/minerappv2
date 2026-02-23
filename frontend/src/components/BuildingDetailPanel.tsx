@@ -1934,9 +1934,10 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                     type="number"
                     value={newUsePeriod.mwAllocation || ''}
                     onChange={(e) => setNewUsePeriod({ ...newUsePeriod, mwAllocation: e.target.value })}
-                    placeholder={`Max: ${data?.capacityAllocation?.unallocatedMw || data?.building?.itMw || 0}`}
+                    placeholder={`Building total: ${data?.building?.itMw || 0} MW`}
                     className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm text-white"
                   />
+                  <p className="text-[9px] text-gray-600 mt-0.5">Remaining MW valued as pipeline. No double counting.</p>
                 </div>
                 <div>
                   <label className="text-xs text-gray-400 mb-1 block">Use Type</label>
