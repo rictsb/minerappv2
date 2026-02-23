@@ -1172,7 +1172,11 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
 
               {/* Use Periods List — only show current periods */}
               <div className="space-y-2 mb-3">
-                {(data?.usePeriods || []).filter((up: any) => up.isCurrent).map((up: any) => (
+                {(data?.usePeriods || []).filter((up: any) => up.isCurrent).map((up: any) => {
+                  const upId = up.id;
+                  const edits = splitLeaseEdits[upId];
+                  const isEditing = !!edits;
+                  return (
                   <div
                     key={up.id}
                     className="bg-gray-800/30 border rounded p-2 border-purple-600/50"
@@ -1182,19 +1186,59 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                         <span className="text-xs px-1.5 py-0.5 rounded bg-green-900/50 text-green-400">
                           Current
                         </span>
-                        <span className="text-sm font-medium text-white">{up.tenant || 'Uncontracted'}</span>
-                        {up.mwAllocation && (
-                          <span className="text-xs text-purple-400">{up.mwAllocation} MW</span>
+                        <span className="text-sm font-medium text-white">{isEditing ? (edits.tenant || 'Uncontracted') : (up.tenant || 'Uncontracted')}</span>
+                        {(isEditing ? edits.mwAllocation : up.mwAllocation) && (
+                          <span className="text-xs text-purple-400">{isEditing ? edits.mwAllocation : up.mwAllocation} MW</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
                         <span className={`text-xs px-1.5 py-0.5 rounded ${
-                          up.useType === 'HPC_AI_HOSTING' ? 'bg-purple-900/50 text-purple-400' :
-                          up.useType === 'BTC_MINING' ? 'bg-orange-900/50 text-orange-400' :
+                          (isEditing ? edits.useType : up.useType) === 'HPC_AI_HOSTING' ? 'bg-purple-900/50 text-purple-400' :
+                          (isEditing ? edits.useType : up.useType) === 'BTC_MINING' ? 'bg-orange-900/50 text-orange-400' :
                           'bg-gray-700 text-gray-400'
                         }`}>
-                          {up.useType === 'HPC_AI_HOSTING' ? 'HPC/AI' : up.useType === 'BTC_MINING' ? 'BTC' : up.useType}
+                          {(() => { const ut = isEditing ? edits.useType : up.useType; return ut === 'HPC_AI_HOSTING' ? 'HPC/AI' : ut === 'BTC_MINING' ? 'BTC' : ut; })()}
                         </span>
+                        {/* Edit button */}
+                        {!isEditing ? (
+                          <button
+                            onClick={() => {
+                              setSplitLeaseEdits(prev => ({
+                                ...prev,
+                                [upId]: {
+                                  tenant: up.tenant || '',
+                                  leaseValueM: up.leaseValueM?.toString() || '',
+                                  leaseYears: up.leaseYears?.toString() || '',
+                                  noiPct: up.noiPct ? (Number(up.noiPct) * 100).toString() : '',
+                                  mwAllocation: up.mwAllocation?.toString() || '',
+                                  useType: up.useType || 'HPC_AI_HOSTING',
+                                  capexPerMw: up.capexPerMwOverride?.toString() || '',
+                                  leaseStart: up.startDate ? new Date(up.startDate).toISOString().split('T')[0] : '',
+                                },
+                              }));
+                              setHasChanges(true);
+                            }}
+                            className="p-1 hover:bg-purple-900/30 rounded text-purple-400/70 hover:text-purple-300"
+                            title="Edit period"
+                          >
+                            <Edit2 className="h-3 w-3" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setSplitLeaseEdits(prev => {
+                                const next = { ...prev };
+                                delete next[upId];
+                                return next;
+                              });
+                            }}
+                            className="p-1 hover:bg-gray-700 rounded text-gray-400"
+                            title="Cancel edit"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                        {/* Delete button */}
                         {currentUses.length >= 1 && (
                           confirmDelete === up.id ? (
                             <div className="flex items-center gap-1">
@@ -1223,18 +1267,77 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                         )}
                       </div>
                     </div>
-                    {(up.startDate || up.endDate) && (
-                      <div className="flex items-center gap-1 mt-1 text-[10px] text-gray-500">
-                        <Calendar className="h-3 w-3" />
-                        <span>
-                          {up.startDate ? new Date(up.startDate).toLocaleDateString() : 'Now'}
-                          {' → '}
-                          {up.endDate ? new Date(up.endDate).toLocaleDateString() : 'Ongoing'}
-                        </span>
+                    {/* Inline edit form */}
+                    {isEditing && edits && (
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[9px] text-gray-500">Tenant</label>
+                          <input type="text" value={edits.tenant} onChange={(e) => handleSplitLeaseChange(upId, 'tenant', e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white" />
+                        </div>
+                        <div>
+                          <label className="text-[9px] text-gray-500">Use Type</label>
+                          <select value={edits.useType} onChange={(e) => handleSplitLeaseChange(upId, 'useType', e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white">
+                            <option value="HPC_AI_HOSTING">HPC/AI Hosting</option>
+                            <option value="BTC_MINING">BTC Mining</option>
+                            <option value="BTC_MINING_HOSTING">BTC Hosting</option>
+                            <option value="GPU_CLOUD">GPU Cloud</option>
+                            <option value="UNCONTRACTED">Uncontracted</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[9px] text-gray-500">MW Allocation</label>
+                          <input type="number" value={edits.mwAllocation ?? ''} onChange={(e) => handleSplitLeaseChange(upId, 'mwAllocation', e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white" />
+                        </div>
+                        <div>
+                          <label className="text-[9px] text-gray-500">Lease Value ($M)</label>
+                          <input type="number" value={edits.leaseValueM ?? ''} onChange={(e) => handleSplitLeaseChange(upId, 'leaseValueM', e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white" />
+                        </div>
+                        <div>
+                          <label className="text-[9px] text-gray-500">Lease Term (yr)</label>
+                          <input type="number" value={edits.leaseYears ?? ''} onChange={(e) => handleSplitLeaseChange(upId, 'leaseYears', e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white" />
+                        </div>
+                        <div>
+                          <label className="text-[9px] text-gray-500">NOI %</label>
+                          <input type="number" value={edits.noiPct ?? ''} onChange={(e) => handleSplitLeaseChange(upId, 'noiPct', e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white" />
+                        </div>
+                        <div>
+                          <label className="text-[9px] text-gray-500">Lease Start</label>
+                          <input type="date" value={edits.leaseStart ?? ''} onChange={(e) => handleSplitLeaseChange(upId, 'leaseStart', e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white" />
+                        </div>
+                        <div>
+                          <label className="text-[9px] text-gray-500">CapEx $/MW</label>
+                          <input type="number" step="0.5" value={edits.capexPerMw ?? ''} onChange={(e) => handleSplitLeaseChange(upId, 'capexPerMw', e.target.value)} placeholder="Default" className="w-full bg-gray-700 border border-gray-600 rounded px-1.5 py-1 text-xs text-white" />
+                        </div>
                       </div>
                     )}
+                    {/* Read-only info when not editing */}
+                    {!isEditing && (
+                      <>
+                        {(up.startDate || up.endDate) && (
+                          <div className="flex items-center gap-1 mt-1 text-[10px] text-gray-500">
+                            <Calendar className="h-3 w-3" />
+                            <span>
+                              {up.startDate ? new Date(up.startDate).toLocaleDateString() : 'Now'}
+                              {' → '}
+                              {up.endDate ? new Date(up.endDate).toLocaleDateString() : 'Ongoing'}
+                            </span>
+                          </div>
+                        )}
+                        {up.leaseValueM && (
+                          <div className="text-[10px] text-gray-500 mt-1">
+                            Lease: ${Number(up.leaseValueM).toLocaleString()}M
+                            {up.leaseYears ? ` · ${up.leaseYears}yr` : ''}
+                            {up.noiPct ? ` · ${(Number(up.noiPct) * 100).toFixed(0)}% NOI` : ''}
+                          </div>
+                        )}
+                        {!up.tenant && !up.leaseValueM && (
+                          <div className="text-[10px] text-gray-500 mt-1 italic">Click edit to add lease details</div>
+                        )}
+                      </>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Planned Transitions — show non-current future periods */}
