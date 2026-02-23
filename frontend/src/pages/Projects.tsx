@@ -13,7 +13,9 @@ import {
   ArrowUpDown,
   Eye,
   EyeOff,
+  Download,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import BuildingDetailPanel from '../components/BuildingDetailPanel';
 
 function getApiUrl(): string {
@@ -510,7 +512,9 @@ export default function Projects() {
 
       if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
-      return 0;
+      // Tiebreaker: when primary sort values are equal, sort by building name
+      // to interleave companies rather than preserving ticker grouping
+      return a.buildingName.localeCompare(b.buildingName);
     });
 
     return rows;
@@ -544,6 +548,40 @@ export default function Projects() {
       setSortDir('asc');
     }
   };
+
+  const handleExportExcel = useCallback(() => {
+    const exportData = filteredRows.map((row, i) => ({
+      '#': i + 1,
+      'Ticker': row.ticker,
+      'Site': row.siteName,
+      'Building': row.buildingName,
+      'Phase': row.phase,
+      'Use Type': row.useType,
+      'Tenant': row.tenant || '',
+      'IT MW': row.itMw,
+      'Lease Value ($M)': row.leaseValueM,
+      'Lease Term (yr)': row.leaseYears,
+      'NOI %': row.noiPct ? (row.noiPct <= 1 ? row.noiPct * 100 : row.noiPct) : null,
+      'NOI Annual ($M)': row.noiAnnualM ? Math.round(row.noiAnnualM * 100) / 100 : null,
+      '$/MW/yr ($M)': row.dollarPerMwYr ? Math.round(row.dollarPerMwYr * 100) / 100 : null,
+      'Energization': row.energizationDate ? row.energizationDate.split('T')[0] : '',
+      'In EV': row.includeInValuation ? 'Yes' : 'No',
+      'Valuation ($M)': row.computedValuationM ? Math.round(row.computedValuationM) : null,
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+
+    // Auto-width columns
+    const colWidths = Object.keys(exportData[0] || {}).map(key => ({
+      wch: Math.max(key.length, ...exportData.map(r => String((r as any)[key] ?? '').length)) + 2,
+    }));
+    ws['!cols'] = colWidths;
+
+    const filterDesc = [filterTicker, filterPhase, filterUseType, filterTenant, filterEv, searchTerm].filter(Boolean).join('_') || 'all';
+    XLSX.utils.book_append_sheet(wb, ws, 'Projects');
+    XLSX.writeFile(wb, `projects_${filterDesc}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  }, [filteredRows, filterTicker, filterPhase, filterUseType, filterTenant, filterEv, searchTerm]);
 
   const handleColumnResize = useCallback((key: string, width: number) => {
     setColumnWidths(prev => {
@@ -779,6 +817,15 @@ export default function Projects() {
                 Clear filters
               </button>
             )}
+
+            <button
+              onClick={handleExportExcel}
+              className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 text-gray-300 hover:text-white rounded-lg px-3 py-2 text-sm transition ml-auto"
+              title="Export current view to Excel"
+            >
+              <Download className="h-4 w-4" />
+              <span>Export</span>
+            </button>
           </div>
         </div>
       </div>
