@@ -721,7 +721,8 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         valuationM = 0;
       } else {
         method = 'MW_PIPELINE';
-        grossValue = mw * 8;
+        const pipelineMwVal = factorOverrides.pipelineMwValue ?? fd.pipelineMwValue?.global ?? 8;
+        grossValue = mw * pipelineMwVal;
         valuationM = grossValue * periodFactor;
       }
 
@@ -822,7 +823,8 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         valuationM = Math.max(0, grossValue * periodFactor - capexDeductionM);
       } else {
         method = 'MW_PIPELINE';
-        grossValue = mw * 8;
+        const pipelineMwVal = factorOverrides.pipelineMwValue ?? fd.pipelineMwValue?.global ?? 8;
+        grossValue = mw * pipelineMwVal;
         valuationM = Math.max(0, grossValue * periodFactor);
       }
 
@@ -1623,17 +1625,6 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                     options={tenantOptions}
                   />
                   <EditableField
-                    label="Structure"
-                    value={leaseEdits.leaseStructure}
-                    onChange={(v) => handleLeaseChange('leaseStructure', v)}
-                    type="select"
-                    options={[
-                      { value: 'NNN', label: 'NNN (Triple Net)' },
-                      { value: 'MODIFIED_GROSS', label: 'Modified Gross' },
-                      { value: 'GROSS', label: 'Gross' },
-                    ]}
-                  />
-                  <EditableField
                     label="Term (years)"
                     value={leaseEdits.leaseYears}
                     onChange={(v) => handleLeaseChange('leaseYears', v)}
@@ -1805,6 +1796,17 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
                       description="building override"
                     />
                   )}
+                  <SliderRow
+                    label="Pipeline $/MW"
+                    autoValue={factorDetails.pipelineMwValue?.global ?? 8}
+                    currentValue={factorOverrides.pipelineMwValue ?? factorDetails.pipelineMwValue?.global ?? 8}
+                    onChange={(v) => handleFactorChange('pipelineMwValue', v)}
+                    min={0}
+                    max={20}
+                    step={0.5}
+                    format={(v) => `$${v.toFixed(1)}M`}
+                    description="uncontracted MW value"
+                  />
                 </div>
               {!isSplitBuilding && (
                 <>

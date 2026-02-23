@@ -1636,6 +1636,9 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         debtFundingPct: factors.debtFundingPct ?? 0.80,
         resolved: Number(building.capexPerMwOverride) || (factors.capexPerMw ?? 10),
       },
+      pipelineMwValue: {
+        global: factors.mwValueHpcUncontracted ?? 8,
+      },
     };
 
     // Building-level factor (shared across all splits)
