@@ -68,6 +68,7 @@ interface UsePeriod {
   leaseStart: string | null;
   leaseStructure: string | null;
   startDate: string | null;
+  endDate: string | null;
   computedValuationM?: number;
 }
 
@@ -313,8 +314,8 @@ export default function Projects() {
             const defaultProb = phaseConfig[phase]?.prob || 0.5;
             const probOverride = building.probabilityOverride ? parseFloat(building.probabilityOverride) : null;
 
-            // Get current use periods (supports splits)
-            const currentUses = (building.usePeriods || []).filter(up => up.isCurrent);
+            // Get current use periods + planned transitions (no endDate) — matches backend filter
+            const currentUses = (building.usePeriods || []).filter(up => up.isCurrent || (!up.isCurrent && !up.endDate));
 
             // Calculate MW allocation: explicit + remainder assignments
             const buildingItMw = building.itMw ? parseFloat(building.itMw) : 0;
@@ -991,7 +992,7 @@ export default function Projects() {
                       <td className="px-2 py-1.5 text-right font-mono">
                         {(() => {
                           const val = calcValuation(row);
-                          if (val !== null && val > 0) {
+                          if (val !== null && val !== undefined) {
                             return <span className="text-green-400 text-xs">{formatMoney(Math.round(val))}</span>;
                           }
                           return <span className="text-gray-600 text-xs">-</span>;
