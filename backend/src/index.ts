@@ -1118,7 +1118,7 @@ const DEFAULT_TENANTS: { key: string; name: string; defaultSpread: number }[] = 
   { key: 'tcAnthropic', name: 'Anthropic', defaultSpread: 0.00 },
   { key: 'tcOpenai', name: 'OpenAI', defaultSpread: 0.00 },
   { key: 'tcXai', name: 'xAI', defaultSpread: 0.25 },
-  { key: 'tcOther', name: 'Other', defaultSpread: 1.00 },
+  { key: 'tcOther', name: 'Future/TBD', defaultSpread: 1.00 },
   { key: 'tcSelf', name: 'Self (No Tenant)', defaultSpread: 3.00 },
 ];
 

@@ -90,7 +90,7 @@ const FACTOR_CONFIGS: Record<string, FactorConfig[]> = {
     { key: 'tcAnthropic', label: 'Anthropic', min: -3, max: 5, step: 0.25, format: (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`, defaultValue: 0.00 },
     { key: 'tcOpenai', label: 'OpenAI', min: -3, max: 5, step: 0.25, format: (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`, defaultValue: 0.00 },
     { key: 'tcXai', label: 'xAI', min: -3, max: 5, step: 0.25, format: (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`, defaultValue: 0.25 },
-    { key: 'tcOther', label: 'Other', min: -3, max: 5, step: 0.25, format: (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`, defaultValue: 1.00 },
+    { key: 'tcOther', label: 'Future/TBD', min: -3, max: 5, step: 0.25, format: (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`, defaultValue: 1.00 },
     { key: 'tcSelf', label: 'Self (No Tenant)', min: -3, max: 5, step: 0.25, format: (v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`, defaultValue: 3.00 },
   ],
   development: [
