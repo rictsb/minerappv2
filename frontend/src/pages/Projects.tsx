@@ -645,6 +645,7 @@ export default function Projects() {
           grossMw: editFormData.grossMw ? parseFloat(editFormData.grossMw) : null,
           itMw: editFormData.itMw ? parseFloat(editFormData.itMw) : null,
           pue: editFormData.pue ? parseFloat(editFormData.pue) : null,
+          energizationDate: editFormData.energizationDate || null,
         }),
       });
 
@@ -1004,7 +1005,16 @@ export default function Projects() {
                         )}
                       </td>
                       <td className="px-2 py-1.5 text-right text-xs text-gray-400">
-                        {formatDate(row.energizationDate)}
+                        {isEditing ? (
+                          <input
+                            type="date"
+                            value={editFormData.energizationDate || ''}
+                            onChange={(e) => setEditFormData({ ...editFormData, energizationDate: e.target.value })}
+                            className="w-full bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs"
+                          />
+                        ) : (
+                          formatDate(row.energizationDate)
+                        )}
                       </td>
                       <td className="px-2 py-1.5 text-center">
                         <div className="flex items-center justify-center gap-1">
