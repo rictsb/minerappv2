@@ -348,16 +348,9 @@ app.get('/api/v1/companies', async (req, res) => {
     const f = await loadFactors();
     const helpers = createFactorHelpers(f);
 
-    // Fetch mining valuations so we can distribute hashrate-based mining EV to buildings
-    const miningValuations = await prisma.miningValuation.findMany();
-    const miningByTicker = new Map(miningValuations.map((mv: any) => [mv.ticker, mv]));
-
     // --- Compute per-period valuations and attach to response ---
     const enriched = companies.map((company: any) => {
       let companyImpliedDebt = 0;
-
-      // Track mining use periods for pro-rata redistribution
-      const miningPeriods: { up: any; mw: number }[] = [];
 
       for (const site of (company.sites || [])) {
         let siteTotalMw = 0;
@@ -382,12 +375,6 @@ app.get('/api/v1/companies', async (req, res) => {
               (up as any).computedValuationM = result.valuationM;
               // Use canonical impliedDebtM from computePeriodValuation (no duplicate logic)
               companyImpliedDebt += result.impliedDebtM;
-
-              // Track mining periods for later pro-rata redistribution
-              const useType = up.useType || 'UNCONTRACTED';
-              if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-                miningPeriods.push({ up, mw });
-              }
             }
 
             // For buildings with no use periods, treat as pipeline
@@ -410,34 +397,6 @@ app.get('/api/v1/companies', async (req, res) => {
                 // No implied debt for unallocated remainder — pipeline
               }
             }
-          }
-        }
-      }
-
-      // --- Redistribute mining EV pro-rata across mining buildings ---
-      // Instead of using the simplistic $/MW per-building formula, distribute the
-      // company-level hashrate-based mining EV proportionally by MW across mining buildings.
-      const mvRecord: any = miningByTicker.get(company.ticker);
-      if (mvRecord && miningPeriods.length > 0) {
-        const eh = Number(mvRecord.hashrateEh) || 0;
-        const eff = Number(mvRecord.efficiencyJth) || 0;
-        const power = Number(mvRecord.powerCostKwh) || 0;
-        const hostedMw = Number(mvRecord.hostedMw) || 0;
-        let evMining = 0;
-        if (eh > 0) {
-          const annRevM = (eh * (f.dailyRevPerEh ?? 29400) * 365) / 1_000_000;
-          const annPowerM = eh * eff * power * 8.76;
-          const poolFeesM = (f.poolFeePct ?? 0.02) * annRevM;
-          const ebitdaM = annRevM - annPowerM - poolFeesM;
-          evMining += Math.max(0, ebitdaM * (f.ebitdaMultiple ?? 6));
-        }
-        if (hostedMw > 0) evMining += hostedMw * (f.mwValueBtcMining ?? 0.3);
-
-        // Distribute pro-rata by MW
-        const totalMiningMw = miningPeriods.reduce((s, p) => s + p.mw, 0);
-        if (totalMiningMw > 0 && evMining > 0) {
-          for (const { up, mw } of miningPeriods) {
-            (up as any).computedValuationM = (mw / totalMiningMw) * evMining;
           }
         }
       }
@@ -1380,8 +1339,6 @@ app.get('/api/v1/valuation', async (req, res) => {
       let totalLeaseValueM = 0;
       let impliedProjectDebtM = 0;
       const periodValuations: { buildingId: string; usePeriodId: string | null; valuationM: number }[] = [];
-      // Track mining site entries for pro-rata redistribution
-      const miningSiteEntries: { entry: any; pvEntry: any; mw: number }[] = [];
 
       for (const site of company.sites) {
         let siteTotalMw = 0;
@@ -1430,21 +1387,18 @@ app.get('/api/v1/valuation', async (req, res) => {
                 const leaseValM = Number(currentUse.leaseValueM) || 0;
 
                 if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-                  // Mining value will be redistributed pro-rata after the loop
-                  const siteEntry = {
+                  // Mining value already computed above via mining record
+                  hpcSites.push({
                     siteName: site.name,
                     buildingName: building.name,
                     tenant: currentUse.tenant || '',
                     mw,
                     leaseValueM: leaseValM,
                     noiAnnualM: result.noiAnnual,
-                    valuation: Math.round(result.valuationM), // placeholder, updated below
+                    valuation: Math.round(result.valuationM),
                     phase: building.developmentPhase,
                     category: 'MINING',
-                  };
-                  hpcSites.push(siteEntry);
-                  const pvEntry = { buildingId: building.id, usePeriodId: currentUse.id, valuationM: result.valuationM };
-                  miningSiteEntries.push({ entry: siteEntry, pvEntry, mw });
+                  });
                 } else if ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && hasLease) {
                   mwHpcContracted += mw;
                   totalLeaseValueM += leaseValM;
@@ -1476,14 +1430,7 @@ app.get('/api/v1/valuation', async (req, res) => {
                   });
                 }
 
-                // For mining periods, push the tracked pvEntry (will be updated in redistribution)
-                const useTypeForPv = currentUse.useType || 'UNCONTRACTED';
-                if (useTypeForPv === 'BTC_MINING' || useTypeForPv === 'BTC_MINING_HOSTING') {
-                  const tracked = miningSiteEntries[miningSiteEntries.length - 1];
-                  periodValuations.push(tracked.pvEntry);
-                } else {
-                  periodValuations.push({ buildingId: building.id, usePeriodId: currentUse.id, valuationM: result.valuationM });
-                }
+                periodValuations.push({ buildingId: building.id, usePeriodId: currentUse.id, valuationM: result.valuationM });
 
                 // Use canonical impliedDebtM from computePeriodValuation (no duplicate logic)
                 impliedProjectDebtM += result.impliedDebtM;
@@ -1512,18 +1459,6 @@ app.get('/api/v1/valuation', async (req, res) => {
                 // No implied debt for unallocated remainder — it's pipeline
               }
             }
-          }
-        }
-      }
-
-      // Redistribute mining EV pro-rata by MW across mining buildings
-      if (evMining > 0 && miningSiteEntries.length > 0) {
-        const totalMiningMw = miningSiteEntries.reduce((s, e) => s + e.mw, 0);
-        if (totalMiningMw > 0) {
-          for (const { entry, pvEntry, mw } of miningSiteEntries) {
-            const proRataVal = (mw / totalMiningMw) * evMining;
-            entry.valuation = Math.round(proRataVal);
-            pvEntry.valuationM = proRataVal;
           }
         }
       }
