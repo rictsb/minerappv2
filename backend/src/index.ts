@@ -247,11 +247,12 @@ function computePeriodValuation(
     return { valuationM: isFinite(netVal) ? netVal : 0, method, grossValue, noiAnnual, capRate, periodFactor, tenantMult, leaseStructMult, timeValueMult, capexDeductionM: equityCapexDeducted, totalCapexM, equityCapexM, debtCapexM, capexSkipReason, impliedDebtM };
   };
 
-  // BTC Mining — simple $/MW
+  // BTC Mining — value at HPC pipeline $/MW to show conversion optionality
+  // (Mining EV is captured separately at company level via hashrate EBITDA)
   if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-    const gross = periodMw * (f.mwValueBtcMining ?? 0.3);
+    const gross = periodMw * (f.mwValueHpcUncontracted ?? 8);
     const val = gross * periodFactor;
-    return makeResult(val, 'MW_VALUE', gross, 0, 0);
+    return makeResult(val, 'MW_PIPELINE', gross, 0, 0);
   }
 
   // HPC/AI with lease — Direct Capitalization: NOI / Cap Rate
