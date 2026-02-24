@@ -492,7 +492,10 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         leaseStructure: fd.leaseStructure?.final ?? fd.leaseStructure?.auto ?? 1.0,
         tenantCredit: fd.tenantCredit?.final ?? fd.tenantCredit?.auto ?? 1.0,
         timeValue: fd.timeValue?.final ?? fd.timeValue?.auto ?? 1.0,
-        fidoodleFactor: bld.fidoodleFactor ?? 1.0,
+        // If fidoodle is at DB default (1.0), show auto value; otherwise show the override
+        fidoodleFactor: (bld.fidoodleFactor && Math.abs(Number(bld.fidoodleFactor) - 1.0) > 0.001)
+          ? Number(bld.fidoodleFactor)
+          : (fd.fidoodleFactor?.auto ?? 1.0),
         capexPerMw: fd.capexPerMw?.resolved ?? fd.capexPerMw?.global ?? 10,
       });
     }
@@ -538,7 +541,10 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       },
       // Factor overrides
       factors: {
-        fidoodleFactor: factorOverrides.fidoodleFactor,
+        // If fidoodle matches auto (product of all other factors), save as 1.0 (DB default = not overridden)
+        fidoodleFactor: Math.abs((factorOverrides.fidoodleFactor ?? 1.0) - (fd.fidoodleFactor?.auto ?? 1.0)) < 0.005
+          ? 1.0
+          : factorOverrides.fidoodleFactor,
         probabilityOverride: factorOverrides.phaseProbability !== (fd.phaseProbability?.auto ?? 0.5) ? factorOverrides.phaseProbability : null,
         regulatoryRisk: factorOverrides.regulatoryRisk,
         sizeMultOverride: factorOverrides.sizeMultiplier !== (fd.sizeMultiplier?.auto ?? 1) ? factorOverrides.sizeMultiplier : null,
@@ -575,7 +581,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         leaseStructure: fd.leaseStructure?.auto ?? 1.0,
         tenantCredit: fd.tenantCredit?.auto ?? 1.0,
         timeValue: fd.timeValue?.auto ?? 1.0,
-        fidoodleFactor: 1.0,
+        fidoodleFactor: fd.fidoodleFactor?.auto ?? 1.0,
         capexPerMw: fd.capexPerMw?.global ?? 10,
       });
 
@@ -655,14 +661,17 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     const debtFundingPct = fd.capexPerMw?.debtFundingPct ?? 0.80;
 
     // Build building factor from current overrides
-    const bldFactor =
+    // autoFidoodle = product of individual factors; if fidoodle is overridden, it replaces them
+    const autoFidoodle =
       (factorOverrides.phaseProbability ?? 0.5) *
       (factorOverrides.regulatoryRisk ?? 1.0) *
       (factorOverrides.sizeMultiplier ?? 1.0) *
       (factorOverrides.powerAuthority ?? 1.0) *
       (factorOverrides.ownership ?? 1.0) *
-      (factorOverrides.datacenterTier ?? 1.0) *
-      (factorOverrides.fidoodleFactor ?? 1.0);
+      (factorOverrides.datacenterTier ?? 1.0);
+    const fidoodleVal = factorOverrides.fidoodleFactor ?? autoFidoodle;
+    const fidoodleMatchesAuto = Math.abs(fidoodleVal - autoFidoodle) < 0.005;
+    const bldFactor = fidoodleMatchesAuto ? autoFidoodle : fidoodleVal;
 
     const phase = building.developmentPhase || 'DILIGENCE';
     const isOperational = phase === 'OPERATIONAL';
@@ -1792,18 +1801,18 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
           </button>
           {expandedSections.factors && (
             <div className="px-4 pb-4">
-              {/* Fidoodle Factor - first and green */}
+              {/* Fidoodle Factor - combined building factor / override */}
               <div className="mb-3 pb-3 border-b border-gray-700">
                 <SliderRow
                   label="Fidoodle Factor"
-                  autoValue={1.0}
-                  currentValue={factorOverrides.fidoodleFactor ?? 1.0}
+                  autoValue={factorDetails.fidoodleFactor?.auto ?? 1.0}
+                  currentValue={factorOverrides.fidoodleFactor ?? factorDetails.fidoodleFactor?.auto ?? 1.0}
                   onChange={(v) => handleFactorChange('fidoodleFactor', v)}
-                  min={0.5}
+                  min={0.0}
                   max={2.0}
                   step={0.01}
                   format={formatMultiplier}
-                  description="manual override"
+                  description="combined building factor"
                   variant="green"
                 />
               </div>

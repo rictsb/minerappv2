@@ -174,8 +174,13 @@ function computeBuildingFactor(building: any, siteTotalMw: number, helpers: Retu
   const ownerMult = helpers.getOwnerMult(building.ownershipStatus);
   const sizeMult = helpers.getSizeMult(siteTotalMw);
   const tierMult = helpers.getTierMult((building as any).datacenterTier || 'TIER_III');
+  // autoFidoodle = product of all individual factors (the "natural" building multiplier)
+  const autoFidoodle = prob * regRisk * paMult * ownerMult * sizeMult * tierMult;
+  // If fidoodle has been overridden from its DB default (1.0), use it as the entire building factor
+  // Otherwise use the product of individual factors
   const fidoodle = Number((building as any).fidoodleFactor) ?? 1.0;
-  return prob * regRisk * paMult * ownerMult * sizeMult * tierMult * fidoodle;
+  const fidoodleIsOverridden = Math.abs(fidoodle - 1.0) > 0.001;
+  return fidoodleIsOverridden ? fidoodle : autoFidoodle;
 }
 
 // Derive NOI from lease data. DB stores noiPct as 0-1 fraction.
@@ -1579,6 +1584,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
     // Build factor details for the UI (auto-derived + overrides)
     const datacenterTier = (building as any).datacenterTier || 'TIER_III';
     const fidoodleFactor = Number((building as any).fidoodleFactor) || 1.0;
+    const fidoodleIsOverridden = Math.abs(fidoodleFactor - 1.0) > 0.001;
 
     const factorDetails = {
       phase: building.developmentPhase,
@@ -1629,7 +1635,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         auto: helpers.getTimeValueMult(leaseDetails.leaseStart, building.energizationDate),
         final: helpers.getTimeValueMult(leaseDetails.leaseStart, building.energizationDate),
       },
-      fidoodleFactor: { value: fidoodleFactor },
+      fidoodleFactor: { value: fidoodleFactor, isOverridden: fidoodleIsOverridden, auto: 0 }, // auto computed below
       capexPerMw: {
         global: factors.capexPerMw ?? 10,
         buildingOverride: Number(building.capexPerMwOverride) || null,
@@ -1640,6 +1646,15 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         global: factors.mwValueHpcUncontracted ?? 8,
       },
     };
+
+    // Compute autoFidoodle: product of all other building-level factors
+    factorDetails.fidoodleFactor.auto =
+      (factorDetails.phaseProbability.final || 1) *
+      (factorDetails.regulatoryRisk.value || 1) *
+      (factorDetails.sizeMultiplier.final || 1) *
+      (factorDetails.powerAuthority.final || 1) *
+      (factorDetails.ownership.final || 1) *
+      (factorDetails.datacenterTier.final || 1);
 
     // Building-level factor (shared across all splits)
     const bFactor = computeBuildingFactor(building, siteTotalMw, helpers);
@@ -1729,15 +1744,11 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
 
     const totalValuation = periodValuations.reduce((sum: number, p: any) => sum + p.valuationM, 0);
 
-    // Combined factor for display (building-level only for reference)
-    const combinedFactor =
-      (factorDetails.phaseProbability.final || 1) *
-      (factorDetails.regulatoryRisk.value || 1) *
-      (factorDetails.sizeMultiplier.final || 1) *
-      (factorDetails.powerAuthority.final || 1) *
-      (factorDetails.ownership.final || 1) *
-      (factorDetails.datacenterTier.final || 1) *
-      (factorDetails.fidoodleFactor.value || 1);
+    // Combined factor for display = the effective building factor
+    // If fidoodle is overridden, it IS the building factor; otherwise it's the product of all individual factors
+    const combinedFactor = fidoodleIsOverridden
+      ? fidoodleFactor
+      : factorDetails.fidoodleFactor.auto;
 
     // Simple valuation summary for backward compatibility (using first period)
     const capRate = factors.hpcCapRate ?? 0.075;
