@@ -1,7 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { RefreshCw, TrendingUp, TrendingDown, ChevronDown, ChevronRight } from 'lucide-react';
+
+// Freshness indicator: 0 = not set, 1 = stale, 2 = kind-of, 3 = fresh
+type Freshness = 0 | 1 | 2 | 3;
+const FRESHNESS_CONFIG: Record<Freshness, { color: string; bg: string; label: string; icon: string }> = {
+  0: { color: 'text-gray-600', bg: 'bg-gray-700', label: 'Not set', icon: '○' },
+  1: { color: 'text-red-400', bg: 'bg-red-900/60', label: 'Stale', icon: '●' },
+  2: { color: 'text-yellow-400', bg: 'bg-yellow-900/60', label: 'Partial', icon: '●' },
+  3: { color: 'text-green-400', bg: 'bg-green-900/60', label: 'Current', icon: '●' },
+};
 
 
 function getApiUrl(): string {
@@ -64,6 +73,24 @@ export default function Dashboard() {
     return saved ? new Date(saved) : null;
   });
 
+  // Freshness state — persisted to localStorage
+  const [freshness, setFreshness] = useState<Record<string, Freshness>>(() => {
+    const saved = localStorage.getItem('dashboard-freshness');
+    return saved ? JSON.parse(saved) : {};
+  });
+  const [sortKey, setSortKey] = useState<'ticker' | 'freshness' | 'upside' | 'fairValue'>('ticker');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  const updateFreshness = useCallback((ticker: string) => {
+    setFreshness(prev => {
+      const current = prev[ticker] || 0;
+      const next = ((current + 1) % 4) as Freshness;
+      const updated = { ...prev, [ticker]: next };
+      localStorage.setItem('dashboard-freshness', JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
   const { data: valData, isLoading, error } = useQuery({
     queryKey: ['valuation'],
     queryFn: async () => {
@@ -98,8 +125,35 @@ export default function Dashboard() {
     },
   });
 
-  const valuations = valData?.valuations || [];
   const factors = valData?.factors;
+
+  const handleSort = useCallback((key: typeof sortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir(key === 'ticker' ? 'asc' : 'desc');
+    }
+  }, [sortKey]);
+
+  const valuations = useMemo(() => {
+    const raw = valData?.valuations || [];
+    return [...raw].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'ticker') {
+        cmp = a.ticker.localeCompare(b.ticker);
+      } else if (sortKey === 'freshness') {
+        cmp = (freshness[a.ticker] || 0) - (freshness[b.ticker] || 0);
+      } else if (sortKey === 'upside') {
+        const uA = a.stockPrice && a.fairValuePerShare ? (a.fairValuePerShare / a.stockPrice - 1) : -999;
+        const uB = b.stockPrice && b.fairValuePerShare ? (b.fairValuePerShare / b.stockPrice - 1) : -999;
+        cmp = uA - uB;
+      } else if (sortKey === 'fairValue') {
+        cmp = (a.fairValuePerShare || 0) - (b.fairValuePerShare || 0);
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [valData?.valuations, sortKey, sortDir, freshness]);
 
   // Calculate totals
   const totals = valuations.reduce(
@@ -213,7 +267,12 @@ export default function Dashboard() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-700">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Ticker</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-200" onClick={() => handleSort('ticker')}>
+                  Ticker {sortKey === 'ticker' && (sortDir === 'asc' ? '▲' : '▼')}
+                </th>
+                <th className="px-2 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-200" onClick={() => handleSort('freshness')} title="Data freshness">
+                  {sortKey === 'freshness' ? (sortDir === 'asc' ? '▲' : '▼') : '⬤'}
+                </th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Price</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Mkt Cap</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Net Liquid</th>
@@ -221,12 +280,17 @@ export default function Dashboard() {
                 <th className="px-4 py-3 text-center text-xs font-medium text-orange-500 uppercase tracking-wider" colSpan={3}>
                   Enterprise Value ($M)
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Fair Value</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Upside</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-200" onClick={() => handleSort('fairValue')}>
+                  Fair Value {sortKey === 'fairValue' && (sortDir === 'asc' ? '▲' : '▼')}
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-200" onClick={() => handleSort('upside')}>
+                  Upside {sortKey === 'upside' && (sortDir === 'asc' ? '▲' : '▼')}
+                </th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">$/MW/yr</th>
               </tr>
               <tr className="border-b border-gray-600 bg-gray-800/50">
                 <th className="px-4 py-2"></th>
+                <th className="px-2 py-2"></th>
                 <th className="px-4 py-2"></th>
                 <th className="px-4 py-2"></th>
                 <th className="px-4 py-2"></th>
@@ -279,6 +343,21 @@ export default function Dashboard() {
                           <span className="font-medium text-orange-500">{v.ticker}</span>
                         </div>
                       </td>
+                      <td className="px-2 py-3 text-center">
+                        {(() => {
+                          const f = freshness[v.ticker] || 0;
+                          const cfg = FRESHNESS_CONFIG[f as Freshness];
+                          return (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); updateFreshness(v.ticker); }}
+                              className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-sm leading-none transition-all hover:ring-2 hover:ring-gray-500 ${cfg.color}`}
+                              title={`${cfg.label} — click to cycle`}
+                            >
+                              {cfg.icon}
+                            </button>
+                          );
+                        })()}
+                      </td>
                       <td className="px-4 py-3 text-right font-mono text-green-400 cursor-help" title={marketCapM != null ? `Mkt Cap: $${formatNumber(marketCapM, 0)}M` : v.stockPrice ? 'Mkt Cap: shares outstanding not set' : undefined}>
                         {v.stockPrice ? formatMoney(v.stockPrice) : '-'}
                       </td>
@@ -325,7 +404,7 @@ export default function Dashboard() {
                     </tr>
                     {isExpanded && (
                       <tr className="bg-gray-850">
-                        <td colSpan={11} className="px-6 py-4 bg-gray-800/60">
+                        <td colSpan={12} className="px-6 py-4 bg-gray-800/60">
                           {/* Summary stats */}
                           <div className="flex items-center gap-8 mb-3 text-xs">
                             <div>
@@ -474,7 +553,7 @@ export default function Dashboard() {
               })}
               {valuations.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="text-center py-8 text-gray-500">
+                  <td colSpan={12} className="text-center py-8 text-gray-500">
                     No companies found. Import data to get started.
                   </td>
                 </tr>
