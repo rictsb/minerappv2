@@ -2184,6 +2184,34 @@ httpServer.listen(PORT, async () => {
   }
 });
 
+// ===========================================
+// ADMIN API — raw DB access for debugging
+// ===========================================
+
+// GET /api/v1/admin/query?sql=SELECT ...
+app.get('/api/v1/admin/query', async (req, res) => {
+  try {
+    const sql = req.query.sql as string;
+    if (!sql) return res.status(400).json({ error: 'Missing ?sql= parameter' });
+    const rows = await prisma.$queryRawUnsafe(sql);
+    res.json({ rowCount: (rows as any[]).length, rows });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// POST /api/v1/admin/execute  { sql: "UPDATE ..." }
+app.post('/api/v1/admin/execute', async (req, res) => {
+  try {
+    const { sql } = req.body;
+    if (!sql) return res.status(400).json({ error: 'Missing sql in body' });
+    const result = await prisma.$executeRawUnsafe(sql);
+    res.json({ affected: result, ok: true });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully');
