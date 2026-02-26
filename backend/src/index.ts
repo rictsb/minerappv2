@@ -136,20 +136,37 @@ function createFactorHelpers(f: Record<string, any>) {
     return f.tierIMult ?? 0.80;
   };
 
-  const getTenantMult = (tenant: string | null): number => {
-    if (!tenant) return 1.0;
+  // Returns the tenant credit spread (in percentage points) for cap rate adjustment.
+  // Negative spread = better credit = lower cap rate = higher value.
+  const getTenantSpread = (tenant: string | null): number => {
+    if (!tenant) return 0;
     const t = tenant.toLowerCase();
+    if (t.includes('google')) return f.tcGoogle ?? -1.0;
+    if (t.includes('microsoft') || t.includes('azure')) return f.tcMicrosoft ?? -1.0;
+    if (t.includes('amazon') || t.includes('aws')) return f.tcAmazon ?? -1.0;
+    if (t.includes('meta') || t.includes('facebook')) return f.tcMeta ?? -0.75;
+    if (t.includes('oracle')) return f.tcOracle ?? -0.50;
+    if (t.includes('coreweave')) return f.tcCoreweave ?? 0.0;
+    if (t.includes('anthropic')) return f.tcAnthropic ?? 0.0;
+    if (t.includes('openai')) return f.tcOpenai ?? 0.0;
+    if (t.includes('xai') || t.includes('x.ai')) return f.tcXai ?? 0.25;
+    return f.tcOther ?? 1.0;
+  };
+
+  // Tenant-adjusted cap rate: baseCapRate × (SOFR + spread) / SOFR
+  // Negative spread → lower cap rate → higher value (better credit tenant)
+  const getTenantAdjCapRate = (tenant: string | null, baseCapRate: number): number => {
+    const spread = getTenantSpread(tenant);
+    if (spread === 0) return baseCapRate;
     const sofr = f.sofrRate ?? 4.3;
-    let spread = f.tcOther ?? 1.0;
-    if (t.includes('google')) spread = f.tcGoogle ?? -1.0;
-    else if (t.includes('microsoft') || t.includes('azure')) spread = f.tcMicrosoft ?? -1.0;
-    else if (t.includes('amazon') || t.includes('aws')) spread = f.tcAmazon ?? -1.0;
-    else if (t.includes('meta') || t.includes('facebook')) spread = f.tcMeta ?? -0.75;
-    else if (t.includes('oracle')) spread = f.tcOracle ?? -0.50;
-    else if (t.includes('coreweave')) spread = f.tcCoreweave ?? 0.0;
-    else if (t.includes('anthropic')) spread = f.tcAnthropic ?? 0.0;
-    else if (t.includes('openai')) spread = f.tcOpenai ?? 0.0;
-    else if (t.includes('xai') || t.includes('x.ai')) spread = f.tcXai ?? 0.25;
+    return baseCapRate * (sofr + spread) / sofr;
+  };
+
+  // Keep getTenantMult for backward compat (informational display only)
+  const getTenantMult = (tenant: string | null): number => {
+    const spread = getTenantSpread(tenant);
+    if (spread === 0) return 1.0;
+    const sofr = f.sofrRate ?? 4.3;
     return sofr / (sofr + spread);
   };
 
@@ -162,7 +179,7 @@ function createFactorHelpers(f: Record<string, any>) {
     return f.nnnMult ?? 1.0;
   };
 
-  return { getPhaseProbability, getTimeValueMult, getPAMult, getSizeMult, getOwnerMult, getTierMult, getTenantMult, getLeaseStructMult };
+  return { getPhaseProbability, getTimeValueMult, getPAMult, getSizeMult, getOwnerMult, getTierMult, getTenantSpread, getTenantAdjCapRate, getTenantMult, getLeaseStructMult };
 }
 
 // Compute building-level factor (shared across all splits of a building)
@@ -223,17 +240,19 @@ function computePeriodValuation(
   buildingFactor: number,
   helpers: ReturnType<typeof createFactorHelpers>,
   f: Record<string, any>
-): { valuationM: number; method: string; grossValue: number; noiAnnual: number; capRate: number; periodFactor: number; tenantMult: number; leaseStructMult: number; timeValueMult: number; capexDeductionM: number; totalCapexM: number; equityCapexM: number; debtCapexM: number; capexSkipReason: string | null; impliedDebtM: number } {
+): { valuationM: number; method: string; grossValue: number; noiAnnual: number; capRate: number; periodFactor: number; tenantMult: number; tenantSpread: number; leaseStructMult: number; timeValueMult: number; capexDeductionM: number; totalCapexM: number; equityCapexM: number; debtCapexM: number; capexSkipReason: string | null; impliedDebtM: number } {
   // Per-period factors
   const timeValueMult = helpers.getTimeValueMult(up.leaseStart ?? null, building.energizationDate);
-  const tenantMult = helpers.getTenantMult(up.tenant ?? null);
+  const tenantSpread = helpers.getTenantSpread(up.tenant ?? null);
+  const tenantMult = helpers.getTenantMult(up.tenant ?? null); // informational only
   const leaseStructMult = helpers.getLeaseStructMult(up.leaseStructure ?? null);
 
   // Fidoodle override: when manually set (≠ 1.0), it overrides the ENTIRE combined factor
   // (building-level + per-period multipliers), not just the building-level portion.
+  // Tenant credit is NOT in the adjustment factor — it flows through the cap rate instead.
   const fidoodle = Number((building as any).fidoodleFactor) ?? 1.0;
   const fidoodleIsOverridden = Math.abs(fidoodle - 1.0) > 0.001;
-  const periodFactor = fidoodleIsOverridden ? fidoodle : buildingFactor * timeValueMult * tenantMult * leaseStructMult;
+  const periodFactor = fidoodleIsOverridden ? fidoodle : buildingFactor * timeValueMult * leaseStructMult;
 
   // CapEx deduction logic:
   // - If use-period has its own capexPerMwOverride → always deduct (conversion/transition capex)
@@ -265,7 +284,7 @@ function computePeriodValuation(
 
   const makeResult = (val: number, method: string, grossValue: number, noiAnnual: number, capRate: number) => {
     const netVal = Math.max(0, val - equityCapexDeducted);
-    return { valuationM: isFinite(netVal) ? netVal : 0, method, grossValue, noiAnnual, capRate, periodFactor, tenantMult, leaseStructMult, timeValueMult, capexDeductionM: equityCapexDeducted, totalCapexM, equityCapexM, debtCapexM, capexSkipReason, impliedDebtM };
+    return { valuationM: isFinite(netVal) ? netVal : 0, method, grossValue, noiAnnual, capRate, periodFactor, tenantMult, tenantSpread, leaseStructMult, timeValueMult, capexDeductionM: equityCapexDeducted, totalCapexM, equityCapexM, debtCapexM, capexSkipReason, impliedDebtM };
   };
 
   // BTC Mining — no per-building EV; mining value is captured separately
@@ -274,10 +293,12 @@ function computePeriodValuation(
     return makeResult(0, 'MINING_HASHRATE', 0, 0, 0);
   }
 
-  // HPC/AI with lease — Direct Capitalization: NOI / Cap Rate
+  // HPC/AI with lease — Direct Capitalization: NOI / tenant-adjusted Cap Rate
+  // Tenant credit quality is reflected in the cap rate (not as a separate multiplier)
   if ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && hasLease) {
     const noiAnnual = deriveNoi(up);
-    const capRate = f.hpcCapRate ?? 0.075;
+    const baseCapRate = f.hpcCapRate ?? 0.075;
+    const capRate = helpers.getTenantAdjCapRate(up.tenant ?? null, baseCapRate);
     if (noiAnnual > 0 && capRate > 0) {
       const grossValue = noiAnnual / capRate;
       const val = grossValue * periodFactor;
@@ -1393,12 +1414,14 @@ app.get('/api/v1/valuation', async (req, res) => {
               energizationDate: building.energizationDate || null,
               factors: {
                 ...bfDetails,
+                tenantSpread: result.tenantSpread,
                 tenantMult: result.tenantMult,
                 leaseStructMult: result.leaseStructMult,
                 timeValueMult: result.timeValueMult,
                 combinedFactor: result.periodFactor,
               },
               grossValue: Math.round(result.grossValue),
+              capRate: result.capRate,
               capexDeductionM: Math.round(result.capexDeductionM),
               impliedDebtM: Math.round(result.impliedDebtM),
               method: result.method,
@@ -1424,12 +1447,14 @@ app.get('/api/v1/valuation', async (req, res) => {
                 energizationDate: building.energizationDate || null,
                 factors: {
                   ...bfDetails,
+                  tenantSpread: 0,
                   tenantMult: 1.0,
                   leaseStructMult: 1.0,
                   timeValueMult: timeVal,
                   combinedFactor: bFactor * timeVal,
                 },
                 grossValue: Math.round(grossVal),
+                capRate: 0,
                 capexDeductionM: 0,
                 impliedDebtM: 0,
                 method: 'MW_PIPELINE',
@@ -1687,8 +1712,11 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
       },
       tenantCredit: {
         tenant: leaseDetails.tenant,
-        auto: helpers.getTenantMult(leaseDetails.tenant),
-        final: helpers.getTenantMult(leaseDetails.tenant),
+        spread: helpers.getTenantSpread(leaseDetails.tenant),
+        baseCapRate: factors.hpcCapRate ?? 0.075,
+        adjCapRate: helpers.getTenantAdjCapRate(leaseDetails.tenant, factors.hpcCapRate ?? 0.075),
+        mult: helpers.getTenantMult(leaseDetails.tenant),
+        note: 'Tenant credit adjusts cap rate, not applied as separate multiplier',
       },
       timeValue: {
         leaseStart: leaseDetails.leaseStart,
@@ -1742,6 +1770,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         noiAnnual: result.noiAnnual || noiAnnual,
         capRate: result.capRate || (factors.hpcCapRate ?? 0.075),
         periodFactor: result.periodFactor,
+        tenantSpread: result.tenantSpread,
         tenantMult: result.tenantMult,
         leaseStructMult: result.leaseStructMult,
         timeValueMult: result.timeValueMult,
@@ -1784,6 +1813,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         noiAnnual: 0,
         capRate: 0,
         periodFactor: pFactor,
+        tenantSpread: 0,
         tenantMult: 1,
         leaseStructMult: 1,
         timeValueMult: timeVal,
