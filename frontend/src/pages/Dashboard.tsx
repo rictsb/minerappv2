@@ -340,7 +340,7 @@ export default function Dashboard() {
                           ) : (
                             <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
                           )}
-                          <span className="font-medium text-orange-500">{v.ticker}</span>
+                          <Link to={`/valuation/${v.ticker}`} className="font-medium text-orange-500 hover:text-orange-400 hover:underline transition" onClick={(e) => e.stopPropagation()}>{v.ticker}</Link>
                         </div>
                       </td>
                       <td className="px-2 py-3 text-center">

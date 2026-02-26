@@ -167,6 +167,12 @@ function createFactorHelpers(f: Record<string, any>) {
 
 // Compute building-level factor (shared across all splits of a building)
 function computeBuildingFactor(building: any, siteTotalMw: number, helpers: ReturnType<typeof createFactorHelpers>) {
+  const details = computeBuildingFactorDetails(building, siteTotalMw, helpers);
+  return details.buildingFactor;
+}
+
+// Compute building-level factor with individual factor breakdown
+function computeBuildingFactorDetails(building: any, siteTotalMw: number, helpers: ReturnType<typeof createFactorHelpers>) {
   const phase = building.developmentPhase || 'DILIGENCE';
   const prob = building.probabilityOverride ? Number(building.probabilityOverride) : helpers.getPhaseProbability(phase);
   const regRisk = Number(building.regulatoryRisk) ?? 1.0;
@@ -174,13 +180,20 @@ function computeBuildingFactor(building: any, siteTotalMw: number, helpers: Retu
   const ownerMult = helpers.getOwnerMult(building.ownershipStatus);
   const sizeMult = helpers.getSizeMult(siteTotalMw);
   const tierMult = helpers.getTierMult((building as any).datacenterTier || 'TIER_III');
-  // autoFidoodle = product of all individual factors (the "natural" building multiplier)
   const autoFidoodle = prob * regRisk * paMult * ownerMult * sizeMult * tierMult;
-  // If fidoodle has been overridden from its DB default (1.0), use it as the entire building factor
-  // Otherwise use the product of individual factors
   const fidoodle = Number((building as any).fidoodleFactor) ?? 1.0;
   const fidoodleIsOverridden = Math.abs(fidoodle - 1.0) > 0.001;
-  return fidoodleIsOverridden ? fidoodle : autoFidoodle;
+  const buildingFactor = fidoodleIsOverridden ? fidoodle : autoFidoodle;
+  return {
+    phaseProb: prob,
+    regRisk,
+    sizeMult,
+    powerAuthMult: paMult,
+    ownershipMult: ownerMult,
+    tierMult,
+    fidoodleOverride: fidoodleIsOverridden ? fidoodle : null,
+    buildingFactor,
+  };
 }
 
 // Derive NOI from lease data. DB stores noiPct as 0-1 fraction.
@@ -1353,13 +1366,40 @@ app.get('/api/v1/valuation', async (req, res) => {
             if (!building.includeInValuation) continue;
 
             const buildingMw = Number(building.itMw) || 0;
-            const bFactor = computeBuildingFactor(building, siteTotalMw, helpers);
+            const bfDetails = computeBuildingFactorDetails(building, siteTotalMw, helpers);
+            const bFactor = bfDetails.buildingFactor;
             // Include current + planned transitions (no endDate) in valuation
             const currentUses = building.usePeriods.filter((up: any) => up.isCurrent || (!up.isCurrent && !up.endDate));
+
+            // Helper to build enriched hpcSite entry with factor waterfall
+            const makeSiteEntry = (result: any, category: string, tenant: string, mw: number, leaseValM: number) => ({
+              siteName: site.name,
+              buildingName: building.name,
+              tenant,
+              mw,
+              leaseValueM: leaseValM,
+              noiAnnualM: result.noiAnnual,
+              valuation: Math.round(result.valuationM),
+              phase: building.developmentPhase,
+              category,
+              energizationDate: building.energizationDate || null,
+              factors: {
+                ...bfDetails,
+                tenantMult: result.tenantMult,
+                leaseStructMult: result.leaseStructMult,
+                timeValueMult: result.timeValueMult,
+                combinedFactor: result.periodFactor,
+              },
+              grossValue: Math.round(result.grossValue),
+              capexDeductionM: Math.round(result.capexDeductionM),
+              impliedDebtM: Math.round(result.impliedDebtM),
+              method: result.method,
+            });
 
             if (currentUses.length === 0) {
               const timeVal = helpers.getTimeValueMult(null, building.energizationDate);
               const pipelineVal = buildingMw * (factors.mwValueHpcUncontracted ?? 8) * bFactor * timeVal;
+              const grossVal = buildingMw * (factors.mwValueHpcUncontracted ?? 8);
               mwHpcPipeline += buildingMw;
               evHpcPipeline += pipelineVal;
               periodValuations.push({ buildingId: building.id, usePeriodId: null, valuationM: pipelineVal });
@@ -1373,6 +1413,18 @@ app.get('/api/v1/valuation', async (req, res) => {
                 valuation: Math.round(pipelineVal),
                 phase: building.developmentPhase,
                 category: 'PIPELINE',
+                energizationDate: building.energizationDate || null,
+                factors: {
+                  ...bfDetails,
+                  tenantMult: 1.0,
+                  leaseStructMult: 1.0,
+                  timeValueMult: timeVal,
+                  combinedFactor: bFactor * timeVal,
+                },
+                grossValue: Math.round(grossVal),
+                capexDeductionM: 0,
+                impliedDebtM: 0,
+                method: 'MW_PIPELINE',
               });
               // No implied debt for buildings with no use periods — they're pure pipeline
             } else {
@@ -1386,47 +1438,16 @@ app.get('/api/v1/valuation', async (req, res) => {
                 const leaseValM = Number(currentUse.leaseValueM) || 0;
 
                 if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-                  // Mining value already computed above via mining record
-                  hpcSites.push({
-                    siteName: site.name,
-                    buildingName: building.name,
-                    tenant: currentUse.tenant || '',
-                    mw,
-                    leaseValueM: leaseValM,
-                    noiAnnualM: result.noiAnnual,
-                    valuation: Math.round(result.valuationM),
-                    phase: building.developmentPhase,
-                    category: 'MINING',
-                  });
+                  hpcSites.push(makeSiteEntry(result, 'MINING', currentUse.tenant || '', mw, leaseValM));
                 } else if ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && hasLease) {
                   mwHpcContracted += mw;
                   totalLeaseValueM += leaseValM;
                   evHpcContracted += result.valuationM;
-                  hpcSites.push({
-                    siteName: site.name,
-                    buildingName: building.name,
-                    tenant: currentUse.tenant || '',
-                    mw,
-                    leaseValueM: leaseValM,
-                    noiAnnualM: result.noiAnnual,
-                    valuation: Math.round(result.valuationM),
-                    phase: building.developmentPhase,
-                    category: 'HPC_CONTRACTED',
-                  });
+                  hpcSites.push(makeSiteEntry(result, 'HPC_CONTRACTED', currentUse.tenant || '', mw, leaseValM));
                 } else {
                   mwHpcPipeline += mw;
                   evHpcPipeline += result.valuationM;
-                  hpcSites.push({
-                    siteName: site.name,
-                    buildingName: building.name,
-                    tenant: currentUse.tenant || '',
-                    mw,
-                    leaseValueM: leaseValM,
-                    noiAnnualM: result.noiAnnual,
-                    valuation: Math.round(result.valuationM),
-                    phase: building.developmentPhase,
-                    category: 'PIPELINE',
-                  });
+                  hpcSites.push(makeSiteEntry(result, 'PIPELINE', currentUse.tenant || '', mw, leaseValM));
                 }
 
                 periodValuations.push({ buildingId: building.id, usePeriodId: currentUse.id, valuationM: result.valuationM });
@@ -1468,6 +1489,38 @@ app.get('/api/v1/valuation', async (req, res) => {
       const sharesOutM = Number((company as any).sharesOutM) || 0;
       const fairValuePerShare = fdSharesM > 0 ? totalValueM / fdSharesM : null;
 
+      // Build net liquid breakdown
+      const netLiquidBreakdown = nlaRecord ? {
+        cashM: Number(nlaRecord.cashM) || 0,
+        btcCount: Number(nlaRecord.btcCount) || 0,
+        ethCount: Number(nlaRecord.ethCount) || 0,
+        totalDebtM: Number(nlaRecord.totalDebtM) || 0,
+      } : null;
+
+      // Build mining breakdown
+      let miningBreakdown: any = null;
+      if (mvRecord) {
+        const eh = Number(mvRecord.hashrateEh) || 0;
+        const eff = Number(mvRecord.efficiencyJth) || 0;
+        const power = Number(mvRecord.powerCostKwh) || 0;
+        const hostedMw = Number(mvRecord.hostedMw) || 0;
+        const annRevM = eh > 0 ? (eh * factors.dailyRevPerEh * 365) / 1_000_000 : 0;
+        const annPowerM = eh > 0 ? eh * eff * power * 8.76 : 0;
+        const poolFeesM = factors.poolFeePct * annRevM;
+        const ebitdaM = annRevM - annPowerM - poolFeesM;
+        miningBreakdown = {
+          hashrateEh: eh,
+          efficiencyJth: eff,
+          powerCostKwh: power,
+          hostedMw,
+          annualRevM: Math.round(annRevM * 10) / 10,
+          annualPowerCostM: Math.round(annPowerM * 10) / 10,
+          poolFeesM: Math.round(poolFeesM * 10) / 10,
+          ebitdaM: Math.round(ebitdaM * 10) / 10,
+          ebitdaMultiple: factors.ebitdaMultiple ?? 6,
+        };
+      }
+
       return {
         ticker: company.ticker,
         name: company.name,
@@ -1475,8 +1528,10 @@ app.get('/api/v1/valuation', async (req, res) => {
         fdSharesM: fdSharesM > 0 ? Math.round(fdSharesM * 10) / 10 : null,
         sharesOutM: sharesOutM > 0 ? Math.round(sharesOutM * 10) / 10 : null,
         netLiquid: Math.round(netLiquid * 10) / 10,
+        netLiquidBreakdown,
         totalMw: Math.round(totalItMw),
         evMining: Math.round(evMining),
+        miningBreakdown,
         evHpcContracted: Math.round(evHpcContracted),
         evHpcPipeline: Math.round(evHpcPipeline),
         evGpu: 0,

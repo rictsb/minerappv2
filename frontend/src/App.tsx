@@ -9,6 +9,7 @@ import Settings from './pages/Settings';
 import MiningValuation from './pages/MiningValuation';
 import NetLiquidAssets from './pages/NetLiquidAssets';
 import DebtTracker from './pages/DebtTracker';
+import Valuation from './pages/Valuation';
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/valuation/:ticker" element={<Valuation />} />
         <Route path="/projects" element={<Projects />} />
         <Route path="/projects/:ticker" element={<Projects />} />
         <Route path="/mining-valuation" element={<MiningValuation />} />
