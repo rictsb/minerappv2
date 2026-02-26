@@ -192,13 +192,13 @@ function computeBuildingFactor(building: any, siteTotalMw: number, helpers: Retu
 function computeBuildingFactorDetails(building: any, siteTotalMw: number, helpers: ReturnType<typeof createFactorHelpers>) {
   const phase = building.developmentPhase || 'DILIGENCE';
   const prob = building.probabilityOverride ? Number(building.probabilityOverride) : helpers.getPhaseProbability(phase);
-  const regRisk = Number(building.regulatoryRisk) ?? 1.0;
+  const regRisk = Number(building.regulatoryRisk) || 1.0;
   const paMult = helpers.getPAMult(building.grid);
   const ownerMult = helpers.getOwnerMult(building.ownershipStatus);
   const sizeMult = helpers.getSizeMult(siteTotalMw);
   const tierMult = helpers.getTierMult((building as any).datacenterTier || 'TIER_III');
   const autoFidoodle = prob * regRisk * paMult * ownerMult * sizeMult * tierMult;
-  const fidoodle = Number((building as any).fidoodleFactor) ?? 1.0;
+  const fidoodle = Number((building as any).fidoodleFactor) || 1.0;
   const fidoodleIsOverridden = Math.abs(fidoodle - 1.0) > 0.001;
   // buildingFactor is always the auto-calculated product of individual factors.
   // When fidoodle is overridden, it overrides the ENTIRE combined factor (including
@@ -250,7 +250,7 @@ function computePeriodValuation(
   // Fidoodle override: when manually set (≠ 1.0), it overrides the ENTIRE combined factor
   // (building-level + per-period multipliers), not just the building-level portion.
   // Tenant credit is NOT in the adjustment factor — it flows through the cap rate instead.
-  const fidoodle = Number((building as any).fidoodleFactor) ?? 1.0;
+  const fidoodle = Number((building as any).fidoodleFactor) || 1.0;
   const fidoodleIsOverridden = Math.abs(fidoodle - 1.0) > 0.001;
   const periodFactor = fidoodleIsOverridden ? fidoodle : buildingFactor * timeValueMult * leaseStructMult;
 
@@ -1680,7 +1680,7 @@ app.get('/api/v1/buildings/:id/valuation', async (req, res) => {
         override: building.probabilityOverride ? Number(building.probabilityOverride) : null,
         final: building.probabilityOverride ? Number(building.probabilityOverride) : helpers.getPhaseProbability(building.developmentPhase),
       },
-      regulatoryRisk: { value: Number(building.regulatoryRisk) ?? 1.0 },
+      regulatoryRisk: { value: Number(building.regulatoryRisk) || 1.0 },
       sizeMultiplier: {
         siteTotalMw,
         auto: helpers.getSizeMult(siteTotalMw),

@@ -490,7 +490,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         ownership: fd.ownership?.final ?? fd.ownership?.auto ?? 1.0,
         datacenterTier: fd.datacenterTier?.final ?? fd.datacenterTier?.auto ?? 1.0,
         leaseStructure: fd.leaseStructure?.final ?? fd.leaseStructure?.auto ?? 1.0,
-        tenantCredit: fd.tenantCredit?.final ?? fd.tenantCredit?.auto ?? 1.0,
+        tenantCredit: fd.tenantCredit?.mult ?? fd.tenantCredit?.final ?? fd.tenantCredit?.auto ?? 1.0,
         timeValue: fd.timeValue?.final ?? fd.timeValue?.auto ?? 1.0,
         // If fidoodle is at DB default (1.0), show auto value; otherwise show the override
         fidoodleFactor: (bld.fidoodleFactor && Math.abs(Number(bld.fidoodleFactor) - 1.0) > 0.001)
