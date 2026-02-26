@@ -183,7 +183,10 @@ function computeBuildingFactorDetails(building: any, siteTotalMw: number, helper
   const autoFidoodle = prob * regRisk * paMult * ownerMult * sizeMult * tierMult;
   const fidoodle = Number((building as any).fidoodleFactor) ?? 1.0;
   const fidoodleIsOverridden = Math.abs(fidoodle - 1.0) > 0.001;
-  const buildingFactor = fidoodleIsOverridden ? fidoodle : autoFidoodle;
+  // buildingFactor is always the auto-calculated product of individual factors.
+  // When fidoodle is overridden, it overrides the ENTIRE combined factor (including
+  // per-period mults) in computePeriodValuation, not just the building-level portion.
+  const buildingFactor = autoFidoodle;
   return {
     phaseProb: prob,
     regRisk,
@@ -225,7 +228,12 @@ function computePeriodValuation(
   const timeValueMult = helpers.getTimeValueMult(up.leaseStart ?? null, building.energizationDate);
   const tenantMult = helpers.getTenantMult(up.tenant ?? null);
   const leaseStructMult = helpers.getLeaseStructMult(up.leaseStructure ?? null);
-  const periodFactor = buildingFactor * timeValueMult * tenantMult * leaseStructMult;
+
+  // Fidoodle override: when manually set (≠ 1.0), it overrides the ENTIRE combined factor
+  // (building-level + per-period multipliers), not just the building-level portion.
+  const fidoodle = Number((building as any).fidoodleFactor) ?? 1.0;
+  const fidoodleIsOverridden = Math.abs(fidoodle - 1.0) > 0.001;
+  const periodFactor = fidoodleIsOverridden ? fidoodle : buildingFactor * timeValueMult * tenantMult * leaseStructMult;
 
   // CapEx deduction logic:
   // - If use-period has its own capexPerMwOverride → always deduct (conversion/transition capex)
