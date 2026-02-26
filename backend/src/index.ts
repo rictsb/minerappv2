@@ -477,7 +477,7 @@ app.post('/api/v1/seed-fd-shares', async (req, res) => {
   try {
     const fdSharesData: Record<string, number> = {
       MARA: 470.1, CLSK: 328.6, RIOT: 402.0, APLD: 282.0,
-      CORZ: 363.3, IREN: 272.0, BITF: 555.8, HUT: 110.0,
+      CORZ: 363.3, IREN: 331.76, BITF: 555.8, HUT: 110.0,
       CIFR: 398.0, WULF: 420.0, BTDR: 238.0,
     };
     let updated = 0;
@@ -2116,7 +2116,7 @@ httpServer.listen(PORT, async () => {
     try {
       const fdShares: Record<string, number> = {
         MARA: 470.1, CLSK: 328.6, RIOT: 402.0, APLD: 282.0,
-        CORZ: 363.3, IREN: 272.0, BITF: 555.8, HUT: 110.0,
+        CORZ: 363.3, IREN: 331.76, BITF: 555.8, HUT: 110.0,
         CIFR: 398.0, WULF: 420.0, BTDR: 238.0,
       };
       for (const [ticker, fd] of Object.entries(fdShares)) {
@@ -2132,6 +2132,14 @@ httpServer.listen(PORT, async () => {
       console.log('✅ FD shares seeded/updated');
     } catch (e) {
       console.log('FD shares seed error (non-fatal):', (e as any).message);
+    }
+
+    // Patch sharesOutM for IREN (331.76M shares outstanding)
+    try {
+      await prisma.company.update({ where: { ticker: 'IREN' }, data: { sharesOutM: 331.76 } });
+      console.log('✅ IREN sharesOutM updated to 331.76M');
+    } catch (e) {
+      console.log('IREN sharesOutM patch (non-fatal):', (e as any).message);
     }
   } catch (e) {
     console.error('Migration error (non-fatal):', e);
