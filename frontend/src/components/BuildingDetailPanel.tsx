@@ -916,12 +916,21 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
   const campus = data.campus || {};
   const factorDetails = data.factorDetails || {};
 
-  // Use live client-side valuations (update as you type) with server data as fallback
+  // Use server-computed values as the source of truth.
+  // Only switch to client-side liveValuation when the user is actively editing.
   const serverPeriodValuations: any[] = data.periodValuations || [];
-  const periodValuations = liveValuation?.periods ?? serverPeriodValuations;
-  const totalValuation = liveValuation?.totalValuation ?? (data.totalValuation || 0);
-  const dollarsPerMwPerYr = liveValuation?.dollarsPerMwPerYr ?? null;
-  const noiPerMwPerYr = liveValuation?.noiPerMwPerYr ?? null;
+  const periodValuations = hasChanges ? (liveValuation?.periods ?? serverPeriodValuations) : serverPeriodValuations;
+  const totalValuation = hasChanges ? (liveValuation?.totalValuation ?? (data.totalValuation || 0)) : (data.totalValuation || 0);
+  const dollarsPerMwPerYr = hasChanges ? (liveValuation?.dollarsPerMwPerYr ?? null) : (serverPeriodValuations.length > 0 ? (() => {
+    const totalMw = serverPeriodValuations.reduce((s: number, p: any) => s + (p.mw || 0), 0);
+    const totalRev = serverPeriodValuations.reduce((s: number, p: any) => s + (p.annualRev || 0), 0);
+    return totalMw > 0 && totalRev > 0 ? totalRev / totalMw : null;
+  })() : null);
+  const noiPerMwPerYr = hasChanges ? (liveValuation?.noiPerMwPerYr ?? null) : (serverPeriodValuations.length > 0 ? (() => {
+    const totalMw = serverPeriodValuations.reduce((s: number, p: any) => s + (p.mw || 0), 0);
+    const totalNoi = serverPeriodValuations.reduce((s: number, p: any) => s + (p.noiAnnual || 0), 0);
+    return totalMw > 0 && totalNoi > 0 ? totalNoi / totalMw : null;
+  })() : null);
   const currentUses = (data.usePeriods || []).filter((up: any) => up.isCurrent);
   const isSplitBuilding = periodValuations.length > 1;
 
