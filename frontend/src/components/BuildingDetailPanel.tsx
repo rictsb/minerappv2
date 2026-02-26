@@ -661,7 +661,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
     const debtFundingPct = fd.capexPerMw?.debtFundingPct ?? 0.80;
 
     // Build building factor from current overrides
-    // autoFidoodle = product of individual factors; if fidoodle is overridden, it replaces them
+    // autoFidoodle = product of individual building-level factors
     const autoFidoodle =
       (factorOverrides.phaseProbability ?? 0.5) *
       (factorOverrides.regulatoryRisk ?? 1.0) *
@@ -669,9 +669,15 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       (factorOverrides.powerAuthority ?? 1.0) *
       (factorOverrides.ownership ?? 1.0) *
       (factorOverrides.datacenterTier ?? 1.0);
+    // buildingFactor is always the auto product; fidoodle override controls the FULL combined factor
+    const bldFactor = autoFidoodle;
     const fidoodleVal = factorOverrides.fidoodleFactor ?? autoFidoodle;
-    const fidoodleMatchesAuto = Math.abs(fidoodleVal - autoFidoodle) < 0.005;
-    const bldFactor = fidoodleMatchesAuto ? autoFidoodle : fidoodleVal;
+    const fidoodleIsOverridden = Math.abs(fidoodleVal - 1.0) > 0.001 && Math.abs(fidoodleVal - autoFidoodle) > 0.005;
+
+    // Tenant credit: adjusts cap rate, NOT a separate multiplier
+    const sofrRate = 4.3; // TODO: pull from settings
+    const tenantSpread = fd.tenantCredit?.spread ?? 0;
+    const tenantAdjCapRate = tenantSpread === 0 ? hpcCapRate : hpcCapRate * (sofrRate + tenantSpread) / sofrRate;
 
     const phase = building.developmentPhase || 'DILIGENCE';
     const isOperational = phase === 'OPERATIONAL';
@@ -692,11 +698,12 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       const hasLease = !!tenant && leaseValM > 0;
       const mw = itMw;
 
-      // Time/tenant/lease structure multipliers — use overrides if available
-      const tenantMult = factorOverrides.tenantCredit ?? fd.tenantCredit?.auto ?? 1.0;
+      // Time/lease structure multipliers — tenant credit is in the cap rate, not here
+      const tenantMult = factorOverrides.tenantCredit ?? fd.tenantCredit?.mult ?? 1.0; // informational only
       const leaseStructMult = factorOverrides.leaseStructure ?? fd.leaseStructure?.auto ?? 1.0;
       const timeValueMult = factorOverrides.timeValue ?? fd.timeValue?.auto ?? 1.0;
-      const periodFactor = bldFactor * timeValueMult * tenantMult * leaseStructMult;
+      // Fidoodle override: when set (≠ 1.0 and ≠ auto), it IS the entire combined factor
+      const periodFactor = fidoodleIsOverridden ? fidoodleVal : bldFactor * timeValueMult * leaseStructMult;
 
       // CapEx
       const resolvedCapex = resolvedCapexGlobal;
@@ -719,7 +726,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         valuationM = adj;
       } else if (hasLease && noiAnnual > 0) {
         method = 'NOI_CAP_RATE';
-        grossValue = noiAnnual / hpcCapRate;
+        grossValue = noiAnnual / tenantAdjCapRate;
         const adj = grossValue * periodFactor;
         const skipCapex = isOperational || capexInFin || !hasLease;
         const eqDeducted = skipCapex ? 0 : equityCapexM;
@@ -749,7 +756,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         grossValue,
         noiAnnual,
         noiPct: noiPctVal / 100,
-        capRate: hpcCapRate,
+        capRate: tenantAdjCapRate,
         periodFactor,
         tenantMult,
         leaseStructMult,
@@ -800,11 +807,12 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
       const noiAnnual = annualRev * noiPctFrac;
       const hasLease = !!tenant && leaseValM > 0;
 
-      // Use server factors for per-period multipliers (they come from the tenant/lease/time)
-      const tenantMult = sp.tenantMult ?? 1;
+      // Use server factors for per-period multipliers — tenant credit is in cap rate, not factor
+      const tenantMult = sp.tenantMult ?? 1; // informational only
       const leaseStructMult = sp.leaseStructMult ?? 1;
       const timeValueMult = sp.timeValueMult ?? 1;
-      const periodFactor = bldFactor * timeValueMult * tenantMult * leaseStructMult;
+      // Fidoodle override: when set, it IS the entire combined factor
+      const periodFactor = fidoodleIsOverridden ? fidoodleVal : bldFactor * timeValueMult * leaseStructMult;
 
       // CapEx
       const resolvedCapex = capexPerMwOvr || resolvedCapexGlobal;
@@ -828,7 +836,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         valuationM = Math.max(0, grossValue * periodFactor - capexDeductionM);
       } else if (hasLease && noiAnnual > 0) {
         method = 'NOI_CAP_RATE';
-        grossValue = noiAnnual / hpcCapRate;
+        grossValue = noiAnnual / tenantAdjCapRate;
         valuationM = Math.max(0, grossValue * periodFactor - capexDeductionM);
       } else {
         method = 'MW_PIPELINE';
@@ -851,7 +859,7 @@ function BuildingDetailPanelInner({ buildingId, onClose }: BuildingDetailPanelPr
         grossValue,
         noiAnnual,
         noiPct: noiPctFrac,
-        capRate: hpcCapRate,
+        capRate: tenantAdjCapRate,
         periodFactor,
         tenantMult,
         leaseStructMult,
