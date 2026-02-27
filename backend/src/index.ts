@@ -523,6 +523,24 @@ app.post('/api/v1/seed-fd-shares', async (req, res) => {
   }
 });
 
+// PATCH freshness for a company (0=not set, 1=stale, 2=partial, 3=current)
+app.patch('/api/v1/companies/:ticker/freshness', async (req, res) => {
+  try {
+    const { freshness } = req.body;
+    if (typeof freshness !== 'number' || freshness < 0 || freshness > 3) {
+      return res.status(400).json({ error: 'freshness must be 0-3' });
+    }
+    const company = await prisma.company.update({
+      where: { ticker: req.params.ticker },
+      data: { freshness },
+      select: { ticker: true, freshness: true },
+    });
+    res.json(company);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Bulk-set capexInFinancials for ALL buildings of a company
 app.patch('/api/v1/companies/:ticker/capex-in-financials', async (req, res) => {
   try {
@@ -1557,6 +1575,7 @@ app.get('/api/v1/valuation', async (req, res) => {
       return {
         ticker: company.ticker,
         name: company.name,
+        freshness: (company as any).freshness ?? 0,
         stockPrice: Number(company.stockPrice) || null,
         fdSharesM: fdSharesM > 0 ? Math.round(fdSharesM * 10) / 10 : null,
         sharesOutM: sharesOutM > 0 ? Math.round(sharesOutM * 10) / 10 : null,
@@ -2141,6 +2160,13 @@ httpServer.listen(PORT, async () => {
       console.log('✅ Ensured capexInFinancials column exists');
     } catch (e) {
       console.log('capexInFinancials column may already exist:', (e as any).message);
+    }
+    // Add freshness column if missing
+    try {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "Company" ADD COLUMN IF NOT EXISTS "freshness" INTEGER NOT NULL DEFAULT 0`);
+      console.log('✅ Ensured freshness column exists');
+    } catch (e) {
+      console.log('freshness column may already exist:', (e as any).message);
     }
     // Add sharesOutM column if missing
     try {

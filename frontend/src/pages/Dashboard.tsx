@@ -37,6 +37,7 @@ interface HpcSite {
 interface Valuation {
   ticker: string;
   name: string;
+  freshness: number;
   stockPrice: number | null;
   fdSharesM: number | null;
   sharesOutM: number | null;
@@ -73,23 +74,8 @@ export default function Dashboard() {
     return saved ? new Date(saved) : null;
   });
 
-  // Freshness state — persisted to localStorage
-  const [freshness, setFreshness] = useState<Record<string, Freshness>>(() => {
-    const saved = localStorage.getItem('dashboard-freshness');
-    return saved ? JSON.parse(saved) : {};
-  });
   const [sortKey, setSortKey] = useState<'ticker' | 'freshness' | 'upside' | 'fairValue'>('ticker');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-
-  const updateFreshness = useCallback((ticker: string) => {
-    setFreshness(prev => {
-      const current = prev[ticker] || 0;
-      const next = ((current + 1) % 4) as Freshness;
-      const updated = { ...prev, [ticker]: next };
-      localStorage.setItem('dashboard-freshness', JSON.stringify(updated));
-      return updated;
-    });
-  }, []);
 
   const { data: valData, isLoading, error } = useQuery({
     queryKey: ['valuation'],
@@ -100,6 +86,29 @@ export default function Dashboard() {
       return res.json() as Promise<ValuationResponse>;
     },
   });
+
+  // Freshness mutation — cycles 0→1→2→3→0 and persists to DB
+  const freshnessMutation = useMutation({
+    mutationFn: async ({ ticker, freshness }: { ticker: string; freshness: number }) => {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/companies/${ticker}/freshness`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ freshness }),
+      });
+      if (!res.ok) throw new Error('Failed to update freshness');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['valuation'] });
+    },
+  });
+
+  const updateFreshness = useCallback((ticker: string) => {
+    const current = valData?.valuations?.find(v => v.ticker === ticker)?.freshness || 0;
+    const next = (current + 1) % 4;
+    freshnessMutation.mutate({ ticker, freshness: next });
+  }, [valData, freshnessMutation]);
 
   const refreshPricesMutation = useMutation({
     mutationFn: async () => {
@@ -143,7 +152,7 @@ export default function Dashboard() {
       if (sortKey === 'ticker') {
         cmp = a.ticker.localeCompare(b.ticker);
       } else if (sortKey === 'freshness') {
-        cmp = (freshness[a.ticker] || 0) - (freshness[b.ticker] || 0);
+        cmp = (a.freshness || 0) - (b.freshness || 0);
       } else if (sortKey === 'upside') {
         const uA = a.stockPrice && a.fairValuePerShare ? (a.fairValuePerShare / a.stockPrice - 1) : -999;
         const uB = b.stockPrice && b.fairValuePerShare ? (b.fairValuePerShare / b.stockPrice - 1) : -999;
@@ -153,7 +162,7 @@ export default function Dashboard() {
       }
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [valData?.valuations, sortKey, sortDir, freshness]);
+  }, [valData?.valuations, sortKey, sortDir]);
 
   // Calculate totals
   const totals = valuations.reduce(
@@ -345,7 +354,7 @@ export default function Dashboard() {
                       </td>
                       <td className="px-2 py-3 text-center">
                         {(() => {
-                          const f = freshness[v.ticker] || 0;
+                          const f = v.freshness || 0;
                           const cfg = FRESHNESS_CONFIG[f as Freshness];
                           return (
                             <button

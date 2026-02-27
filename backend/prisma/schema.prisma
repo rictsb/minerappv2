@@ -41,6 +41,9 @@ model Company {
   twitterAccounts String[]
   sourceDate      DateTime?
 
+  // Valuation freshness: 0=not set, 1=stale, 2=partial, 3=current
+  freshness       Int      @default(0)
+
   // Timestamps
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
