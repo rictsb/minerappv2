@@ -102,6 +102,7 @@ export default function Dashboard() {
   const [manualForm, setManualForm] = useState<ManualTickerForm>({
     ticker: '', name: '', fairValueOverride: '', fairValueOverrideUrl: '', fairValueOverrideLabel: '', fdSharesM: '',
   });
+  const [tickerLookupLoading, setTickerLookupLoading] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   // Close popover on outside click
@@ -251,6 +252,28 @@ export default function Dashboard() {
     }
   }, [sortKey]);
 
+  // Auto-lookup company name from Finnhub when ticker is entered
+  const handleTickerLookup = useCallback(async (ticker: string) => {
+    if (!ticker || ticker.length < 1) return;
+    setTickerLookupLoading(true);
+    try {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/stock-prices/lookup/${ticker.toUpperCase()}`);
+      if (res.ok) {
+        const info = await res.json() as { name: string; marketCapM: number; sharesOutM: number };
+        setManualForm(prev => ({
+          ...prev,
+          name: prev.name || info.name,
+          fdSharesM: prev.fdSharesM || (info.sharesOutM > 0 ? info.sharesOutM.toFixed(1) : ''),
+        }));
+      }
+    } catch (e) {
+      // silently fail — user can still type name manually
+    } finally {
+      setTickerLookupLoading(false);
+    }
+  }, []);
+
   const handleSaveOverride = () => {
     if (!editingOverride) return;
     const val = editingOverride.fairValueOverride.trim();
@@ -275,8 +298,6 @@ export default function Dashboard() {
   const valuations = useMemo(() => {
     const raw = valData?.valuations || [];
     return [...raw].sort((a, b) => {
-      // Manual tickers always sort after SOTP tickers
-      if ((a.isManual || false) !== (b.isManual || false)) return (a.isManual ? 1 : -1);
       let cmp = 0;
       if (sortKey === 'ticker') {
         cmp = a.ticker.localeCompare(b.ticker);
@@ -398,6 +419,7 @@ export default function Dashboard() {
                     type="text"
                     value={manualForm.ticker}
                     onChange={(e) => setManualForm({ ...manualForm, ticker: e.target.value.toUpperCase() })}
+                    onBlur={(e) => handleTickerLookup(e.target.value)}
                     placeholder="e.g. COIN"
                     className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
                   />
@@ -414,12 +436,15 @@ export default function Dashboard() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Company Name *</label>
+                <label className="block text-xs text-gray-400 mb-1">
+                  Company Name *
+                  {tickerLookupLoading && <span className="ml-2 text-orange-400 animate-pulse">Looking up...</span>}
+                </label>
                 <input
                   type="text"
                   value={manualForm.name}
                   onChange={(e) => setManualForm({ ...manualForm, name: e.target.value })}
-                  placeholder="e.g. Coinbase Global"
+                  placeholder={tickerLookupLoading ? 'Fetching from Finnhub...' : 'e.g. Coinbase Global (auto-filled from ticker)'}
                   className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
                 />
               </div>

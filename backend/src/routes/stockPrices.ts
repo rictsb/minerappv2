@@ -8,6 +8,7 @@ import {
   updateAllStockPrices,
   getCachedPrices,
   fetchStockPrice,
+  fetchCompanyInfo,
 } from '../services/stockPrices.js';
 
 const router = Router();
@@ -37,6 +38,22 @@ router.post('/refresh', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error refreshing prices:', error);
     res.status(500).json({ error: 'Failed to refresh stock prices' });
+  }
+});
+
+// GET /api/v1/stock-prices/lookup/:ticker
+// Look up company name + info from Finnhub for a ticker
+router.get('/lookup/:ticker', async (req: Request, res: Response) => {
+  try {
+    const { ticker } = req.params;
+    const info = await fetchCompanyInfo(ticker.toUpperCase());
+    if (!info) {
+      return res.status(404).json({ error: `No company found for ${ticker}` });
+    }
+    res.json(info);
+  } catch (error) {
+    console.error('Error looking up company:', error);
+    res.status(500).json({ error: 'Failed to look up company' });
   }
 });
 

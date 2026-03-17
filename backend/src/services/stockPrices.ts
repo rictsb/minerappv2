@@ -100,6 +100,36 @@ export async function fetchCompanyProfile(ticker: string): Promise<{ marketCapM:
 }
 
 /**
+ * Fetch company info from Finnhub (name, market cap, shares outstanding)
+ */
+export async function fetchCompanyInfo(ticker: string): Promise<{ name: string; marketCapM: number; sharesOutM: number } | null> {
+  if (!FINNHUB_API_KEY) return null;
+
+  try {
+    const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_API_KEY}`;
+    const response = await fetch(url);
+    if (!response.ok) return null;
+
+    const data = await response.json() as {
+      name?: string;
+      marketCapitalization?: number;
+      shareOutstanding?: number;
+    };
+
+    if (!data.name) return null;
+
+    return {
+      name: data.name,
+      marketCapM: data.marketCapitalization || 0,
+      sharesOutM: data.shareOutstanding || 0,
+    };
+  } catch (error) {
+    console.error(`Error fetching company info for ${ticker}:`, error);
+    return null;
+  }
+}
+
+/**
  * Fetch prices for multiple tickers
  */
 export async function fetchMultipleStockPrices(tickers: string[]): Promise<Map<string, FinnhubQuote>> {
