@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HIVE Digital Technologies — Sum-of-the-Parts Valuation</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: #0b0f19;
+    color: #e2e8f0;
+    padding: 28px 36px;
+    min-height: 100vh;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; border-bottom: 1px solid #1e293b; padding-bottom: 14px; }
+  .header h1 { font-size: 20px; font-weight: 700; color: #f8fafc; letter-spacing: -0.3px; }
+  .header h1 span { color: #f59e0b; }
+  .header .subtitle { font-size: 12px; color: #64748b; margin-top: 3px; }
+  .header .date { font-size: 11px; color: #475569; text-align: right; }
+  .header .date div { margin-bottom: 2px; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .full-width { grid-column: 1 / -1; }
+  .card { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 14px 16px; }
+  .card h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: #f59e0b; margin-bottom: 10px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  th { text-align: right; font-weight: 600; color: #94a3b8; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.5px; padding: 6px 8px; border-bottom: 2px solid #1e293b; }
+  th:first-child { text-align: left; }
+  td { text-align: right; padding: 6px 8px; border-bottom: 1px solid #1e293b44; color: #cbd5e1; }
+  td:first-child { text-align: left; color: #94a3b8; font-weight: 500; }
+  tr.total td { border-top: 2px solid #334155; font-weight: 600; color: #f8fafc; }
+  tr.subtotal td { font-weight: 500; color: #e2e8f0; border-top: 1px solid #334155; }
+  .neg { color: #f87171; }
+  .pos { color: #34d399; }
+  .muted { color: #64748b; font-size: 10.5px; }
+
+  /* Segment cards */
+  .seg-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .seg { background: #0f172a; border: 1px solid #1e293b; border-radius: 6px; padding: 10px 12px; }
+  .seg .name { font-weight: 600; font-size: 11px; color: #f8fafc; margin-bottom: 4px; }
+  .seg .detail { font-size: 10.5px; color: #94a3b8; line-height: 1.5; }
+  .seg .detail strong { color: #e2e8f0; font-weight: 500; }
+  .seg .val { font-size: 16px; font-weight: 700; color: #f59e0b; margin-top: 6px; }
+  .seg .val-label { font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* Scenario boxes */
+  .scenarios { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .scenario { background: #0f172a; border: 1px solid #1e293b; border-radius: 6px; padding: 14px 16px; text-align: center; }
+  .scenario.bull { border-color: #065f46; }
+  .scenario.base { border-color: #f59e0b44; }
+  .scenario.bear { border-color: #7f1d1d; }
+  .scenario .tag { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .scenario.bull .tag { color: #34d399; }
+  .scenario.base .tag { color: #fbbf24; }
+  .scenario.bear .tag { color: #f87171; }
+  .scenario .price { font-size: 26px; font-weight: 700; color: #f8fafc; }
+  .scenario .ev { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+  .scenario .upside { font-size: 11px; margin-top: 4px; font-weight: 600; }
+  .scenario.bull .upside { color: #34d399; }
+  .scenario.base .upside { color: #fbbf24; }
+  .scenario.bear .upside { color: #f87171; }
+
+  /* Waterfall bar chart */
+  .waterfall { margin-top: 8px; }
+  .wf-bar { display: flex; align-items: center; margin-bottom: 4px; font-size: 11px; }
+  .wf-label { width: 180px; color: #94a3b8; font-weight: 500; text-align: right; padding-right: 10px; flex-shrink: 0; }
+  .wf-track { flex: 1; height: 20px; position: relative; }
+  .wf-fill { height: 100%; border-radius: 3px; display: flex; align-items: center; padding-left: 6px; font-size: 10px; font-weight: 600; color: #f8fafc; white-space: nowrap; }
+  .wf-fill.gpu { background: #f59e0b; }
+  .wf-fill.mining { background: #8b5cf6; }
+  .wf-fill.treasury { background: #f97316; }
+  .wf-fill.sweden { background: #06b6d4; }
+  .wf-fill.dc { background: #22c55e; }
+  .wf-fill.cash { background: #64748b; }
+  .wf-fill.total { background: linear-gradient(90deg, #f59e0b, #f97316); }
+
+  .footnote { font-size: 10px; color: #475569; margin-top: 14px; line-height: 1.5; }
+  .footnote strong { color: #64748b; }
+
+  .market-bar { display: flex; align-items: center; gap: 16px; background: #0f172a; border: 1px solid #1e293b; border-radius: 6px; padding: 8px 14px; margin-bottom: 16px; font-size: 11.5px; }
+  .market-bar .item { display: flex; gap: 6px; }
+  .market-bar .label { color: #64748b; }
+  .market-bar .val { color: #e2e8f0; font-weight: 600; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>HIVE <span>Digital Technologies</span> — Sum-of-the-Parts</h1>
+    <div class="subtitle">NASDAQ: HIVE | TSX-V: HIVE — Multi-Segment Valuation</div>
+  </div>
+  <div class="date">
+    <div><strong>Date:</strong> March 17, 2026</div>
+    <div><strong>BTC:</strong> $73,700</div>
+    <div><strong>Share Price:</strong> ~$2.15</div>
+  </div>
+</div>
+
+<!-- Market snapshot -->
+<div class="market-bar">
+  <div class="item"><span class="label">Mkt Cap</span><span class="val">$544M</span></div>
+  <div class="item"><span class="label">Shares Out</span><span class="val">253.3M</span></div>
+  <div class="item"><span class="label">Net Cash</span><span class="val">$8.1M</span></div>
+  <div class="item"><span class="label">LTM Revenue</span><span class="val">$257M</span></div>
+  <div class="item"><span class="label">BTC Hashrate</span><span class="val">25 EH/s</span></div>
+  <div class="item"><span class="label">BTC HODL</span><span class="val">481 BTC</span></div>
+</div>
+
+<!-- Segment detail cards -->
+<div class="card full-width" style="margin-bottom:16px;">
+  <h2>Segment Valuations</h2>
+  <div class="seg-grid">
+
+    <div class="seg">
+      <div class="name" style="color:#f59e0b;">1. Canadian GPU Cloud (BUZZ)</div>
+      <div class="detail">
+        <strong>7,000 GPUs</strong> across 3 Bell Canada AI Fabric sites (Manitoba 4 MW, BC Phase 1 5 MW, BC Phase 2 7.6 MW). 504 deployed, remainder ramping CY2026–27.<br>
+        <strong>Method:</strong> 5-year unlevered DCF + terminal value. $3.25/hr base rate, -3%/yr erosion, 75% EBITDA margin, 14% WACC, 20% tax.
+      </div>
+      <div class="val">$355M</div>
+      <div class="val-label">Project NPV (Base)</div>
+    </div>
+
+    <div class="seg">
+      <div class="name" style="color:#8b5cf6;">2. Bitcoin Mining</div>
+      <div class="detail">
+        <strong>25 EH/s</strong> installed (~3% global hashrate). Producing ~9.6 BTC/day across Canada, Paraguay, and Sweden. Fleet efficiency 17.5 J/TH. LTM hashrate revenue ~$340M.<br>
+        <strong>Method:</strong> EBITDA multiple. ~$59M est. EBITDA at 4.5x (low multiple reflecting halving April 2028, cyclicality, and capital intensity).
+      </div>
+      <div class="val">$264M</div>
+      <div class="val-label">4.5x EBITDA</div>
+    </div>
+
+    <div class="seg">
+      <div class="name" style="color:#f97316;">3. BTC Treasury</div>
+      <div class="detail">
+        <strong>481 BTC</strong> held on balance sheet. Significantly reduced from prior levels — likely sold to fund GPU CapEx.<br>
+        <strong>Method:</strong> Mark-to-market at $73,700/BTC. No premium/discount applied.
+      </div>
+      <div class="val">$35M</div>
+      <div class="val-label">Mark-to-Market</div>
+    </div>
+
+    <div class="seg">
+      <div class="name" style="color:#06b6d4;">4. Sweden AI/HPC (Boden)</div>
+      <div class="detail">
+        <strong>7 MW</strong> facility converting from Tier-I mining to Tier-III AI/HPC. Targeting 2,000 NVIDIA GPUs for EU enterprise workloads. Tax dispute and regulatory overhang.<br>
+        <strong>Method:</strong> 8x run-rate EBITDA ($36M) at 50% probability discount for execution/regulatory risk.
+      </div>
+      <div class="val">$144M</div>
+      <div class="val-label">Prob-Adjusted EV</div>
+    </div>
+
+    <div class="seg">
+      <div class="name" style="color:#22c55e;">5. Other DC Assets</div>
+      <div class="detail">
+        <strong>New Brunswick:</strong> 70 MW powered land — hyperscaler-ready, valued at $1.5M/MW.<br>
+        <strong>Toronto Airport:</strong> 7.6 MW — prime for gov/military, valued at $3.0M/MW.<br>
+        <strong>Method:</strong> $/MW comparable for powered DC land.
+      </div>
+      <div class="val">$128M</div>
+      <div class="val-label">Asset Value</div>
+    </div>
+
+    <div class="seg">
+      <div class="name" style="color:#64748b;">6. Net Cash</div>
+      <div class="detail">
+        <strong>Cash:</strong> $26.2M<br>
+        <strong>Debt:</strong> ($18.1M)<br>
+        Minimal leverage. BTC treasury counted separately above.
+      </div>
+      <div class="val">$8M</div>
+      <div class="val-label">Net Cash Position</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- SOTP Waterfall -->
+<div class="grid">
+
+  <div class="card">
+    <h2>SOTP Build-Up (Base Case)</h2>
+    <div class="waterfall">
+      <div class="wf-bar">
+        <div class="wf-label">Canadian GPU Cloud</div>
+        <div class="wf-track"><div class="wf-fill gpu" style="width:33.5%;">$355M</div></div>
+      </div>
+      <div class="wf-bar">
+        <div class="wf-label">Bitcoin Mining</div>
+        <div class="wf-track"><div class="wf-fill mining" style="width:24.9%;">$264M</div></div>
+      </div>
+      <div class="wf-bar">
+        <div class="wf-label">BTC Treasury</div>
+        <div class="wf-track"><div class="wf-fill treasury" style="width:3.8%;">$35M</div></div>
+      </div>
+      <div class="wf-bar">
+        <div class="wf-label">Sweden AI/HPC</div>
+        <div class="wf-track"><div class="wf-fill sweden" style="width:13.6%;">$144M</div></div>
+      </div>
+      <div class="wf-bar">
+        <div class="wf-label">Other DC Assets</div>
+        <div class="wf-track"><div class="wf-fill dc" style="width:12.1%;">$128M</div></div>
+      </div>
+      <div class="wf-bar">
+        <div class="wf-label">Net Cash</div>
+        <div class="wf-track"><div class="wf-fill cash" style="width:0.8%;">$8M</div></div>
+      </div>
+      <div class="wf-bar" style="margin-top:6px;">
+        <div class="wf-label" style="color:#f8fafc;font-weight:700;">SOTP Value</div>
+        <div class="wf-track"><div class="wf-fill total" style="width:100%;">$934M</div></div>
+      </div>
+    </div>
+    <div style="margin-top:10px;font-size:10.5px;color:#64748b;">
+      GPU Cloud + Sweden AI/HPC = 53% of SOTP — the "AI pivot" thesis.<br>
+      Mining + Treasury = 32% — the "BTC proxy" thesis.<br>
+      DC Assets = 14% — optionality / asset floor.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Scenario Summary — Implied Per Share</h2>
+    <div class="scenarios">
+      <div class="scenario bull">
+        <div class="tag">Bull</div>
+        <div class="price">$4.62</div>
+        <div class="ev">EV: $1,169M</div>
+        <div class="upside">+115% vs. $2.15</div>
+      </div>
+      <div class="scenario base">
+        <div class="tag">Base</div>
+        <div class="price">$3.69</div>
+        <div class="ev">EV: $934M</div>
+        <div class="upside">+72% vs. $2.15</div>
+      </div>
+      <div class="scenario bear">
+        <div class="tag">Bear</div>
+        <div class="price">$2.76</div>
+        <div class="ev">EV: $699M</div>
+        <div class="upside">+28% vs. $2.15</div>
+      </div>
+    </div>
+
+    <table style="margin-top:14px;">
+      <tr><th></th><th>Bull</th><th>Base</th><th>Bear</th></tr>
+      <tr>
+        <td>Canadian GPU Cloud</td>
+        <td class="pos">$456M</td>
+        <td>$355M</td>
+        <td>$253M</td>
+      </tr>
+      <tr>
+        <td>Bitcoin Mining</td>
+        <td>$343M</td>
+        <td>$264M</td>
+        <td>$185M</td>
+      </tr>
+      <tr>
+        <td>BTC Treasury</td>
+        <td>$35M</td>
+        <td>$35M</td>
+        <td>$35M</td>
+      </tr>
+      <tr>
+        <td>Sweden AI/HPC</td>
+        <td>$173M</td>
+        <td>$144M</td>
+        <td>$115M</td>
+      </tr>
+      <tr>
+        <td>Other DC Assets</td>
+        <td>$154M</td>
+        <td>$128M</td>
+        <td>$102M</td>
+      </tr>
+      <tr>
+        <td>Net Cash</td>
+        <td>$8M</td>
+        <td>$8M</td>
+        <td>$8M</td>
+      </tr>
+      <tr class="total">
+        <td>Total SOTP</td>
+        <td class="pos">$1,169M</td>
+        <td>$934M</td>
+        <td>$699M</td>
+      </tr>
+      <tr class="total">
+        <td>Per Share (253.3M)</td>
+        <td class="pos">$4.62</td>
+        <td>$3.69</td>
+        <td>$2.76</td>
+      </tr>
+    </table>
+  </div>
+
+</div>
+
+<!-- Key considerations -->
+<div class="card full-width" style="margin-bottom:0;">
+  <h2>Valuation Context & Key Considerations</h2>
+  <table>
+    <tr>
+      <th style="width:25%;">Factor</th>
+      <th style="width:25%;text-align:left;">Bull Case</th>
+      <th style="width:25%;text-align:left;">Bear Case</th>
+      <th style="width:25%;text-align:left;">What to Watch</th>
+    </tr>
+    <tr>
+      <td>GPU Cloud Execution</td>
+      <td style="text-align:left;font-size:11px;">BC Phase 1+2 on schedule, $200M+ ARR</td>
+      <td style="text-align:left;font-size:11px;">Delays, lower util, rate compression</td>
+      <td style="text-align:left;font-size:11px;">Contract announcements, GPU deployment cadence</td>
+    </tr>
+    <tr>
+      <td>Bitcoin Price / Halving</td>
+      <td style="text-align:left;font-size:11px;">BTC > $100K sustains mining margins</td>
+      <td style="text-align:left;font-size:11px;">Post-halving squeeze if BTC < $60K</td>
+      <td style="text-align:left;font-size:11px;">April 2028 halving impact on hashrate economics</td>
+    </tr>
+    <tr>
+      <td>Sweden Tax Dispute</td>
+      <td style="text-align:left;font-size:11px;">Resolution enables smooth AI conversion</td>
+      <td style="text-align:left;font-size:11px;">Forced exit, asset write-down</td>
+      <td style="text-align:left;font-size:11px;">Court ruling timeline, security deposit status</td>
+    </tr>
+    <tr>
+      <td>DC Asset Monetization</td>
+      <td style="text-align:left;font-size:11px;">Hyperscaler lease for NB, gov contract for YYZ</td>
+      <td style="text-align:left;font-size:11px;">Assets remain idle, carrying costs</td>
+      <td style="text-align:left;font-size:11px;">Partnership or lease announcements</td>
+    </tr>
+    <tr>
+      <td>Dilution Risk</td>
+      <td style="text-align:left;font-size:11px;">GPU CapEx funded from BTC cash flow</td>
+      <td style="text-align:left;font-size:11px;">Equity raises to fund $280M GPU CapEx</td>
+      <td style="text-align:left;font-size:11px;">ATM program usage, secondary offerings</td>
+    </tr>
+  </table>
+</div>
+
+<div class="footnote">
+  <strong>Disclaimer:</strong> This is an independent analytical exercise, not investment advice. All projections are estimates based on public disclosures and market data. Actual results may differ materially. Key model risks include terminal value dominance in GPU Cloud DCF (92% of NPV), BTC price volatility affecting both mining and treasury values, execution risk on multi-site GPU deployments, and potential share dilution to fund CapEx. The 50% probability discount on Sweden is subjective. DC asset $/MW comps vary widely by market and readiness level. Mining EBITDA is approximated from reported gross margins less estimated SGA allocation. Not a recommendation to buy or sell.<br>
+  <strong>Sources:</strong> HIVE Q3 FY2026 earnings (Feb 2026); BUZZ expansion press release (Mar 16, 2026); The Block BTC treasury data; StockAnalysis.com financials; GPU cloud market pricing (Genesis Cloud, Lambda, Vast.ai); BTC spot price CoinDesk.
+</div>
+
+</body>
+</html>
