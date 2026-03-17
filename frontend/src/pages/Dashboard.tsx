@@ -95,8 +95,12 @@ export default function Dashboard() {
     return saved ? new Date(saved) : null;
   });
 
-  const [sortKey, setSortKey] = useState<'ticker' | 'freshness' | 'upside' | 'fairValue'>('ticker');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [sortKey, setSortKey] = useState<'ticker' | 'freshness' | 'upside' | 'fairValue'>(() => {
+    return (localStorage.getItem('dashSortKey') as 'ticker' | 'freshness' | 'upside' | 'fairValue') || 'ticker';
+  });
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(() => {
+    return (localStorage.getItem('dashSortDir') as 'asc' | 'desc') || 'asc';
+  });
   const [editingOverride, setEditingOverride] = useState<OverrideEditState | null>(null);
   const [showAddManual, setShowAddManual] = useState(false);
   const [manualForm, setManualForm] = useState<ManualTickerForm>({
@@ -245,10 +249,17 @@ export default function Dashboard() {
 
   const handleSort = useCallback((key: typeof sortKey) => {
     if (sortKey === key) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+      setSortDir(d => {
+        const next = d === 'asc' ? 'desc' : 'asc';
+        localStorage.setItem('dashSortDir', next);
+        return next;
+      });
     } else {
+      const dir = key === 'ticker' ? 'asc' : 'desc';
       setSortKey(key);
-      setSortDir(key === 'ticker' ? 'asc' : 'desc');
+      setSortDir(dir);
+      localStorage.setItem('dashSortKey', key);
+      localStorage.setItem('dashSortDir', dir);
     }
   }, [sortKey]);
 
