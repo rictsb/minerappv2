@@ -501,6 +501,55 @@ app.put('/api/v1/companies/:ticker', async (req, res) => {
   }
 });
 
+// Create new company (for manual tickers)
+app.post('/api/v1/companies', async (req, res) => {
+  try {
+    const { ticker, name, isManual, fairValueOverride, fairValueOverrideUrl, fairValueOverrideLabel, fdSharesM, manualMarketCapM, stockPrice } = req.body;
+    if (!ticker || !name) {
+      return res.status(400).json({ error: 'ticker and name are required' });
+    }
+    const company = await prisma.company.create({
+      data: {
+        ticker: ticker.toUpperCase(),
+        name,
+        isManual: isManual ?? true,
+        fairValueOverride: fairValueOverride ?? null,
+        fairValueOverrideUrl: fairValueOverrideUrl ?? null,
+        fairValueOverrideLabel: fairValueOverrideLabel ?? null,
+        fdSharesM: fdSharesM ?? null,
+        manualMarketCapM: manualMarketCapM ?? null,
+        stockPrice: stockPrice ?? null,
+      },
+    });
+    res.status(201).json(company);
+  } catch (error: any) {
+    console.error('Error creating company:', error);
+    if (error.code === 'P2002') {
+      return res.status(409).json({ error: 'Ticker already exists' });
+    }
+    res.status(500).json({ error: 'Failed to create company' });
+  }
+});
+
+// Delete company (manual tickers only)
+app.delete('/api/v1/companies/:ticker', async (req, res) => {
+  try {
+    const { ticker } = req.params;
+    const company = await prisma.company.findUnique({ where: { ticker } });
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+    if (!(company as any).isManual) {
+      return res.status(403).json({ error: 'Cannot delete SOTP companies. Use archive instead.' });
+    }
+    await prisma.company.delete({ where: { ticker } });
+    res.json({ deleted: true, ticker });
+  } catch (error) {
+    console.error('Error deleting company:', error);
+    res.status(500).json({ error: 'Failed to delete company' });
+  }
+});
+
 // Seed/update FD shares for all companies from latest SEC filings
 app.post('/api/v1/seed-fd-shares', async (req, res) => {
   try {
@@ -1538,7 +1587,11 @@ app.get('/api/v1/valuation', async (req, res) => {
       const totalValueM = (netLiquid || 0) + totalEv - impliedProjectDebtM;
       const fdSharesM = Number(company.fdSharesM) || 0;
       const sharesOutM = Number((company as any).sharesOutM) || 0;
-      const fairValuePerShare = fdSharesM > 0 ? totalValueM / fdSharesM : null;
+      const calculatedFairValue = fdSharesM > 0 ? totalValueM / fdSharesM : null;
+
+      // Fair value override: use manual value if set
+      const hasOverride = company.fairValueOverride !== null && company.fairValueOverride !== undefined;
+      const fairValuePerShare = hasOverride ? Number(company.fairValueOverride) : calculatedFairValue;
 
       // Build net liquid breakdown
       const netLiquidBreakdown = nlaRecord ? {
@@ -1591,6 +1644,11 @@ app.get('/api/v1/valuation', async (req, res) => {
         impliedProjectDebtM: Math.round(impliedProjectDebtM),
         totalValueM: Math.round(totalValueM),
         fairValuePerShare: fairValuePerShare !== null ? Math.round(fairValuePerShare * 100) / 100 : null,
+        calculatedFairValue: calculatedFairValue !== null ? Math.round(calculatedFairValue * 100) / 100 : null,
+        hasOverride,
+        fairValueOverrideUrl: company.fairValueOverrideUrl || null,
+        fairValueOverrideLabel: company.fairValueOverrideLabel || null,
+        isManual: (company as any).isManual || false,
         totalLeaseValueM: Math.round(totalLeaseValueM),
         hpcSites: hpcSites.sort((a: any, b: any) => b.valuation - a.valuation),
         periodValuations,

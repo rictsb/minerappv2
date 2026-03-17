@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { RefreshCw, TrendingUp, TrendingDown, ChevronDown, ChevronRight } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown, ChevronDown, ChevronRight, Pencil, Plus, X, ExternalLink, Check, Trash2 } from 'lucide-react';
 
 // Freshness indicator: 0 = not set, 1 = stale, 2 = kind-of, 3 = fresh
 type Freshness = 0 | 1 | 2 | 3;
@@ -51,6 +51,11 @@ interface Valuation {
   impliedProjectDebtM?: number;
   totalValueM: number;
   fairValuePerShare: number | null;
+  calculatedFairValue?: number | null;
+  hasOverride?: boolean;
+  fairValueOverrideUrl?: string | null;
+  fairValueOverrideLabel?: string | null;
+  isManual?: boolean;
   totalLeaseValueM?: number;
   hpcSites?: HpcSite[];
 }
@@ -65,6 +70,22 @@ interface ValuationResponse {
   valuations: Valuation[];
 }
 
+interface OverrideEditState {
+  ticker: string;
+  fairValueOverride: string;
+  fairValueOverrideUrl: string;
+  fairValueOverrideLabel: string;
+}
+
+interface ManualTickerForm {
+  ticker: string;
+  name: string;
+  fairValueOverride: string;
+  fairValueOverrideUrl: string;
+  fairValueOverrideLabel: string;
+  fdSharesM: string;
+}
+
 export default function Dashboard() {
   const queryClient = useQueryClient();
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
@@ -76,6 +97,23 @@ export default function Dashboard() {
 
   const [sortKey, setSortKey] = useState<'ticker' | 'freshness' | 'upside' | 'fairValue'>('ticker');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [editingOverride, setEditingOverride] = useState<OverrideEditState | null>(null);
+  const [showAddManual, setShowAddManual] = useState(false);
+  const [manualForm, setManualForm] = useState<ManualTickerForm>({
+    ticker: '', name: '', fairValueOverride: '', fairValueOverrideUrl: '', fairValueOverrideLabel: '', fdSharesM: '',
+  });
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  // Close popover on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
+        setEditingOverride(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const { data: valData, isLoading, error } = useQuery({
     queryKey: ['valuation'],
@@ -134,6 +172,74 @@ export default function Dashboard() {
     },
   });
 
+  // Mutation: update company override
+  const updateOverrideMutation = useMutation({
+    mutationFn: async (data: { ticker: string; fairValueOverride: number | null; fairValueOverrideUrl: string | null; fairValueOverrideLabel: string | null }) => {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/companies/${data.ticker}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fairValueOverride: data.fairValueOverride,
+          fairValueOverrideUrl: data.fairValueOverrideUrl || null,
+          fairValueOverrideLabel: data.fairValueOverrideLabel || null,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to update override');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['valuation'] });
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      setEditingOverride(null);
+    },
+  });
+
+  // Mutation: create manual ticker
+  const createManualMutation = useMutation({
+    mutationFn: async (form: ManualTickerForm) => {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/companies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticker: form.ticker.toUpperCase(),
+          name: form.name,
+          isManual: true,
+          fairValueOverride: form.fairValueOverride ? parseFloat(form.fairValueOverride) : null,
+          fairValueOverrideUrl: form.fairValueOverrideUrl || null,
+          fairValueOverrideLabel: form.fairValueOverrideLabel || null,
+          fdSharesM: form.fdSharesM ? parseFloat(form.fdSharesM) : null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to create ticker');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['valuation'] });
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      setShowAddManual(false);
+      setManualForm({ ticker: '', name: '', fairValueOverride: '', fairValueOverrideUrl: '', fairValueOverrideLabel: '', fdSharesM: '' });
+    },
+  });
+
+  // Mutation: delete manual ticker
+  const deleteManualMutation = useMutation({
+    mutationFn: async (ticker: string) => {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/api/v1/companies/${ticker}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete ticker');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['valuation'] });
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+    },
+  });
+
   const factors = valData?.factors;
 
   const handleSort = useCallback((key: typeof sortKey) => {
@@ -145,9 +251,32 @@ export default function Dashboard() {
     }
   }, [sortKey]);
 
+  const handleSaveOverride = () => {
+    if (!editingOverride) return;
+    const val = editingOverride.fairValueOverride.trim();
+    updateOverrideMutation.mutate({
+      ticker: editingOverride.ticker,
+      fairValueOverride: val ? parseFloat(val) : null,
+      fairValueOverrideUrl: editingOverride.fairValueOverrideUrl.trim() || null,
+      fairValueOverrideLabel: editingOverride.fairValueOverrideLabel.trim() || null,
+    });
+  };
+
+  const handleClearOverride = () => {
+    if (!editingOverride) return;
+    updateOverrideMutation.mutate({
+      ticker: editingOverride.ticker,
+      fairValueOverride: null,
+      fairValueOverrideUrl: null,
+      fairValueOverrideLabel: null,
+    });
+  };
+
   const valuations = useMemo(() => {
     const raw = valData?.valuations || [];
     return [...raw].sort((a, b) => {
+      // Manual tickers always sort after SOTP tickers
+      if ((a.isManual || false) !== (b.isManual || false)) return (a.isManual ? 1 : -1);
       let cmp = 0;
       if (sortKey === 'ticker') {
         cmp = a.ticker.localeCompare(b.ticker);
@@ -210,7 +339,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-6">
-      {/* Header with Refresh */}
+      {/* Header with Refresh + Add Manual */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-gray-300">BTC Miner Valuation Terminal</h1>
@@ -234,6 +363,13 @@ export default function Dashboard() {
             </span>
           )}
           <button
+            onClick={() => setShowAddManual(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Add Ticker
+          </button>
+          <button
             onClick={() => refreshPricesMutation.mutate()}
             disabled={refreshPricesMutation.isPending}
             className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 transition text-sm"
@@ -243,6 +379,97 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
+
+      {/* Add Manual Ticker Modal */}
+      {showAddManual && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-gray-800 border border-gray-600 rounded-lg p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-200">Add Manual Ticker</h2>
+              <button onClick={() => setShowAddManual(false)} className="text-gray-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Ticker *</label>
+                  <input
+                    type="text"
+                    value={manualForm.ticker}
+                    onChange={(e) => setManualForm({ ...manualForm, ticker: e.target.value.toUpperCase() })}
+                    placeholder="e.g. COIN"
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">FD Shares (M)</label>
+                  <input
+                    type="text"
+                    value={manualForm.fdSharesM}
+                    onChange={(e) => setManualForm({ ...manualForm, fdSharesM: e.target.value })}
+                    placeholder="e.g. 250.5"
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Company Name *</label>
+                <input
+                  type="text"
+                  value={manualForm.name}
+                  onChange={(e) => setManualForm({ ...manualForm, name: e.target.value })}
+                  placeholder="e.g. Coinbase Global"
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Fair Value ($/share)</label>
+                <input
+                  type="text"
+                  value={manualForm.fairValueOverride}
+                  onChange={(e) => setManualForm({ ...manualForm, fairValueOverride: e.target.value })}
+                  placeholder="e.g. 42.50"
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Valuation Link (URL)</label>
+                <input
+                  type="text"
+                  value={manualForm.fairValueOverrideUrl}
+                  onChange={(e) => setManualForm({ ...manualForm, fairValueOverrideUrl: e.target.value })}
+                  placeholder="https://docs.google.com/spreadsheets/..."
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Valuation Label</label>
+                <input
+                  type="text"
+                  value={manualForm.fairValueOverrideLabel}
+                  onChange={(e) => setManualForm({ ...manualForm, fairValueOverrideLabel: e.target.value })}
+                  placeholder="e.g. DCF Model, Northland SOTP"
+                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                />
+              </div>
+              {createManualMutation.isError && (
+                <p className="text-red-400 text-xs">{(createManualMutation.error as Error).message}</p>
+              )}
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={() => setShowAddManual(false)} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition">Cancel</button>
+                <button
+                  onClick={() => createManualMutation.mutate(manualForm)}
+                  disabled={!manualForm.ticker || !manualForm.name || createManualMutation.isPending}
+                  className="px-4 py-2 text-sm bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 transition"
+                >
+                  {createManualMutation.isPending ? 'Adding...' : 'Add Ticker'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className={`grid grid-cols-1 gap-4 mb-6 ${totals.impliedProjectDebt > 0 ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
@@ -261,7 +488,7 @@ export default function Dashboard() {
         {totals.impliedProjectDebt > 0 && (
           <div className="bg-gray-800 border border-rose-900/50 rounded-lg p-4">
             <p className="text-xs text-rose-400 uppercase tracking-wider mb-1">Implied Project Debt</p>
-            <p className="text-2xl font-bold text-rose-400">−${formatNumber(totals.impliedProjectDebt)}M</p>
+            <p className="text-2xl font-bold text-rose-400">-${formatNumber(totals.impliedProjectDebt)}M</p>
           </div>
         )}
         <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
@@ -296,6 +523,7 @@ export default function Dashboard() {
                   Upside {sortKey === 'upside' && (sortDir === 'asc' ? '▲' : '▼')}
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">$/MW/yr</th>
+                <th className="px-2 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider w-10"></th>
               </tr>
               <tr className="border-b border-gray-600 bg-gray-800/50">
                 <th className="px-4 py-2"></th>
@@ -310,6 +538,7 @@ export default function Dashboard() {
                 <th className="px-4 py-2"></th>
                 <th className="px-4 py-2"></th>
                 <th className="px-4 py-2"></th>
+                <th className="px-2 py-2"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-700">
@@ -339,17 +568,46 @@ export default function Dashboard() {
                 return (
                   <React.Fragment key={v.ticker}>
                     <tr
-                      className="hover:bg-gray-700/50 cursor-pointer transition"
+                      className={`hover:bg-gray-700/50 cursor-pointer transition ${v.isManual ? 'border-l-2 border-l-blue-500/50' : ''}`}
                       onClick={toggleExpand}
                     >
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-1">
-                          {isExpanded ? (
-                            <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        <div className="flex items-center gap-1.5">
+                          {!v.isManual ? (
+                            isExpanded ? (
+                              <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                            )
                           ) : (
-                            <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                            <span className="w-4" />
                           )}
-                          <Link to={`/valuation/${v.ticker}`} className="font-medium text-orange-500 hover:text-orange-400 hover:underline transition" onClick={(e) => e.stopPropagation()}>{v.ticker}</Link>
+                          <Link
+                            to={v.isManual ? '#' : `/valuation/${v.ticker}`}
+                            className={`font-medium transition ${v.isManual ? 'text-blue-400 cursor-default' : 'text-orange-500 hover:text-orange-400 hover:underline'}`}
+                            onClick={(e) => { e.stopPropagation(); if (v.isManual) e.preventDefault(); }}
+                          >
+                            {v.ticker}
+                          </Link>
+                          {/* Badge */}
+                          {v.isManual ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/50 text-blue-400 font-medium">MANUAL</span>
+                          ) : v.hasOverride ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/50 text-amber-400 font-medium">OVERRIDE</span>
+                          ) : null}
+                          {/* External link */}
+                          {v.fairValueOverrideUrl && (
+                            <a
+                              href={v.fairValueOverrideUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-gray-500 hover:text-blue-400 transition"
+                              title={v.fairValueOverrideLabel || 'External Valuation'}
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
                         </div>
                       </td>
                       <td className="px-2 py-3 text-center">
@@ -374,22 +632,99 @@ export default function Dashboard() {
                         {marketCapM ? `$${formatNumber(marketCapM, 0)}M` : '-'}
                       </td>
                       <td className={`px-4 py-3 text-right font-mono ${v.netLiquid >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {formatNumber(v.netLiquid, 0)}
+                        {!v.isManual ? formatNumber(v.netLiquid, 0) : '-'}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-cyan-400">
-                        {v.totalMw > 0 ? formatNumber(v.totalMw, 0) : '-'}
+                        {!v.isManual && v.totalMw > 0 ? formatNumber(v.totalMw, 0) : '-'}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-orange-400">
-                        {v.evMining > 0 ? formatNumber(v.evMining, 0) : '-'}
+                        {!v.isManual && v.evMining > 0 ? formatNumber(v.evMining, 0) : '-'}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-purple-400">
-                        {v.evHpcContracted > 0 ? formatNumber(v.evHpcContracted, 0) : '-'}
+                        {!v.isManual && v.evHpcContracted > 0 ? formatNumber(v.evHpcContracted, 0) : '-'}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-purple-300">
-                        {v.evHpcPipeline > 0 ? formatNumber(v.evHpcPipeline, 0) : '-'}
+                        {!v.isManual && v.evHpcPipeline > 0 ? formatNumber(v.evHpcPipeline, 0) : '-'}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-orange-500 font-semibold cursor-help" title={`SOTP: $${formatNumber(v.totalValueM, 0)}M (Net Liq: ${formatNumber(v.netLiquid, 0)} + EV: ${formatNumber(v.totalEv, 0)}${(v.impliedProjectDebtM ?? 0) > 0 ? ` − Debt: ${formatNumber(v.impliedProjectDebtM, 0)}` : ''})${v.fdSharesM ? ` ÷ ${formatNumber(v.fdSharesM, 1)}M FD shares` : ''}`}>
-                        {v.fairValuePerShare ? formatMoney(v.fairValuePerShare) : '-'}
+                      {/* Fair Value cell */}
+                      <td className="px-4 py-3 text-right relative">
+                        <span
+                          className={`font-mono font-semibold ${
+                            v.hasOverride || v.isManual ? 'text-amber-400' : 'text-orange-500'
+                          }`}
+                          title={
+                            v.hasOverride && v.calculatedFairValue
+                              ? `Override: ${formatMoney(v.fairValuePerShare)} (SOTP: ${formatMoney(v.calculatedFairValue)})${v.fairValueOverrideLabel ? ` — ${v.fairValueOverrideLabel}` : ''}`
+                              : v.fairValuePerShare
+                              ? `SOTP: $${formatNumber(v.totalValueM, 0)}M (Net Liq: ${formatNumber(v.netLiquid, 0)} + EV: ${formatNumber(v.totalEv, 0)}${(v.impliedProjectDebtM ?? 0) > 0 ? ` - Debt: ${formatNumber(v.impliedProjectDebtM, 0)}` : ''})${v.fdSharesM ? ` / ${formatNumber(v.fdSharesM, 1)}M FD shares` : ''}`
+                              : undefined
+                          }
+                        >
+                          {v.fairValuePerShare ? formatMoney(v.fairValuePerShare) : '-'}
+                        </span>
+
+                        {/* Override edit popover */}
+                        {editingOverride?.ticker === v.ticker && (
+                          <div
+                            ref={popoverRef}
+                            className="absolute right-0 top-full mt-1 z-50 bg-gray-900 border border-gray-600 rounded-lg shadow-xl p-4 w-72"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <h3 className="text-xs font-semibold text-gray-300 mb-3 uppercase tracking-wider">
+                              Fair Value Override — {v.ticker}
+                            </h3>
+                            <div className="space-y-2">
+                              <div>
+                                <label className="block text-xs text-gray-400 mb-1">Fair Value ($/share)</label>
+                                <input
+                                  type="text"
+                                  value={editingOverride.fairValueOverride}
+                                  onChange={(e) => setEditingOverride({ ...editingOverride, fairValueOverride: e.target.value })}
+                                  placeholder={v.calculatedFairValue ? `SOTP: ${formatMoney(v.calculatedFairValue)}` : 'Enter value'}
+                                  className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                                  autoFocus
+                                  onKeyDown={(e) => { if (e.key === 'Enter') handleSaveOverride(); if (e.key === 'Escape') setEditingOverride(null); }}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-400 mb-1">Link (URL)</label>
+                                <input
+                                  type="text"
+                                  value={editingOverride.fairValueOverrideUrl}
+                                  onChange={(e) => setEditingOverride({ ...editingOverride, fairValueOverrideUrl: e.target.value })}
+                                  placeholder="https://..."
+                                  className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-400 mb-1">Label</label>
+                                <input
+                                  type="text"
+                                  value={editingOverride.fairValueOverrideLabel}
+                                  onChange={(e) => setEditingOverride({ ...editingOverride, fairValueOverrideLabel: e.target.value })}
+                                  placeholder="e.g. DCF Model"
+                                  className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                                />
+                              </div>
+                              <div className="flex items-center justify-between pt-2">
+                                <button onClick={handleClearOverride} className="text-xs text-red-400 hover:text-red-300 transition" title="Revert to SOTP value">
+                                  Clear Override
+                                </button>
+                                <div className="flex gap-2">
+                                  <button onClick={() => setEditingOverride(null)} className="text-xs text-gray-400 hover:text-white transition px-2 py-1">Cancel</button>
+                                  <button
+                                    onClick={handleSaveOverride}
+                                    disabled={updateOverrideMutation.isPending}
+                                    className="flex items-center gap-1 text-xs bg-orange-600 text-white rounded px-3 py-1 hover:bg-orange-700 disabled:opacity-50 transition"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                    Save
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right">
                         {upside !== null ? (
@@ -408,12 +743,46 @@ export default function Dashboard() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-cyan-300">
-                        {dollarPerMwYr !== null ? `$${formatNumber(dollarPerMwYr, 2)}M` : '-'}
+                        {!v.isManual && dollarPerMwYr !== null ? `$${formatNumber(dollarPerMwYr, 2)}M` : '-'}
+                      </td>
+                      {/* Actions column */}
+                      <td className="px-2 py-3 text-center">
+                        <div className="flex items-center gap-0.5">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingOverride({
+                                ticker: v.ticker,
+                                fairValueOverride: v.hasOverride && v.fairValuePerShare ? v.fairValuePerShare.toString() : '',
+                                fairValueOverrideUrl: v.fairValueOverrideUrl || '',
+                                fairValueOverrideLabel: v.fairValueOverrideLabel || '',
+                              });
+                            }}
+                            className="text-gray-500 hover:text-orange-400 transition p-1"
+                            title="Edit fair value override"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          {v.isManual && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (confirm(`Delete ${v.ticker}?`)) {
+                                  deleteManualMutation.mutate(v.ticker);
+                                }
+                              }}
+                              className="text-gray-500 hover:text-red-400 transition p-1"
+                              title="Delete manual ticker"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
-                    {isExpanded && (
+                    {isExpanded && !v.isManual && (
                       <tr className="bg-gray-850">
-                        <td colSpan={12} className="px-6 py-4 bg-gray-800/60">
+                        <td colSpan={13} className="px-6 py-4 bg-gray-800/60">
                           {/* Summary stats */}
                           <div className="flex items-center gap-8 mb-3 text-xs">
                             <div>
@@ -451,7 +820,7 @@ export default function Dashboard() {
                                 <div>
                                   <span className="text-gray-500">Implied Project Debt:</span>{' '}
                                   <span className="font-mono text-rose-400">
-                                    −${formatNumber(v.impliedProjectDebtM ?? 0, 0)}M
+                                    -${formatNumber(v.impliedProjectDebtM ?? 0, 0)}M
                                   </span>
                                 </div>
                                 <button
@@ -562,7 +931,7 @@ export default function Dashboard() {
               })}
               {valuations.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="text-center py-8 text-gray-500">
+                  <td colSpan={13} className="text-center py-8 text-gray-500">
                     No companies found. Import data to get started.
                   </td>
                 </tr>
@@ -589,6 +958,10 @@ export default function Dashboard() {
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded bg-cyan-300" />
           <span>$/MW/yr (NOI)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded bg-amber-400" />
+          <span>Override / Manual</span>
         </div>
       </div>
     </div>
