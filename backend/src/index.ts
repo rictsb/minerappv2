@@ -1648,6 +1648,7 @@ app.get('/api/v1/valuation', async (req, res) => {
         hasOverride,
         fairValueOverrideUrl: company.fairValueOverrideUrl || null,
         fairValueOverrideLabel: company.fairValueOverrideLabel || null,
+        fairValueSourceRange: (company as any).fairValueSourceRange || null,
         isManual: (company as any).isManual || false,
         totalLeaseValueM: Math.round(totalLeaseValueM),
         hpcSites: hpcSites.sort((a: any, b: any) => b.valuation - a.valuation),

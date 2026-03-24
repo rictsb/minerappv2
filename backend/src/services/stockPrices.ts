@@ -193,6 +193,102 @@ async function fetchSofrRate(): Promise<number | null> {
 }
 
 /**
+ * Extract Google Sheet ID from a URL
+ */
+function extractGoogleSheetId(url: string): string | null {
+  const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Fetch a named range value from a published Google Sheet.
+ * The sheet must be published to web (File → Share → Publish to web).
+ * Returns the numeric value from the first cell of the named range.
+ */
+async function fetchGoogleSheetRange(sheetUrl: string, rangeName: string): Promise<number | null> {
+  const sheetId = extractGoogleSheetId(sheetUrl);
+  if (!sheetId) {
+    console.error(`[sheets] Could not extract sheet ID from: ${sheetUrl}`);
+    return null;
+  }
+
+  try {
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&range=${encodeURIComponent(rangeName)}`;
+    const res = await fetch(csvUrl);
+    if (!res.ok) {
+      console.error(`[sheets] Failed to fetch range "${rangeName}" from sheet ${sheetId}: ${res.status}`);
+      return null;
+    }
+
+    const text = await res.text();
+    // CSV response: first line is header (the range name), second line is the value
+    // Or it might just be a single value — handle both cases
+    const lines = text.trim().split('\n');
+    const valueLine = lines.length > 1 ? lines[lines.length - 1] : lines[0];
+    // Strip quotes and whitespace, parse as number
+    const cleaned = valueLine.replace(/"/g, '').replace(/[$,]/g, '').trim();
+    const num = parseFloat(cleaned);
+
+    if (isNaN(num)) {
+      console.error(`[sheets] Could not parse numeric value from range "${rangeName}": "${valueLine}"`);
+      return null;
+    }
+
+    console.log(`[sheets] Fetched "${rangeName}" from sheet ${sheetId}: ${num}`);
+    return num;
+  } catch (error) {
+    console.error(`[sheets] Error fetching range "${rangeName}" from sheet ${sheetId}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Update fair value overrides from linked Google Sheets for all companies
+ * that have both fairValueOverrideUrl (Google Sheet) and fairValueSourceRange set.
+ */
+export async function updateFairValuesFromSheets(): Promise<{ updated: string[]; failed: string[] }> {
+  const companies = await prisma.company.findMany({
+    where: {
+      archived: false,
+      fairValueSourceRange: { not: null },
+      fairValueOverrideUrl: { not: null },
+    },
+    select: {
+      ticker: true,
+      fairValueOverrideUrl: true,
+      fairValueSourceRange: true,
+    },
+  });
+
+  const updated: string[] = [];
+  const failed: string[] = [];
+
+  for (const company of companies) {
+    if (!company.fairValueOverrideUrl || !company.fairValueSourceRange) continue;
+
+    // Only process Google Sheet URLs
+    if (!company.fairValueOverrideUrl.includes('docs.google.com/spreadsheets')) continue;
+
+    const value = await fetchGoogleSheetRange(company.fairValueOverrideUrl, company.fairValueSourceRange);
+    if (value !== null) {
+      await prisma.company.update({
+        where: { ticker: company.ticker },
+        data: { fairValueOverride: value },
+      });
+      updated.push(company.ticker);
+      console.log(`[sheets] Updated ${company.ticker} fair value override to $${value}`);
+    } else {
+      failed.push(company.ticker);
+    }
+
+    // Small delay between requests
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
+
+  return { updated, failed };
+}
+
+/**
  * Update a setting in the database
  */
 async function updateSetting(key: string, value: number): Promise<void> {
@@ -279,7 +375,18 @@ export async function updateAllStockPrices(): Promise<{
     marketPrices.sofrRate = sofrRate;
   }
 
-  return { updated, failed, prices, marketPrices };
+  // Fetch fair values from linked Google Sheets
+  let sheetUpdates: { updated: string[]; failed: string[] } = { updated: [], failed: [] };
+  try {
+    sheetUpdates = await updateFairValuesFromSheets();
+    if (sheetUpdates.updated.length > 0) {
+      console.log(`[sheets] Updated fair values for: ${sheetUpdates.updated.join(', ')}`);
+    }
+  } catch (error) {
+    console.error('[sheets] Error updating fair values from sheets:', error);
+  }
+
+  return { updated, failed, prices, marketPrices, sheetUpdates };
 }
 
 /**

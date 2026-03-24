@@ -55,6 +55,7 @@ interface Valuation {
   hasOverride?: boolean;
   fairValueOverrideUrl?: string | null;
   fairValueOverrideLabel?: string | null;
+  fairValueSourceRange?: string | null;
   isManual?: boolean;
   totalLeaseValueM?: number;
   hpcSites?: HpcSite[];
@@ -75,6 +76,7 @@ interface OverrideEditState {
   fairValueOverride: string;
   fairValueOverrideUrl: string;
   fairValueOverrideLabel: string;
+  fairValueSourceRange: string;
 }
 
 interface ManualTickerForm {
@@ -83,6 +85,7 @@ interface ManualTickerForm {
   fairValueOverride: string;
   fairValueOverrideUrl: string;
   fairValueOverrideLabel: string;
+  fairValueSourceRange: string;
   fdSharesM: string;
 }
 
@@ -104,7 +107,7 @@ export default function Dashboard() {
   const [editingOverride, setEditingOverride] = useState<OverrideEditState | null>(null);
   const [showAddManual, setShowAddManual] = useState(false);
   const [manualForm, setManualForm] = useState<ManualTickerForm>({
-    ticker: '', name: '', fairValueOverride: '', fairValueOverrideUrl: '', fairValueOverrideLabel: '', fdSharesM: '',
+    ticker: '', name: '', fairValueOverride: '', fairValueOverrideUrl: '', fairValueOverrideLabel: '', fairValueSourceRange: '', fdSharesM: '',
   });
   const [tickerLookupLoading, setTickerLookupLoading] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -179,7 +182,7 @@ export default function Dashboard() {
 
   // Mutation: update company override
   const updateOverrideMutation = useMutation({
-    mutationFn: async (data: { ticker: string; fairValueOverride: number | null; fairValueOverrideUrl: string | null; fairValueOverrideLabel: string | null }) => {
+    mutationFn: async (data: { ticker: string; fairValueOverride: number | null; fairValueOverrideUrl: string | null; fairValueOverrideLabel: string | null; fairValueSourceRange: string | null }) => {
       const apiUrl = getApiUrl();
       const res = await fetch(`${apiUrl}/api/v1/companies/${data.ticker}`, {
         method: 'PUT',
@@ -188,6 +191,7 @@ export default function Dashboard() {
           fairValueOverride: data.fairValueOverride,
           fairValueOverrideUrl: data.fairValueOverrideUrl || null,
           fairValueOverrideLabel: data.fairValueOverrideLabel || null,
+          fairValueSourceRange: data.fairValueSourceRange || null,
         }),
       });
       if (!res.ok) throw new Error('Failed to update override');
@@ -214,6 +218,7 @@ export default function Dashboard() {
           fairValueOverride: form.fairValueOverride ? parseFloat(form.fairValueOverride) : null,
           fairValueOverrideUrl: form.fairValueOverrideUrl || null,
           fairValueOverrideLabel: form.fairValueOverrideLabel || null,
+          fairValueSourceRange: form.fairValueSourceRange || null,
           fdSharesM: form.fdSharesM ? parseFloat(form.fdSharesM) : null,
         }),
       });
@@ -227,7 +232,7 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['valuation'] });
       queryClient.invalidateQueries({ queryKey: ['companies'] });
       setShowAddManual(false);
-      setManualForm({ ticker: '', name: '', fairValueOverride: '', fairValueOverrideUrl: '', fairValueOverrideLabel: '', fdSharesM: '' });
+      setManualForm({ ticker: '', name: '', fairValueOverride: '', fairValueOverrideUrl: '', fairValueOverrideLabel: '', fairValueSourceRange: '', fdSharesM: '' });
     },
   });
 
@@ -293,6 +298,7 @@ export default function Dashboard() {
       fairValueOverride: val ? parseFloat(val) : null,
       fairValueOverrideUrl: editingOverride.fairValueOverrideUrl.trim() || null,
       fairValueOverrideLabel: editingOverride.fairValueOverrideLabel.trim() || null,
+      fairValueSourceRange: editingOverride.fairValueSourceRange.trim() || null,
     });
   };
 
@@ -303,6 +309,7 @@ export default function Dashboard() {
       fairValueOverride: null,
       fairValueOverrideUrl: null,
       fairValueOverrideLabel: null,
+      fairValueSourceRange: null,
     });
   };
 
@@ -489,6 +496,21 @@ export default function Dashboard() {
                   className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
                 />
               </div>
+              {manualForm.fairValueOverrideUrl.includes('docs.google.com/spreadsheets') && (
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">
+                    Sheet Range Name
+                    <span className="text-gray-600 ml-1">(auto-sync on refresh)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={manualForm.fairValueSourceRange}
+                    onChange={(e) => setManualForm({ ...manualForm, fairValueSourceRange: e.target.value })}
+                    placeholder='e.g. Price Target'
+                    className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                  />
+                </div>
+              )}
               {createManualMutation.isError && (
                 <p className="text-red-400 text-xs">{(createManualMutation.error as Error).message}</p>
               )}
@@ -742,6 +764,21 @@ export default function Dashboard() {
                                   className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
                                 />
                               </div>
+                              {editingOverride.fairValueOverrideUrl.includes('docs.google.com/spreadsheets') && (
+                                <div>
+                                  <label className="block text-xs text-gray-400 mb-1">
+                                    Sheet Range Name
+                                    <span className="text-gray-600 ml-1">(auto-sync on refresh)</span>
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editingOverride.fairValueSourceRange}
+                                    onChange={(e) => setEditingOverride({ ...editingOverride, fairValueSourceRange: e.target.value })}
+                                    placeholder='e.g. Price Target'
+                                    className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                                  />
+                                </div>
+                              )}
                               <div className="flex items-center justify-between pt-2">
                                 <button onClick={handleClearOverride} className="text-xs text-red-400 hover:text-red-300 transition" title="Revert to SOTP value">
                                   Clear Override
@@ -792,6 +829,7 @@ export default function Dashboard() {
                                 fairValueOverride: v.hasOverride && v.fairValuePerShare ? v.fairValuePerShare.toString() : '',
                                 fairValueOverrideUrl: v.fairValueOverrideUrl || '',
                                 fairValueOverrideLabel: v.fairValueOverrideLabel || '',
+                                fairValueSourceRange: v.fairValueSourceRange || '',
                               });
                             }}
                             className="text-gray-500 hover:text-orange-400 transition p-1"
