@@ -307,6 +307,7 @@ export async function updateAllStockPrices(): Promise<{
   failed: string[];
   prices: Record<string, number>;
   marketPrices?: { btcPrice?: number; ethPrice?: number; sofrRate?: number };
+  sheetUpdates?: { updated: string[]; failed: string[] };
 }> {
   const companies = await prisma.company.findMany({
     where: { archived: false },
