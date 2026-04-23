@@ -1,25 +1,52 @@
+/**
+ * Miner Terminal — Dashboard
+ *
+ * Full replacement for frontend/src/pages/Dashboard.tsx that adopts the
+ * light-terminal aesthetic. ALL business logic is preserved 1:1:
+ *   - /api/v1/valuation query
+ *   - freshness cycling mutation (PATCH /companies/:ticker/freshness)
+ *   - override edit mutation (PUT /companies/:ticker)
+ *   - create/delete manual ticker mutations
+ *   - capex-in-financials toggle
+ *   - sort persistence (localStorage)
+ *   - refresh prices with last-refresh timestamp
+ *
+ * Visual changes only:
+ *   - Light canvas + paper cards
+ *   - SOTPBar + TickerMark + DeltaPill inline
+ *   - Badge component for OVERRIDE / MANUAL flags
+ *   - Right-side slideout panel for expanded ticker (instead of inline row)
+ *
+ * Nothing here calls a mock API — all fetches hit your real backend.
+ */
+
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { RefreshCw, TrendingUp, TrendingDown, ChevronDown, ChevronRight, Pencil, Plus, X, ExternalLink, Check, Trash2 } from 'lucide-react';
+import {
+  RefreshCw,
+  Pencil,
+  Plus,
+  X,
+  ExternalLink,
+  Check,
+  Trash2,
+  ChevronRight,
+} from 'lucide-react';
 
-// Freshness indicator: 0 = not set, 1 = stale, 2 = kind-of, 3 = fresh
-type Freshness = 0 | 1 | 2 | 3;
-const FRESHNESS_CONFIG: Record<Freshness, { color: string; bg: string; label: string; icon: string }> = {
-  0: { color: 'text-gray-600', bg: 'bg-[var(--bg-sunken)]', label: 'Not set', icon: '○' },
-  1: { color: 'text-[var(--neg)]', bg: 'bg-red-900/60', label: 'Stale', icon: '●' },
-  2: { color: 'text-[var(--warn)]', bg: 'bg-yellow-900/60', label: 'Partial', icon: '●' },
-  3: { color: 'text-[var(--pos)]', bg: 'bg-green-900/60', label: 'Current', icon: '●' },
-};
+import Card from '../components/Card';
+import Badge from '../components/Badge';
+import Confidence from '../components/Confidence';
+import DeltaPill from '../components/DeltaPill';
+import SOTPBar from '../components/SOTPBar';
+import TickerMark from '../components/TickerMark';
+import SectionHeader from '../components/SectionHeader';
+import { fmt, fmtM, fmtMoney } from '../lib/format';
+import { COLORS } from '../lib/colors';
 
+// ── Types (match backend exactly) ─────────────────────────────────────────
 
-function getApiUrl(): string {
-  let apiUrl = import.meta.env.VITE_API_URL || '';
-  if (apiUrl && !apiUrl.startsWith('http')) {
-    apiUrl = `https://${apiUrl}`;
-  }
-  return apiUrl;
-}
+type FreshnessLevel = 0 | 1 | 2 | 3;
 
 interface HpcSite {
   siteName: string;
@@ -89,30 +116,39 @@ interface ManualTickerForm {
   fdSharesM: string;
 }
 
+function getApiUrl(): string {
+  let apiUrl = import.meta.env.VITE_API_URL || '';
+  if (apiUrl && !apiUrl.startsWith('http')) apiUrl = `https://${apiUrl}`;
+  return apiUrl;
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────
+
 export default function Dashboard() {
   const queryClient = useQueryClient();
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
-  const [expandedTickers, setExpandedTickers] = useState<Set<string>>(new Set());
+  const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(() => {
     const saved = localStorage.getItem('lastPriceRefresh');
     return saved ? new Date(saved) : null;
   });
 
   const [sortKey, setSortKey] = useState<'ticker' | 'freshness' | 'upside' | 'fairValue'>(() => {
-    return (localStorage.getItem('dashSortKey') as 'ticker' | 'freshness' | 'upside' | 'fairValue') || 'ticker';
+    return (localStorage.getItem('dashSortKey') as any) || 'ticker';
   });
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(() => {
-    return (localStorage.getItem('dashSortDir') as 'asc' | 'desc') || 'asc';
+    return (localStorage.getItem('dashSortDir') as any) || 'asc';
   });
+
   const [editingOverride, setEditingOverride] = useState<OverrideEditState | null>(null);
   const [showAddManual, setShowAddManual] = useState(false);
   const [manualForm, setManualForm] = useState<ManualTickerForm>({
-    ticker: '', name: '', fairValueOverride: '', fairValueOverrideUrl: '', fairValueOverrideLabel: '', fairValueSourceRange: '', fdSharesM: '',
+    ticker: '', name: '', fairValueOverride: '', fairValueOverrideUrl: '',
+    fairValueOverrideLabel: '', fairValueSourceRange: '', fdSharesM: '',
   });
   const [tickerLookupLoading, setTickerLookupLoading] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // Close popover on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
@@ -133,7 +169,8 @@ export default function Dashboard() {
     },
   });
 
-  // Freshness mutation — cycles 0→1→2→3→0 and persists to DB
+  // ── Mutations (unchanged from original) ────────────────────────────────
+
   const freshnessMutation = useMutation({
     mutationFn: async ({ ticker, freshness }: { ticker: string; freshness: number }) => {
       const apiUrl = getApiUrl();
@@ -145,23 +182,22 @@ export default function Dashboard() {
       if (!res.ok) throw new Error('Failed to update freshness');
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['valuation'] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['valuation'] }),
   });
 
-  const updateFreshness = useCallback((ticker: string) => {
-    const current = valData?.valuations?.find(v => v.ticker === ticker)?.freshness || 0;
-    const next = (current + 1) % 4;
-    freshnessMutation.mutate({ ticker, freshness: next });
-  }, [valData, freshnessMutation]);
+  const updateFreshness = useCallback(
+    (ticker: string) => {
+      const current = valData?.valuations?.find((v) => v.ticker === ticker)?.freshness || 0;
+      const next = (current + 1) % 4;
+      freshnessMutation.mutate({ ticker, freshness: next });
+    },
+    [valData, freshnessMutation]
+  );
 
   const refreshPricesMutation = useMutation({
     mutationFn: async () => {
       const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/stock-prices/refresh`, {
-        method: 'POST',
-      });
+      const res = await fetch(`${apiUrl}/api/v1/stock-prices/refresh`, { method: 'POST' });
       if (!res.ok) throw new Error('Failed to refresh prices');
       return res.json();
     },
@@ -180,9 +216,14 @@ export default function Dashboard() {
     },
   });
 
-  // Mutation: update company override
   const updateOverrideMutation = useMutation({
-    mutationFn: async (data: { ticker: string; fairValueOverride: number | null; fairValueOverrideUrl: string | null; fairValueOverrideLabel: string | null; fairValueSourceRange: string | null }) => {
+    mutationFn: async (data: {
+      ticker: string;
+      fairValueOverride: number | null;
+      fairValueOverrideUrl: string | null;
+      fairValueOverrideLabel: string | null;
+      fairValueSourceRange: string | null;
+    }) => {
       const apiUrl = getApiUrl();
       const res = await fetch(`${apiUrl}/api/v1/companies/${data.ticker}`, {
         method: 'PUT',
@@ -204,7 +245,6 @@ export default function Dashboard() {
     },
   });
 
-  // Mutation: create manual ticker
   const createManualMutation = useMutation({
     mutationFn: async (form: ManualTickerForm) => {
       const apiUrl = getApiUrl();
@@ -232,11 +272,13 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ['valuation'] });
       queryClient.invalidateQueries({ queryKey: ['companies'] });
       setShowAddManual(false);
-      setManualForm({ ticker: '', name: '', fairValueOverride: '', fairValueOverrideUrl: '', fairValueOverrideLabel: '', fairValueSourceRange: '', fdSharesM: '' });
+      setManualForm({
+        ticker: '', name: '', fairValueOverride: '', fairValueOverrideUrl: '',
+        fairValueOverrideLabel: '', fairValueSourceRange: '', fdSharesM: '',
+      });
     },
   });
 
-  // Mutation: delete manual ticker
   const deleteManualMutation = useMutation({
     mutationFn: async (ticker: string) => {
       const apiUrl = getApiUrl();
@@ -250,25 +292,25 @@ export default function Dashboard() {
     },
   });
 
-  const factors = valData?.factors;
+  const handleSort = useCallback(
+    (key: typeof sortKey) => {
+      if (sortKey === key) {
+        setSortDir((d) => {
+          const next = d === 'asc' ? 'desc' : 'asc';
+          localStorage.setItem('dashSortDir', next);
+          return next;
+        });
+      } else {
+        const dir: 'asc' | 'desc' = key === 'ticker' ? 'asc' : 'desc';
+        setSortKey(key);
+        setSortDir(dir);
+        localStorage.setItem('dashSortKey', key);
+        localStorage.setItem('dashSortDir', dir);
+      }
+    },
+    [sortKey]
+  );
 
-  const handleSort = useCallback((key: typeof sortKey) => {
-    if (sortKey === key) {
-      setSortDir(d => {
-        const next = d === 'asc' ? 'desc' : 'asc';
-        localStorage.setItem('dashSortDir', next);
-        return next;
-      });
-    } else {
-      const dir = key === 'ticker' ? 'asc' : 'desc';
-      setSortKey(key);
-      setSortDir(dir);
-      localStorage.setItem('dashSortKey', key);
-      localStorage.setItem('dashSortDir', dir);
-    }
-  }, [sortKey]);
-
-  // Auto-lookup company name from Finnhub when ticker is entered
   const handleTickerLookup = useCallback(async (ticker: string) => {
     if (!ticker || ticker.length < 1) return;
     setTickerLookupLoading(true);
@@ -276,15 +318,15 @@ export default function Dashboard() {
       const apiUrl = getApiUrl();
       const res = await fetch(`${apiUrl}/api/v1/stock-prices/lookup/${ticker.toUpperCase()}`);
       if (res.ok) {
-        const info = await res.json() as { name: string; marketCapM: number; sharesOutM: number };
-        setManualForm(prev => ({
+        const info = (await res.json()) as { name: string; marketCapM: number; sharesOutM: number };
+        setManualForm((prev) => ({
           ...prev,
           name: prev.name || info.name,
           fdSharesM: prev.fdSharesM || (info.sharesOutM > 0 ? info.sharesOutM.toFixed(1) : ''),
         }));
       }
-    } catch (e) {
-      // silently fail — user can still type name manually
+    } catch {
+      // silent
     } finally {
       setTickerLookupLoading(false);
     }
@@ -317,13 +359,11 @@ export default function Dashboard() {
     const raw = valData?.valuations || [];
     return [...raw].sort((a, b) => {
       let cmp = 0;
-      if (sortKey === 'ticker') {
-        cmp = a.ticker.localeCompare(b.ticker);
-      } else if (sortKey === 'freshness') {
-        cmp = (a.freshness || 0) - (b.freshness || 0);
-      } else if (sortKey === 'upside') {
-        const uA = a.stockPrice && a.fairValuePerShare ? (a.fairValuePerShare / a.stockPrice - 1) : -999;
-        const uB = b.stockPrice && b.fairValuePerShare ? (b.fairValuePerShare / b.stockPrice - 1) : -999;
+      if (sortKey === 'ticker') cmp = a.ticker.localeCompare(b.ticker);
+      else if (sortKey === 'freshness') cmp = (a.freshness || 0) - (b.freshness || 0);
+      else if (sortKey === 'upside') {
+        const uA = a.stockPrice && a.fairValuePerShare ? a.fairValuePerShare / a.stockPrice - 1 : -999;
+        const uB = b.stockPrice && b.fairValuePerShare ? b.fairValuePerShare / b.stockPrice - 1 : -999;
         cmp = uA - uB;
       } else if (sortKey === 'fairValue') {
         cmp = (a.fairValuePerShare || 0) - (b.fairValuePerShare || 0);
@@ -332,7 +372,6 @@ export default function Dashboard() {
     });
   }, [valData?.valuations, sortKey, sortDir]);
 
-  // Calculate totals
   const totals = valuations.reduce(
     (acc, v) => {
       const sharesForMktCap = v.sharesOutM || v.fdSharesM;
@@ -350,692 +389,765 @@ export default function Dashboard() {
     { marketCapM: 0, totalValueM: 0, evMining: 0, evHpcContracted: 0, evHpcPipeline: 0, totalEv: 0, impliedProjectDebt: 0 }
   );
 
+  const factors = valData?.factors;
+  const selectedVal = selectedTicker ? valuations.find((v) => v.ticker === selectedTicker) : null;
+
+  // ── Render ─────────────────────────────────────────────────────────────
+
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64 bg-[var(--bg-canvas)]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--btc)]" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-4 bg-red-900/50 text-[var(--neg)] rounded">
-        Error loading data: {(error as Error).message}
+      <div className="p-6">
+        <Card padding="md" className="border-[color:var(--neg-soft)]">
+          <span className="text-[var(--neg)] text-sm">Error loading data: {(error as Error).message}</span>
+        </Card>
       </div>
     );
   }
 
-  const formatNumber = (num: number | null | undefined, decimals = 0) => {
-    if (num == null || isNaN(num)) return '-';
-    return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-  };
-
-  const formatMoney = (num: number | null | undefined, decimals = 2) => {
-    if (num == null || isNaN(num)) return '-';
-    return `$${formatNumber(num, decimals)}`;
-  };
-
   return (
-    <div className="min-h-screen bg-[var(--bg-canvas)] text-white p-6">
-      {/* Header with Refresh + Add Manual */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-semibold text-[var(--ink-2)]">BTC Miner Valuation Terminal</h1>
-          {factors && (
-            <p className="text-xs text-gray-500 mt-1">
-              BTC ${formatNumber(factors.btcPrice)} • HPC Contracted ${factors.mwValueHpcContracted}M/MW • Pipeline ${factors.mwValueHpcUncontracted}M/MW
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          {refreshMessage && (
-            <span className={`text-sm ${refreshMessage.includes('Error') ? 'text-[var(--neg)]' : 'text-[var(--pos)]'}`}>
-              {refreshMessage}
-            </span>
-          )}
-          {lastRefresh && !refreshMessage && (
-            <span className="text-xs text-gray-500">
-              Updated {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              {' · '}
-              {lastRefresh.toLocaleDateString([], { month: 'short', day: 'numeric' })}
-            </span>
-          )}
-          <button
-            onClick={() => setShowAddManual(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-[var(--bg-sunken)] text-[var(--ink-2)] rounded hover:bg-gray-600 transition text-sm"
-          >
-            <Plus className="w-4 h-4" />
-            Add Ticker
-          </button>
-          <button
-            onClick={() => refreshPricesMutation.mutate()}
-            disabled={refreshPricesMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 transition text-sm"
-          >
-            <RefreshCw className={`w-4 h-4 ${refreshPricesMutation.isPending ? 'animate-spin' : ''}`} />
-            {refreshPricesMutation.isPending ? 'Refreshing...' : 'Refresh Prices'}
-          </button>
-        </div>
-      </div>
-
-      {/* Add Manual Ticker Modal */}
-      {showAddManual && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-6 w-full max-w-md">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-[var(--ink-1)]">Add Manual Ticker</h2>
-              <button onClick={() => setShowAddManual(false)} className="text-[var(--ink-3)] hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-[var(--ink-3)] mb-1">Ticker *</label>
-                  <input
-                    type="text"
-                    value={manualForm.ticker}
-                    onChange={(e) => setManualForm({ ...manualForm, ticker: e.target.value.toUpperCase() })}
-                    onBlur={(e) => handleTickerLookup(e.target.value)}
-                    placeholder="e.g. COIN"
-                    className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-3 py-2 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-[var(--ink-3)] mb-1">FD Shares (M)</label>
-                  <input
-                    type="text"
-                    value={manualForm.fdSharesM}
-                    onChange={(e) => setManualForm({ ...manualForm, fdSharesM: e.target.value })}
-                    placeholder="e.g. 250.5"
-                    className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-3 py-2 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs text-[var(--ink-3)] mb-1">
-                  Company Name *
-                  {tickerLookupLoading && <span className="ml-2 text-orange-400 animate-pulse">Looking up...</span>}
-                </label>
-                <input
-                  type="text"
-                  value={manualForm.name}
-                  onChange={(e) => setManualForm({ ...manualForm, name: e.target.value })}
-                  placeholder={tickerLookupLoading ? 'Fetching from Finnhub...' : 'e.g. Coinbase Global (auto-filled from ticker)'}
-                  className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-3 py-2 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-[var(--ink-3)] mb-1">Fair Value ($/share)</label>
-                <input
-                  type="text"
-                  value={manualForm.fairValueOverride}
-                  onChange={(e) => setManualForm({ ...manualForm, fairValueOverride: e.target.value })}
-                  placeholder="e.g. 42.50"
-                  className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-3 py-2 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-[var(--ink-3)] mb-1">Valuation Link (URL)</label>
-                <input
-                  type="text"
-                  value={manualForm.fairValueOverrideUrl}
-                  onChange={(e) => setManualForm({ ...manualForm, fairValueOverrideUrl: e.target.value })}
-                  placeholder="https://docs.google.com/spreadsheets/..."
-                  className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-3 py-2 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-[var(--ink-3)] mb-1">Valuation Label</label>
-                <input
-                  type="text"
-                  value={manualForm.fairValueOverrideLabel}
-                  onChange={(e) => setManualForm({ ...manualForm, fairValueOverrideLabel: e.target.value })}
-                  placeholder="e.g. DCF Model, Northland SOTP"
-                  className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-3 py-2 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
-                />
-              </div>
-              {manualForm.fairValueOverrideUrl.includes('docs.google.com/spreadsheets') && (
-                <div>
-                  <label className="block text-xs text-[var(--ink-3)] mb-1">
-                    Sheet Range Name
-                    <span className="text-gray-600 ml-1">(auto-sync on refresh)</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={manualForm.fairValueSourceRange}
-                    onChange={(e) => setManualForm({ ...manualForm, fairValueSourceRange: e.target.value })}
-                    placeholder='e.g. Price Target'
-                    className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-3 py-2 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
-                  />
-                </div>
-              )}
-              {createManualMutation.isError && (
-                <p className="text-[var(--neg)] text-xs">{(createManualMutation.error as Error).message}</p>
-              )}
-              <div className="flex justify-end gap-2 pt-2">
-                <button onClick={() => setShowAddManual(false)} className="px-4 py-2 text-sm text-[var(--ink-3)] hover:text-white transition">Cancel</button>
+    <div className="flex h-full">
+      {/* ── Main content ──────────────────────────────────────────────── */}
+      <div
+        className={`flex-1 min-w-0 overflow-auto transition-all duration-200 ${selectedVal ? 'mr-[520px]' : ''}`}
+      >
+        <div className="p-6">
+          <SectionHeader
+            eyebrow="Valuation Terminal"
+            title="Bitcoin Miner Coverage"
+            subtitle={
+              factors
+                ? `BTC ${fmtMoney(factors.btcPrice, 0)} · Contracted ${fmtM(factors.mwValueHpcContracted)}/MW · Pipeline ${fmtM(factors.mwValueHpcUncontracted)}/MW · NOI ${factors.noiMultiple}×`
+                : undefined
+            }
+            right={
+              <>
+                {refreshMessage && (
+                  <span
+                    className={`text-[12px] ${refreshMessage.includes('Error') ? 'text-[var(--neg)]' : 'text-[var(--pos)]'}`}
+                  >
+                    {refreshMessage}
+                  </span>
+                )}
+                {lastRefresh && !refreshMessage && (
+                  <span className="text-[11px] text-ink-3">
+                    Updated{' '}
+                    {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ·{' '}
+                    {lastRefresh.toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                  </span>
+                )}
                 <button
-                  onClick={() => createManualMutation.mutate(manualForm)}
-                  disabled={!manualForm.ticker || !manualForm.name || createManualMutation.isPending}
-                  className="px-4 py-2 text-sm bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 transition"
+                  onClick={() => setShowAddManual(true)}
+                  className="inline-flex items-center gap-[6px] px-3 py-[6px] rounded-sm border border-[var(--border-strong)] bg-elevated hover:bg-subtle text-[12px] text-ink-1"
                 >
-                  {createManualMutation.isPending ? 'Adding...' : 'Add Ticker'}
+                  <Plus className="w-[14px] h-[14px]" />
+                  Add Ticker
                 </button>
-              </div>
-            </div>
+                <button
+                  onClick={() => refreshPricesMutation.mutate()}
+                  disabled={refreshPricesMutation.isPending}
+                  className="inline-flex items-center gap-[6px] px-3 py-[6px] rounded-sm bg-[var(--btc)] hover:bg-[var(--btc-ink)] text-white text-[12px] disabled:opacity-50"
+                >
+                  <RefreshCw
+                    className={`w-[14px] h-[14px] ${refreshPricesMutation.isPending ? 'animate-spin' : ''}`}
+                  />
+                  {refreshPricesMutation.isPending ? 'Refreshing…' : 'Refresh Prices'}
+                </button>
+              </>
+            }
+          />
+
+          {/* Summary KPIs */}
+          <div className="grid grid-cols-4 gap-3 mb-6" style={{ gridTemplateColumns: totals.impliedProjectDebt > 0 ? 'repeat(5, 1fr)' : 'repeat(4, 1fr)' }}>
+            <KPI label="Mining EV" value={fmtM(totals.evMining)} accent={COLORS.mining} />
+            <KPI label="HPC Contracted" value={fmtM(totals.evHpcContracted)} accent={COLORS.hpc} />
+            <KPI label="HPC Pipeline" value={fmtM(totals.evHpcPipeline)} accent={COLORS.pipeline} />
+            {totals.impliedProjectDebt > 0 && (
+              <KPI label="Implied Debt" value={`−${fmtM(totals.impliedProjectDebt)}`} accent={COLORS.debt} />
+            )}
+            <KPI label="Total EV" value={fmtM(totals.totalEv)} accent={COLORS.ink1} highlight />
           </div>
-        </div>
-      )}
 
-      {/* Summary Cards */}
-      <div className={`grid grid-cols-1 gap-4 mb-6 ${totals.impliedProjectDebt > 0 ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
-        <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-4">
-          <p className="text-xs text-[var(--ink-3)] uppercase tracking-wider mb-1">Mining EV</p>
-          <p className="text-2xl font-bold text-orange-500">${formatNumber(totals.evMining)}M</p>
-        </div>
-        <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-4">
-          <p className="text-xs text-[var(--ink-3)] uppercase tracking-wider mb-1">HPC Contracted EV</p>
-          <p className="text-2xl font-bold text-purple-400">${formatNumber(totals.evHpcContracted)}M</p>
-        </div>
-        <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-4">
-          <p className="text-xs text-[var(--ink-3)] uppercase tracking-wider mb-1">HPC Pipeline EV</p>
-          <p className="text-2xl font-bold text-purple-300">${formatNumber(totals.evHpcPipeline)}M</p>
-        </div>
-        {totals.impliedProjectDebt > 0 && (
-          <div className="bg-[var(--bg-elevated)] border border-rose-900/50 rounded-lg p-4">
-            <p className="text-xs text-rose-400 uppercase tracking-wider mb-1">Implied Project Debt</p>
-            <p className="text-2xl font-bold text-rose-400">-${formatNumber(totals.impliedProjectDebt)}M</p>
-          </div>
-        )}
-        <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-4">
-          <p className="text-xs text-[var(--ink-3)] uppercase tracking-wider mb-1">Total EV</p>
-          <p className="text-2xl font-bold text-orange-500">${formatNumber(totals.totalEv)}M</p>
-        </div>
-      </div>
+          {/* Main table */}
+          <Card padding="none">
+            <div className="overflow-auto">
+              <table className="tbl" style={{ minWidth: 1100 }}>
+                <thead>
+                  <tr>
+                    <SortTh active={sortKey === 'ticker'} dir={sortDir} onClick={() => handleSort('ticker')}>
+                      Ticker
+                    </SortTh>
+                    <SortTh active={sortKey === 'freshness'} dir={sortDir} onClick={() => handleSort('freshness')} className="center" title="Data freshness" />
+                    <th className="num-col">Price</th>
+                    <th className="num-col">Mkt Cap</th>
+                    <th className="num-col">Net Liq.</th>
+                    <th className="num-col">MW</th>
+                    <th>SOTP</th>
+                    <th className="num-col">EV</th>
+                    <SortTh active={sortKey === 'fairValue'} dir={sortDir} onClick={() => handleSort('fairValue')} className="num-col">
+                      Fair Val.
+                    </SortTh>
+                    <SortTh active={sortKey === 'upside'} dir={sortDir} onClick={() => handleSort('upside')} className="num-col">
+                      Upside
+                    </SortTh>
+                    <th className="num-col">$/MW/yr</th>
+                    <th className="center" style={{ width: 48 }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {valuations.map((v) => {
+                    const upside =
+                      v.stockPrice && v.stockPrice > 0 && v.fairValuePerShare
+                        ? (v.fairValuePerShare / v.stockPrice - 1) * 100
+                        : null;
+                    const sharesForMktCap = v.sharesOutM || v.fdSharesM;
+                    const marketCapM = v.stockPrice && sharesForMktCap ? v.stockPrice * sharesForMktCap : null;
+                    const totalHpcNoi = v.hpcSites?.reduce((s, x) => s + (x.noiAnnualM || 0), 0) || 0;
+                    const totalHpcMw = v.hpcSites?.reduce((s, x) => s + (x.mw || 0), 0) || 0;
+                    const dollarPerMwYr = totalHpcMw > 0 ? totalHpcNoi / totalHpcMw : null;
 
-      {/* Main Table */}
-      <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--hairline)]">
-                <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider cursor-pointer select-none hover:text-[var(--ink-1)]" onClick={() => handleSort('ticker')}>
-                  Ticker {sortKey === 'ticker' && (sortDir === 'asc' ? '▲' : '▼')}
-                </th>
-                <th className="px-2 py-3 text-center text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider cursor-pointer select-none hover:text-[var(--ink-1)]" onClick={() => handleSort('freshness')} title="Data freshness">
-                  {sortKey === 'freshness' ? (sortDir === 'asc' ? '▲' : '▼') : '⬤'}
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider">Price</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider">Mkt Cap</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider">Net Liquid</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider">IT MW</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-orange-500 uppercase tracking-wider" colSpan={3}>
-                  Enterprise Value ($M)
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider cursor-pointer select-none hover:text-[var(--ink-1)]" onClick={() => handleSort('fairValue')}>
-                  Fair Value {sortKey === 'fairValue' && (sortDir === 'asc' ? '▲' : '▼')}
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider cursor-pointer select-none hover:text-[var(--ink-1)]" onClick={() => handleSort('upside')}>
-                  Upside {sortKey === 'upside' && (sortDir === 'asc' ? '▲' : '▼')}
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider">$/MW/yr</th>
-                <th className="px-2 py-3 text-center text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider w-10"></th>
-              </tr>
-              <tr className="border-b border-[var(--hairline)] bg-[var(--bg-elevated)]/50">
-                <th className="px-4 py-2"></th>
-                <th className="px-2 py-2"></th>
-                <th className="px-4 py-2"></th>
-                <th className="px-4 py-2"></th>
-                <th className="px-4 py-2"></th>
-                <th className="px-4 py-2"></th>
-                <th className="px-4 py-2 text-right text-xs font-normal text-orange-400/70">Mining</th>
-                <th className="px-4 py-2 text-right text-xs font-normal text-purple-400/70">Contracted</th>
-                <th className="px-4 py-2 text-right text-xs font-normal text-purple-300/70">Pipeline</th>
-                <th className="px-4 py-2"></th>
-                <th className="px-4 py-2"></th>
-                <th className="px-4 py-2"></th>
-                <th className="px-2 py-2"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--hairline)]">
-              {valuations.map((v) => {
-                // Calculate upside: (Fair Value Per Share / Stock Price - 1) * 100
-                const upside = v.stockPrice && v.stockPrice > 0 && v.fairValuePerShare
-                  ? ((v.fairValuePerShare / v.stockPrice) - 1) * 100
-                  : null;
-                // Market cap ($M) — uses basic shares outstanding (not FD)
-                const sharesForMktCap = v.sharesOutM || v.fdSharesM;
-                const marketCapM = v.stockPrice && sharesForMktCap ? v.stockPrice * sharesForMktCap : null;
-                // $/MW/yr: total HPC NOI / total contracted MW
-                const totalHpcNoi = v.hpcSites?.reduce((sum, s) => sum + (s.noiAnnualM || 0), 0) || 0;
-                const totalHpcMw = v.hpcSites?.reduce((sum, s) => sum + (s.mw || 0), 0) || 0;
-                const dollarPerMwYr = totalHpcMw > 0 ? totalHpcNoi / totalHpcMw : null;
-                const isExpanded = expandedTickers.has(v.ticker);
-                const toggleExpand = (e: React.MouseEvent) => {
-                  e.stopPropagation();
-                  setExpandedTickers(prev => {
-                    const next = new Set(prev);
-                    if (next.has(v.ticker)) next.delete(v.ticker);
-                    else next.add(v.ticker);
-                    return next;
-                  });
-                };
+                    const sotpItems = [
+                      { value: Math.max(0, v.netLiquid), fill: COLORS.netLiquid, label: 'Net Liquid' },
+                      { value: v.evMining, fill: COLORS.mining, label: 'Mining' },
+                      { value: v.evHpcContracted, fill: COLORS.hpc, label: 'HPC' },
+                      { value: v.evHpcPipeline, fill: COLORS.pipeline, label: 'Pipeline' },
+                    ];
 
-                return (
-                  <React.Fragment key={v.ticker}>
-                    <tr
-                      className={`hover:bg-[var(--bg-sunken)]/50 cursor-pointer transition ${v.isManual ? 'border-l-2 border-l-blue-500/50' : ''}`}
-                      onClick={toggleExpand}
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5">
-                          {!v.isManual ? (
-                            isExpanded ? (
-                              <ChevronDown className="w-4 h-4 text-[var(--ink-3)] flex-shrink-0" />
-                            ) : (
-                              <ChevronRight className="w-4 h-4 text-[var(--ink-3)] flex-shrink-0" />
-                            )
-                          ) : (
-                            <span className="w-4" />
-                          )}
-                          <Link
-                            to={v.isManual ? '#' : `/valuation/${v.ticker}`}
-                            className={`font-medium transition ${v.isManual ? 'text-blue-400 cursor-default' : 'text-orange-500 hover:text-orange-400 hover:underline'}`}
-                            onClick={(e) => { e.stopPropagation(); if (v.isManual) e.preventDefault(); }}
+                    const isSelected = selectedTicker === v.ticker;
+
+                    return (
+                      <tr
+                        key={v.ticker}
+                        className={isSelected ? 'selected' : ''}
+                        onClick={() => !v.isManual && setSelectedTicker(isSelected ? null : v.ticker)}
+                        style={{ cursor: v.isManual ? 'default' : 'pointer' }}
+                      >
+                        <td>
+                          <div className="flex items-center gap-[10px]">
+                            <TickerMark ticker={v.ticker} size={22} />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-[6px]">
+                                {v.isManual ? (
+                                  <span className="font-medium text-[13px] text-[var(--info)]">{v.ticker}</span>
+                                ) : (
+                                  <Link
+                                    to={`/valuation/${v.ticker}`}
+                                    className="font-medium text-[13px] text-ink-1 hover:text-[var(--btc)] hover:underline"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {v.ticker}
+                                  </Link>
+                                )}
+                                {v.isManual && <Badge color="info">Manual</Badge>}
+                                {!v.isManual && v.hasOverride && <Badge color="warn">Override</Badge>}
+                                {v.fairValueOverrideUrl && (
+                                  <a
+                                    href={v.fairValueOverrideUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-ink-4 hover:text-[var(--info)]"
+                                    title={v.fairValueOverrideLabel || 'External valuation'}
+                                  >
+                                    <ExternalLink className="w-[12px] h-[12px]" />
+                                  </a>
+                                )}
+                              </div>
+                              <div className="text-[10.5px] text-ink-3 truncate max-w-[160px]">{v.name}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="center">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); updateFreshness(v.ticker); }}
+                            title={`Freshness: ${v.freshness || 0} — click to cycle`}
+                            className="inline-flex items-center"
                           >
-                            {v.ticker}
-                          </Link>
-                          {/* Badge */}
-                          {v.isManual ? (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/50 text-blue-400 font-medium">MANUAL</span>
-                          ) : v.hasOverride ? (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/50 text-amber-400 font-medium">OVERRIDE</span>
-                          ) : null}
-                          {/* External link */}
-                          {v.fairValueOverrideUrl && (
-                            <a
-                              href={v.fairValueOverrideUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <Confidence value={(v.freshness || 0) as FreshnessLevel} />
+                          </button>
+                        </td>
+                        <td className="num-col text-ink-1">{v.stockPrice ? fmtMoney(v.stockPrice) : '—'}</td>
+                        <td className="num-col text-ink-2">{marketCapM ? fmtM(marketCapM) : '—'}</td>
+                        <td className={`num-col ${v.netLiquid >= 0 ? 'text-ink-1' : 'text-[var(--neg)]'}`}>
+                          {!v.isManual ? fmt(v.netLiquid, 0) : '—'}
+                        </td>
+                        <td className="num-col text-ink-2">
+                          {!v.isManual && v.totalMw > 0 ? fmt(v.totalMw, 0) : '—'}
+                        </td>
+                        <td>
+                          <div className="flex items-center gap-2">
+                            <SOTPBar items={sotpItems} width={110} height={7} />
+                          </div>
+                        </td>
+                        <td className="num-col text-ink-1">{!v.isManual ? fmt(v.totalEv, 0) : '—'}</td>
+                        <td className="num-col relative">
+                          <span
+                            className="font-medium"
+                            style={{ color: v.hasOverride || v.isManual ? COLORS.warn : COLORS.ink1 }}
+                            title={
+                              v.hasOverride && v.calculatedFairValue
+                                ? `Override: ${fmtMoney(v.fairValuePerShare)} (SOTP: ${fmtMoney(v.calculatedFairValue)})${v.fairValueOverrideLabel ? ` — ${v.fairValueOverrideLabel}` : ''}`
+                                : undefined
+                            }
+                          >
+                            {v.fairValuePerShare ? fmtMoney(v.fairValuePerShare) : '—'}
+                          </span>
+
+                          {editingOverride?.ticker === v.ticker && (
+                            <div
+                              ref={popoverRef}
+                              className="absolute right-0 top-full mt-1 z-50 bg-elevated border border-hairline-strong rounded-md shadow-pop p-3 w-72 text-left"
                               onClick={(e) => e.stopPropagation()}
-                              className="text-gray-500 hover:text-blue-400 transition"
-                              title={v.fairValueOverrideLabel || 'External Valuation'}
                             >
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-2 py-3 text-center">
-                        {(() => {
-                          const f = v.freshness || 0;
-                          const cfg = FRESHNESS_CONFIG[f as Freshness];
-                          return (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); updateFreshness(v.ticker); }}
-                              className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-sm leading-none transition-all hover:ring-2 hover:ring-gray-500 ${cfg.color}`}
-                              title={`${cfg.label} — click to cycle`}
-                            >
-                              {cfg.icon}
-                            </button>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-[var(--pos)] cursor-help" title={marketCapM != null ? `Mkt Cap: $${formatNumber(marketCapM, 0)}M` : v.stockPrice ? 'Mkt Cap: shares outstanding not set' : undefined}>
-                        {v.stockPrice ? formatMoney(v.stockPrice) : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-[var(--ink-2)]">
-                        {marketCapM ? `$${formatNumber(marketCapM, 0)}M` : '-'}
-                      </td>
-                      <td className={`px-4 py-3 text-right font-mono ${v.netLiquid >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
-                        {!v.isManual ? formatNumber(v.netLiquid, 0) : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-cyan-400">
-                        {!v.isManual && v.totalMw > 0 ? formatNumber(v.totalMw, 0) : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-orange-400">
-                        {!v.isManual && v.evMining > 0 ? formatNumber(v.evMining, 0) : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-purple-400">
-                        {!v.isManual && v.evHpcContracted > 0 ? formatNumber(v.evHpcContracted, 0) : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-purple-300">
-                        {!v.isManual && v.evHpcPipeline > 0 ? formatNumber(v.evHpcPipeline, 0) : '-'}
-                      </td>
-                      {/* Fair Value cell */}
-                      <td className="px-4 py-3 text-right relative">
-                        <span
-                          className={`font-mono font-semibold ${
-                            v.hasOverride || v.isManual ? 'text-amber-400' : 'text-orange-500'
-                          }`}
-                          title={
-                            v.hasOverride && v.calculatedFairValue
-                              ? `Override: ${formatMoney(v.fairValuePerShare)} (SOTP: ${formatMoney(v.calculatedFairValue)})${v.fairValueOverrideLabel ? ` — ${v.fairValueOverrideLabel}` : ''}`
-                              : v.fairValuePerShare
-                              ? `SOTP: $${formatNumber(v.totalValueM, 0)}M (Net Liq: ${formatNumber(v.netLiquid, 0)} + EV: ${formatNumber(v.totalEv, 0)}${(v.impliedProjectDebtM ?? 0) > 0 ? ` - Debt: ${formatNumber(v.impliedProjectDebtM, 0)}` : ''})${v.fdSharesM ? ` / ${formatNumber(v.fdSharesM, 1)}M FD shares` : ''}`
-                              : undefined
-                          }
-                        >
-                          {v.fairValuePerShare ? formatMoney(v.fairValuePerShare) : '-'}
-                        </span>
-
-                        {/* Override edit popover */}
-                        {editingOverride?.ticker === v.ticker && (
-                          <div
-                            ref={popoverRef}
-                            className="absolute right-0 top-full mt-1 z-50 bg-[var(--bg-canvas)] border border-[var(--hairline)] rounded-lg shadow-xl p-4 w-72"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <h3 className="text-xs font-semibold text-[var(--ink-2)] mb-3 uppercase tracking-wider">
-                              Fair Value Override — {v.ticker}
-                            </h3>
-                            <div className="space-y-2">
-                              <div>
-                                <label className="block text-xs text-[var(--ink-3)] mb-1">Fair Value ($/share)</label>
-                                <input
-                                  type="text"
-                                  value={editingOverride.fairValueOverride}
-                                  onChange={(e) => setEditingOverride({ ...editingOverride, fairValueOverride: e.target.value })}
-                                  placeholder={v.calculatedFairValue ? `SOTP: ${formatMoney(v.calculatedFairValue)}` : 'Enter value'}
-                                  className="w-full bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded px-2 py-1.5 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
-                                  autoFocus
-                                  onKeyDown={(e) => { if (e.key === 'Enter') handleSaveOverride(); if (e.key === 'Escape') setEditingOverride(null); }}
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs text-[var(--ink-3)] mb-1">Link (URL)</label>
-                                <input
-                                  type="text"
-                                  value={editingOverride.fairValueOverrideUrl}
-                                  onChange={(e) => setEditingOverride({ ...editingOverride, fairValueOverrideUrl: e.target.value })}
-                                  placeholder="https://..."
-                                  className="w-full bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded px-2 py-1.5 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs text-[var(--ink-3)] mb-1">Label</label>
-                                <input
-                                  type="text"
-                                  value={editingOverride.fairValueOverrideLabel}
-                                  onChange={(e) => setEditingOverride({ ...editingOverride, fairValueOverrideLabel: e.target.value })}
-                                  placeholder="e.g. DCF Model"
-                                  className="w-full bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded px-2 py-1.5 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
-                                />
-                              </div>
-                              {editingOverride.fairValueOverrideUrl.includes('docs.google.com/spreadsheets') && (
-                                <div>
-                                  <label className="block text-xs text-[var(--ink-3)] mb-1">
-                                    Sheet Range Name
-                                    <span className="text-gray-600 ml-1">(auto-sync on refresh)</span>
-                                  </label>
+                              <div className="eyebrow mb-2">Override — {v.ticker}</div>
+                              <div className="space-y-2">
+                                <FormField label="Fair Value ($/share)">
                                   <input
                                     type="text"
-                                    value={editingOverride.fairValueSourceRange}
-                                    onChange={(e) => setEditingOverride({ ...editingOverride, fairValueSourceRange: e.target.value })}
-                                    placeholder='e.g. Price Target'
-                                    className="w-full bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded px-2 py-1.5 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
+                                    value={editingOverride.fairValueOverride}
+                                    onChange={(e) => setEditingOverride({ ...editingOverride, fairValueOverride: e.target.value })}
+                                    placeholder={v.calculatedFairValue ? `SOTP: ${fmtMoney(v.calculatedFairValue)}` : 'Enter value'}
+                                    className="input"
+                                    autoFocus
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleSaveOverride();
+                                      if (e.key === 'Escape') setEditingOverride(null);
+                                    }}
                                   />
-                                </div>
-                              )}
-                              <div className="flex items-center justify-between pt-2">
-                                <button onClick={handleClearOverride} className="text-xs text-[var(--neg)] hover:text-red-300 transition" title="Revert to SOTP value">
-                                  Clear Override
-                                </button>
-                                <div className="flex gap-2">
-                                  <button onClick={() => setEditingOverride(null)} className="text-xs text-[var(--ink-3)] hover:text-white transition px-2 py-1">Cancel</button>
+                                </FormField>
+                                <FormField label="Link (URL)">
+                                  <input
+                                    type="text"
+                                    value={editingOverride.fairValueOverrideUrl}
+                                    onChange={(e) => setEditingOverride({ ...editingOverride, fairValueOverrideUrl: e.target.value })}
+                                    placeholder="https://..."
+                                    className="input"
+                                  />
+                                </FormField>
+                                <FormField label="Label">
+                                  <input
+                                    type="text"
+                                    value={editingOverride.fairValueOverrideLabel}
+                                    onChange={(e) => setEditingOverride({ ...editingOverride, fairValueOverrideLabel: e.target.value })}
+                                    placeholder="e.g. DCF Model"
+                                    className="input"
+                                  />
+                                </FormField>
+                                {editingOverride.fairValueOverrideUrl.includes('docs.google.com/spreadsheets') && (
+                                  <FormField label="Sheet Range (auto-sync)">
+                                    <input
+                                      type="text"
+                                      value={editingOverride.fairValueSourceRange}
+                                      onChange={(e) => setEditingOverride({ ...editingOverride, fairValueSourceRange: e.target.value })}
+                                      placeholder="e.g. Price Target"
+                                      className="input"
+                                    />
+                                  </FormField>
+                                )}
+                                <div className="flex items-center justify-between pt-1">
                                   <button
-                                    onClick={handleSaveOverride}
-                                    disabled={updateOverrideMutation.isPending}
-                                    className="flex items-center gap-1 text-xs bg-orange-600 text-white rounded px-3 py-1 hover:bg-orange-700 disabled:opacity-50 transition"
+                                    onClick={handleClearOverride}
+                                    className="text-[11px] text-[var(--neg)] hover:underline"
+                                    title="Revert to SOTP"
                                   >
-                                    <Check className="w-3 h-3" />
-                                    Save
+                                    Clear
                                   </button>
+                                  <div className="flex gap-2">
+                                    <button onClick={() => setEditingOverride(null)} className="text-[11px] text-ink-3 hover:text-ink-1 px-2 py-1">
+                                      Cancel
+                                    </button>
+                                    <button
+                                      onClick={handleSaveOverride}
+                                      disabled={updateOverrideMutation.isPending}
+                                      className="inline-flex items-center gap-1 text-[11px] bg-[var(--btc)] hover:bg-[var(--btc-ink)] text-white rounded-sm px-3 py-1 disabled:opacity-50"
+                                    >
+                                      <Check className="w-3 h-3" />
+                                      Save
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {upside !== null ? (
-                          <div className="flex items-center justify-end gap-1">
-                            {upside >= 0 ? (
-                              <TrendingUp className="w-4 h-4 text-[var(--pos)]" />
-                            ) : (
-                              <TrendingDown className="w-4 h-4 text-[var(--neg)]" />
-                            )}
-                            <span className={`font-mono font-semibold ${upside >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
-                              {upside >= 0 ? '+' : ''}{formatNumber(upside, 0)}%
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-gray-600">-</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-cyan-300">
-                        {!v.isManual && dollarPerMwYr !== null ? `$${formatNumber(dollarPerMwYr, 2)}M` : '-'}
-                      </td>
-                      {/* Actions column */}
-                      <td className="px-2 py-3 text-center">
-                        <div className="flex items-center gap-0.5">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingOverride({
-                                ticker: v.ticker,
-                                fairValueOverride: v.hasOverride && v.fairValuePerShare ? v.fairValuePerShare.toString() : '',
-                                fairValueOverrideUrl: v.fairValueOverrideUrl || '',
-                                fairValueOverrideLabel: v.fairValueOverrideLabel || '',
-                                fairValueSourceRange: v.fairValueSourceRange || '',
-                              });
-                            }}
-                            className="text-gray-500 hover:text-orange-400 transition p-1"
-                            title="Edit fair value override"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          {v.isManual && (
+                          )}
+                        </td>
+                        <td className="num-col">
+                          {upside !== null ? <DeltaPill value={upside} size="sm" precision={0} /> : <span className="text-ink-4">—</span>}
+                        </td>
+                        <td className="num-col text-ink-2">
+                          {!v.isManual && dollarPerMwYr !== null ? fmtM(dollarPerMwYr, 2) : '—'}
+                        </td>
+                        <td className="center">
+                          <div className="flex items-center gap-0 justify-center">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (confirm(`Delete ${v.ticker}?`)) {
-                                  deleteManualMutation.mutate(v.ticker);
-                                }
+                                setEditingOverride({
+                                  ticker: v.ticker,
+                                  fairValueOverride:
+                                    v.hasOverride && v.fairValuePerShare ? v.fairValuePerShare.toString() : '',
+                                  fairValueOverrideUrl: v.fairValueOverrideUrl || '',
+                                  fairValueOverrideLabel: v.fairValueOverrideLabel || '',
+                                  fairValueSourceRange: v.fairValueSourceRange || '',
+                                });
                               }}
-                              className="text-gray-500 hover:text-[var(--neg)] transition p-1"
-                              title="Delete manual ticker"
+                              className="text-ink-4 hover:text-[var(--btc)] p-1"
+                              title="Edit override"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Pencil className="w-[13px] h-[13px]" />
                             </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                    {isExpanded && !v.isManual && (
-                      <tr className="bg-gray-850">
-                        <td colSpan={13} className="px-6 py-4 bg-[var(--bg-elevated)]/60">
-                          {/* Summary stats */}
-                          <div className="flex items-center gap-8 mb-3 text-xs">
-                            <div>
-                              <span className="text-gray-500">Shares Out:</span>{' '}
-                              <span className="font-mono text-[var(--ink-2)]">
-                                {v.sharesOutM ? `${formatNumber(v.sharesOutM, 1)}M` : '-'}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-gray-500">FD Shares:</span>{' '}
-                              <span className="font-mono text-[var(--ink-2)]">
-                                {v.fdSharesM ? `${formatNumber(v.fdSharesM, 1)}M` : '-'}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-gray-500">Total Lease Value:</span>{' '}
-                              <span className="font-mono text-purple-400">
-                                {(v.totalLeaseValueM ?? 0) > 0 ? `$${formatNumber(v.totalLeaseValueM, 0)}M` : '-'}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-gray-500">Total Value:</span>{' '}
-                              <span className="font-mono text-orange-500">
-                                ${formatNumber(v.totalValueM ?? (v.totalEv + (v.netLiquid ?? 0)), 0)}M
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-gray-500">Net Liquidity:</span>{' '}
-                              <span className={`font-mono ${(v.netLiquid ?? 0) >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
-                                ${formatNumber(v.netLiquid ?? 0, 0)}M
-                              </span>
-                            </div>
-                            {(v.impliedProjectDebtM ?? 0) > 0 && (
-                              <div className="flex items-center gap-3">
-                                <div>
-                                  <span className="text-gray-500">Implied Project Debt:</span>{' '}
-                                  <span className="font-mono text-rose-400">
-                                    -${formatNumber(v.impliedProjectDebtM ?? 0, 0)}M
-                                  </span>
-                                </div>
-                                <button
-                                  className="text-[10px] px-2 py-0.5 rounded bg-rose-900/40 text-rose-300 hover:bg-rose-800/60 transition-colors"
-                                  title="Mark all buildings' capex as already in reported financials — removes implied project debt"
-                                  onClick={async (e) => {
-                                    e.stopPropagation();
-                                    try {
-                                      await fetch(`${getApiUrl()}/api/v1/companies/${v.ticker}/capex-in-financials`, {
-                                        method: 'PATCH',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ value: true }),
-                                      });
-                                      queryClient.invalidateQueries({ queryKey: ['valuation'] });
-                                      queryClient.invalidateQueries({ queryKey: ['companies'] });
-                                    } catch (err) {
-                                      console.error('Failed to set capexInFinancials:', err);
-                                    }
-                                  }}
-                                >
-                                  CapEx in Financials
-                                </button>
-                              </div>
+                            {v.isManual && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm(`Delete ${v.ticker}?`)) deleteManualMutation.mutate(v.ticker);
+                                }}
+                                className="text-ink-4 hover:text-[var(--neg)] p-1"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-[13px] h-[13px]" />
+                              </button>
                             )}
-                          </div>
-                          {/* Valued Sites detail table */}
-                          {Array.isArray(v.hpcSites) && v.hpcSites.length > 0 ? (
-                            <table className="w-full text-xs">
-                              <thead>
-                                <tr className="border-b border-[var(--hairline)]">
-                                  <th className="py-1.5 text-left text-gray-500 font-medium">Site</th>
-                                  <th className="py-1.5 text-left text-gray-500 font-medium">Building</th>
-                                  <th className="py-1.5 text-left text-gray-500 font-medium">Type</th>
-                                  <th className="py-1.5 text-left text-gray-500 font-medium">Tenant</th>
-                                  <th className="py-1.5 text-left text-gray-500 font-medium">Phase</th>
-                                  <th className="py-1.5 text-right text-gray-500 font-medium">MW</th>
-                                  <th className="py-1.5 text-right text-gray-500 font-medium">Lease Value ($M)</th>
-                                  <th className="py-1.5 text-right text-gray-500 font-medium">NOI ($M/yr)</th>
-                                  <th className="py-1.5 text-right text-gray-500 font-medium">Valuation ($M)</th>
-                                  <th className="py-1.5 text-right text-gray-500 font-medium">$/MW/yr</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-[var(--hairline)]/50">
-                                {v.hpcSites.map((site, i) => {
-                                  const siteNoiPerMw = site.mw > 0 && site.noiAnnualM > 0 ? site.noiAnnualM / site.mw : null;
-                                  const catLabel = site.category === 'MINING' ? 'Mining' :
-                                    site.category === 'HPC_CONTRACTED' ? 'HPC' :
-                                    site.category === 'PIPELINE' ? 'Pipeline' : '-';
-                                  const catColor = site.category === 'MINING' ? 'bg-orange-900/50 text-orange-400' :
-                                    site.category === 'HPC_CONTRACTED' ? 'bg-cyan-900/50 text-cyan-400' :
-                                    site.category === 'PIPELINE' ? 'bg-purple-900/50 text-purple-400' :
-                                    'bg-[var(--bg-sunken)] text-[var(--ink-3)]';
-                                  return (
-                                  <tr key={i} className="hover:bg-[var(--bg-sunken)]/30">
-                                    <td className="py-1.5 text-[var(--ink-2)]">{site.siteName}</td>
-                                    <td className="py-1.5 text-[var(--ink-3)]">{site.buildingName}</td>
-                                    <td className="py-1.5">
-                                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${catColor}`}>
-                                        {catLabel}
-                                      </span>
-                                    </td>
-                                    <td className="py-1.5 text-cyan-400">{site.tenant || '-'}</td>
-                                    <td className="py-1.5">
-                                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                        site.phase === 'OPERATIONAL' ? 'bg-green-900/50 text-[var(--pos)]' :
-                                        site.phase === 'CONSTRUCTION' ? 'bg-yellow-900/50 text-[var(--warn)]' :
-                                        site.phase === 'DEVELOPMENT' ? 'bg-blue-900/50 text-blue-400' :
-                                        'bg-[var(--bg-sunken)] text-[var(--ink-3)]'
-                                      }`}>
-                                        {site.phase}
-                                      </span>
-                                    </td>
-                                    <td className="py-1.5 text-right font-mono text-[var(--ink-2)]">{formatNumber(site.mw, 0)}</td>
-                                    <td className="py-1.5 text-right font-mono text-purple-400">
-                                      {site.leaseValueM > 0 ? formatNumber(site.leaseValueM, 0) : '-'}
-                                    </td>
-                                    <td className="py-1.5 text-right font-mono text-[var(--ink-2)]">
-                                      {site.noiAnnualM > 0 ? formatNumber(site.noiAnnualM, 1) : '-'}
-                                    </td>
-                                    <td className="py-1.5 text-right font-mono text-orange-400">
-                                      {formatNumber(site.valuation, 0)}
-                                    </td>
-                                    <td className="py-1.5 text-right font-mono text-cyan-300">
-                                      {siteNoiPerMw !== null ? `$${formatNumber(siteNoiPerMw, 2)}M` : '-'}
-                                    </td>
-                                  </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          ) : (
-                            <p className="text-xs text-gray-500 italic">No valued sites</p>
-                          )}
-                          <div className="mt-2">
-                            <Link
-                              to={`/projects?ticker=${v.ticker}`}
-                              className="text-xs text-orange-400/70 hover:text-orange-400 transition"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              View all sites →
-                            </Link>
                           </div>
                         </td>
                       </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-              {valuations.length === 0 && (
-                <tr>
-                  <td colSpan={13} className="text-center py-8 text-gray-500">
-                    No companies found. Import data to get started.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
         </div>
       </div>
 
-      {/* Legend */}
-      <div className="mt-4 flex items-center gap-6 text-xs text-gray-500">
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded bg-orange-500" />
-          <span>Mining Operations</span>
+      {/* ── Slide-out detail panel ──────────────────────────────────────── */}
+      {selectedVal && (
+        <TickerDetailPanel
+          v={selectedVal}
+          onClose={() => setSelectedTicker(null)}
+          onCapexInFinancials={async () => {
+            try {
+              await fetch(`${getApiUrl()}/api/v1/companies/${selectedVal.ticker}/capex-in-financials`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: true }),
+              });
+              queryClient.invalidateQueries({ queryKey: ['valuation'] });
+              queryClient.invalidateQueries({ queryKey: ['companies'] });
+            } catch (err) {
+              console.error('Failed to set capexInFinancials:', err);
+            }
+          }}
+        />
+      )}
+
+      {/* ── Add Manual Modal ────────────────────────────────────────────── */}
+      {showAddManual && (
+        <AddManualModal
+          form={manualForm}
+          setForm={setManualForm}
+          onClose={() => setShowAddManual(false)}
+          onSubmit={() => createManualMutation.mutate(manualForm)}
+          onTickerBlur={handleTickerLookup}
+          loading={createManualMutation.isPending}
+          lookupLoading={tickerLookupLoading}
+          error={createManualMutation.isError ? (createManualMutation.error as Error).message : null}
+        />
+      )}
+
+      <style>{`
+        .input {
+          width: 100%;
+          background: var(--bg-elevated);
+          border: 1px solid var(--border);
+          border-radius: 4px;
+          padding: 6px 10px;
+          font-size: 12px;
+          color: var(--ink-1);
+          outline: none;
+        }
+        .input:focus { border-color: var(--btc); box-shadow: 0 0 0 2px var(--btc-soft); }
+      `}</style>
+    </div>
+  );
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────
+
+function KPI({
+  label,
+  value,
+  accent,
+  highlight = false,
+}: {
+  label: string;
+  value: string;
+  accent: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      className={`bg-elevated border rounded-md p-4 ${highlight ? 'border-[color:var(--btc-border)]' : 'border-hairline'}`}
+    >
+      <div className="eyebrow mb-[6px]">{label}</div>
+      <div
+        className="num text-[22px] font-medium tracking-tight"
+        style={{ color: accent }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function SortTh({
+  children,
+  active,
+  dir,
+  onClick,
+  className = '',
+  title,
+}: {
+  children?: React.ReactNode;
+  active: boolean;
+  dir: 'asc' | 'desc';
+  onClick: () => void;
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <th
+      className={`cursor-pointer select-none hover:text-ink-1 ${className}`}
+      onClick={onClick}
+      title={title}
+    >
+      {children} {active && <span className="text-[var(--btc)]">{dir === 'asc' ? '▲' : '▼'}</span>}
+    </th>
+  );
+}
+
+function FormField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-[10px] uppercase tracking-wider text-ink-3 mb-1">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+// ── Slide-out ticker detail panel ────────────────────────────────────────
+
+function TickerDetailPanel({
+  v,
+  onClose,
+  onCapexInFinancials,
+}: {
+  v: Valuation;
+  onClose: () => void;
+  onCapexInFinancials: () => void;
+}) {
+  const sotpItems = [
+    { value: Math.max(0, v.netLiquid), fill: COLORS.netLiquid, label: 'Net Liquid' },
+    { value: v.evMining, fill: COLORS.mining, label: 'Mining' },
+    { value: v.evHpcContracted, fill: COLORS.hpc, label: 'HPC Contracted' },
+    { value: v.evHpcPipeline, fill: COLORS.pipeline, label: 'HPC Pipeline' },
+  ];
+
+  return (
+    <aside
+      className="fixed top-12 right-0 bottom-0 w-[520px] bg-elevated border-l border-hairline overflow-auto z-20"
+      style={{ boxShadow: 'var(--sh-md)' }}
+    >
+      {/* Header */}
+      <div className="sticky top-0 bg-elevated border-b border-hairline px-5 py-4 flex items-start gap-3 z-10">
+        <TickerMark ticker={v.ticker} size={32} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <Link
+              to={`/valuation/${v.ticker}`}
+              className="text-[16px] font-semibold text-ink-1 hover:text-[var(--btc)]"
+            >
+              {v.ticker}
+            </Link>
+            <ChevronRight className="w-4 h-4 text-ink-4" />
+          </div>
+          <div className="text-[11px] text-ink-3">{v.name}</div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded bg-purple-400" />
-          <span>HPC/AI Contracted</span>
+        <button onClick={onClose} className="text-ink-3 hover:text-ink-1 p-1">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="p-5 space-y-5">
+        {/* Price row */}
+        <div className="flex items-baseline gap-4">
+          <div>
+            <div className="eyebrow mb-1">Price</div>
+            <div className="num text-[24px] font-medium text-ink-1">
+              {v.stockPrice ? fmtMoney(v.stockPrice) : '—'}
+            </div>
+          </div>
+          <div>
+            <div className="eyebrow mb-1">Fair Value</div>
+            <div
+              className="num text-[24px] font-medium"
+              style={{ color: v.hasOverride ? COLORS.warn : COLORS.ink1 }}
+            >
+              {v.fairValuePerShare ? fmtMoney(v.fairValuePerShare) : '—'}
+            </div>
+          </div>
+          {v.stockPrice && v.fairValuePerShare && (
+            <div>
+              <div className="eyebrow mb-1">Upside</div>
+              <DeltaPill
+                value={(v.fairValuePerShare / v.stockPrice - 1) * 100}
+                size="lg"
+                precision={0}
+              />
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded bg-purple-300" />
-          <span>HPC/AI Pipeline</span>
+
+        {/* SOTP breakdown */}
+        <div>
+          <div className="eyebrow mb-2">Sum-of-the-Parts</div>
+          <SOTPBar items={sotpItems} width={480} height={12} />
+          <div className="mt-3 space-y-[6px]">
+            <SOTPRow label="Net Liquid" value={v.netLiquid} color={COLORS.netLiquid} />
+            <SOTPRow label="Mining EV" value={v.evMining} color={COLORS.mining} />
+            <SOTPRow label="HPC Contracted" value={v.evHpcContracted} color={COLORS.hpc} />
+            <SOTPRow label="HPC Pipeline" value={v.evHpcPipeline} color={COLORS.pipeline} />
+            {(v.impliedProjectDebtM ?? 0) > 0 && (
+              <SOTPRow label="Implied Debt" value={-(v.impliedProjectDebtM ?? 0)} color={COLORS.debt} />
+            )}
+            <div className="pt-2 mt-2 border-t border-hairline flex items-center justify-between">
+              <span className="text-[12px] font-medium text-ink-1">Total Value</span>
+              <span className="num text-[13px] font-medium text-ink-1">{fmtM(v.totalValueM)}</span>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded bg-cyan-300" />
-          <span>$/MW/yr (NOI)</span>
+
+        {/* Meta */}
+        <div className="grid grid-cols-2 gap-4 text-[12px]">
+          <Meta label="Shares Out" value={v.sharesOutM ? `${fmt(v.sharesOutM, 1)}M` : '—'} />
+          <Meta label="FD Shares" value={v.fdSharesM ? `${fmt(v.fdSharesM, 1)}M` : '—'} />
+          <Meta label="Total MW" value={v.totalMw > 0 ? `${fmt(v.totalMw, 0)} MW` : '—'} />
+          <Meta label="Lease Value" value={(v.totalLeaseValueM ?? 0) > 0 ? fmtM(v.totalLeaseValueM) : '—'} />
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded bg-amber-400" />
-          <span>Override / Manual</span>
+
+        {(v.impliedProjectDebtM ?? 0) > 0 && (
+          <div className="flex items-center justify-between gap-3 p-3 bg-[var(--neg-soft)] border border-[#efc5ce] rounded-sm">
+            <div>
+              <div className="text-[12px] font-medium text-[var(--neg)]">Implied Project Debt</div>
+              <div className="num text-[13px] text-[var(--neg)]">
+                −{fmtM(v.impliedProjectDebtM)}
+              </div>
+            </div>
+            <button
+              onClick={onCapexInFinancials}
+              className="text-[11px] px-2 py-1 rounded-sm bg-elevated border border-[#efc5ce] text-[var(--neg)] hover:bg-white"
+              title="Mark capex as already in financials"
+            >
+              CapEx in Financials
+            </button>
+          </div>
+        )}
+
+        {/* HPC Sites */}
+        {Array.isArray(v.hpcSites) && v.hpcSites.length > 0 && (
+          <div>
+            <div className="eyebrow mb-2">Valued Sites</div>
+            <table className="tbl compact">
+              <thead>
+                <tr>
+                  <th>Site / Building</th>
+                  <th>Tenant</th>
+                  <th className="num-col">MW</th>
+                  <th className="num-col">Lease $M</th>
+                  <th className="num-col">NOI $M</th>
+                </tr>
+              </thead>
+              <tbody>
+                {v.hpcSites.map((s, i) => (
+                  <tr key={i} style={{ cursor: 'default' }}>
+                    <td>
+                      <div className="text-[11px] font-medium text-ink-1">{s.siteName}</div>
+                      <div className="text-[10px] text-ink-3">{s.buildingName}</div>
+                    </td>
+                    <td className="text-[11px] text-ink-2">{s.tenant || '—'}</td>
+                    <td className="num-col">{fmt(s.mw, 0)}</td>
+                    <td className="num-col">{fmt(s.leaseValueM, 0)}</td>
+                    <td className="num-col">{fmt(s.noiAnnualM, 1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="pt-2">
+          <Link
+            to={`/valuation/${v.ticker}`}
+            className="inline-flex items-center gap-1 text-[12px] text-[var(--btc)] hover:underline"
+          >
+            Open full valuation <ChevronRight className="w-3 h-3" />
+          </Link>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function SOTPRow({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="flex items-center gap-2 text-[12px]">
+      <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
+      <span className="text-ink-2 flex-1">{label}</span>
+      <span className={`num ${value < 0 ? 'text-[var(--neg)]' : 'text-ink-1'}`}>
+        {value < 0 ? '−' : ''}
+        {fmtM(Math.abs(value))}
+      </span>
+    </div>
+  );
+}
+
+function Meta({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="eyebrow mb-[2px]">{label}</div>
+      <div className="num text-ink-1">{value}</div>
+    </div>
+  );
+}
+
+// ── Add Manual modal ────────────────────────────────────────────────────
+
+function AddManualModal({
+  form,
+  setForm,
+  onClose,
+  onSubmit,
+  onTickerBlur,
+  loading,
+  lookupLoading,
+  error,
+}: {
+  form: ManualTickerForm;
+  setForm: (f: ManualTickerForm) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+  onTickerBlur: (ticker: string) => void;
+  loading: boolean;
+  lookupLoading: boolean;
+  error: string | null;
+}) {
+  return (
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-[60] flex items-center justify-center"
+      style={{ background: 'rgba(20,19,15,0.35)' }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-elevated border border-hairline-strong rounded-md shadow-pop w-full max-w-md p-5"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-[15px] font-medium text-ink-1">Add Manual Ticker</h2>
+          <button onClick={onClose} className="text-ink-3 hover:text-ink-1">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Ticker *">
+              <input
+                type="text"
+                value={form.ticker}
+                onChange={(e) => setForm({ ...form, ticker: e.target.value.toUpperCase() })}
+                onBlur={(e) => onTickerBlur(e.target.value)}
+                placeholder="COIN"
+                className="input"
+              />
+            </FormField>
+            <FormField label="FD Shares (M)">
+              <input
+                type="text"
+                value={form.fdSharesM}
+                onChange={(e) => setForm({ ...form, fdSharesM: e.target.value })}
+                placeholder="250.5"
+                className="input"
+              />
+            </FormField>
+          </div>
+          <FormField label={`Company Name * ${lookupLoading ? '— Looking up…' : ''}`}>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="Coinbase Global"
+              className="input"
+            />
+          </FormField>
+          <FormField label="Fair Value ($/share)">
+            <input
+              type="text"
+              value={form.fairValueOverride}
+              onChange={(e) => setForm({ ...form, fairValueOverride: e.target.value })}
+              placeholder="42.50"
+              className="input"
+            />
+          </FormField>
+          <FormField label="Valuation Link (URL)">
+            <input
+              type="text"
+              value={form.fairValueOverrideUrl}
+              onChange={(e) => setForm({ ...form, fairValueOverrideUrl: e.target.value })}
+              placeholder="https://docs.google.com/spreadsheets/..."
+              className="input"
+            />
+          </FormField>
+          <FormField label="Valuation Label">
+            <input
+              type="text"
+              value={form.fairValueOverrideLabel}
+              onChange={(e) => setForm({ ...form, fairValueOverrideLabel: e.target.value })}
+              placeholder="e.g. DCF Model"
+              className="input"
+            />
+          </FormField>
+          {form.fairValueOverrideUrl.includes('docs.google.com/spreadsheets') && (
+            <FormField label="Sheet Range (auto-sync)">
+              <input
+                type="text"
+                value={form.fairValueSourceRange}
+                onChange={(e) => setForm({ ...form, fairValueSourceRange: e.target.value })}
+                placeholder="e.g. Price Target"
+                className="input"
+              />
+            </FormField>
+          )}
+          {error && <p className="text-[var(--neg)] text-[11px]">{error}</p>}
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              onClick={onClose}
+              className="px-3 py-[6px] text-[12px] text-ink-3 hover:text-ink-1"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onSubmit}
+              disabled={!form.ticker || !form.name || loading}
+              className="px-3 py-[6px] text-[12px] bg-[var(--btc)] hover:bg-[var(--btc-ink)] text-white rounded-sm disabled:opacity-50"
+            >
+              {loading ? 'Adding…' : 'Add Ticker'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

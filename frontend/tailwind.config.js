@@ -20,18 +20,24 @@ export default {
           800: '#9a3412',
           900: '#7c2d12',
         },
-        // Design system tokens
+        // Surfaces
+        canvas: 'var(--bg)',
+        elevated: 'var(--bg-elevated)',
+        subtle: 'var(--bg-subtle)',
+
+        // Ink
         ink: {
           1: 'var(--ink-1)',
           2: 'var(--ink-2)',
           3: 'var(--ink-3)',
           4: 'var(--ink-4)',
         },
-        bg: {
-          canvas: 'var(--bg)',
-          elevated: 'var(--bg-elevated)',
-          subtle: 'var(--bg-subtle)',
-        },
+
+        // Hairlines
+        hairline: 'var(--hairline)',
+        'hairline-strong': 'var(--border-strong)',
+
+        // Semantic
         pos: 'var(--pos)',
         'pos-soft': 'var(--pos-soft)',
         neg: 'var(--neg)',
@@ -40,8 +46,8 @@ export default {
         'warn-soft': 'var(--warn-soft)',
         info: 'var(--info)',
         'info-soft': 'var(--info-soft)',
-        hairline: 'var(--hairline)',
-        'hairline-strong': 'var(--border-strong)',
+
+        // Categorical (mining SOTP)
         'cat-hpc': 'var(--cat-hpc)',
         'cat-pipeline': 'var(--cat-pipeline)',
         'cat-mining': 'var(--cat-mining)',
