@@ -6,10 +6,10 @@ import { RefreshCw, TrendingUp, TrendingDown, ChevronDown, ChevronRight, Pencil,
 // Freshness indicator: 0 = not set, 1 = stale, 2 = kind-of, 3 = fresh
 type Freshness = 0 | 1 | 2 | 3;
 const FRESHNESS_CONFIG: Record<Freshness, { color: string; bg: string; label: string; icon: string }> = {
-  0: { color: 'text-gray-600', bg: 'bg-gray-700', label: 'Not set', icon: '○' },
-  1: { color: 'text-red-400', bg: 'bg-red-900/60', label: 'Stale', icon: '●' },
-  2: { color: 'text-yellow-400', bg: 'bg-yellow-900/60', label: 'Partial', icon: '●' },
-  3: { color: 'text-green-400', bg: 'bg-green-900/60', label: 'Current', icon: '●' },
+  0: { color: 'text-gray-600', bg: 'bg-[var(--bg-sunken)]', label: 'Not set', icon: '○' },
+  1: { color: 'text-[var(--neg)]', bg: 'bg-red-900/60', label: 'Stale', icon: '●' },
+  2: { color: 'text-[var(--warn)]', bg: 'bg-yellow-900/60', label: 'Partial', icon: '●' },
+  3: { color: 'text-[var(--pos)]', bg: 'bg-green-900/60', label: 'Current', icon: '●' },
 };
 
 
@@ -352,7 +352,7 @@ export default function Dashboard() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64 bg-gray-900">
+      <div className="flex items-center justify-center h-64 bg-[var(--bg-canvas)]">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
       </div>
     );
@@ -360,7 +360,7 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <div className="p-4 bg-red-900/50 text-red-400 rounded">
+      <div className="p-4 bg-red-900/50 text-[var(--neg)] rounded">
         Error loading data: {(error as Error).message}
       </div>
     );
@@ -377,11 +377,11 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6">
+    <div className="min-h-screen bg-[var(--bg-canvas)] text-white p-6">
       {/* Header with Refresh + Add Manual */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-gray-300">BTC Miner Valuation Terminal</h1>
+          <h1 className="text-xl font-semibold text-[var(--ink-2)]">BTC Miner Valuation Terminal</h1>
           {factors && (
             <p className="text-xs text-gray-500 mt-1">
               BTC ${formatNumber(factors.btcPrice)} • HPC Contracted ${factors.mwValueHpcContracted}M/MW • Pipeline ${factors.mwValueHpcUncontracted}M/MW
@@ -390,7 +390,7 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-3">
           {refreshMessage && (
-            <span className={`text-sm ${refreshMessage.includes('Error') ? 'text-red-400' : 'text-green-400'}`}>
+            <span className={`text-sm ${refreshMessage.includes('Error') ? 'text-[var(--neg)]' : 'text-[var(--pos)]'}`}>
               {refreshMessage}
             </span>
           )}
@@ -403,7 +403,7 @@ export default function Dashboard() {
           )}
           <button
             onClick={() => setShowAddManual(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition text-sm"
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--bg-sunken)] text-[var(--ink-2)] rounded hover:bg-gray-600 transition text-sm"
           >
             <Plus className="w-4 h-4" />
             Add Ticker
@@ -422,39 +422,39 @@ export default function Dashboard() {
       {/* Add Manual Ticker Modal */}
       {showAddManual && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-gray-800 border border-gray-600 rounded-lg p-6 w-full max-w-md">
+          <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-6 w-full max-w-md">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-200">Add Manual Ticker</h2>
-              <button onClick={() => setShowAddManual(false)} className="text-gray-400 hover:text-white">
+              <h2 className="text-lg font-semibold text-[var(--ink-1)]">Add Manual Ticker</h2>
+              <button onClick={() => setShowAddManual(false)} className="text-[var(--ink-3)] hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">Ticker *</label>
+                  <label className="block text-xs text-[var(--ink-3)] mb-1">Ticker *</label>
                   <input
                     type="text"
                     value={manualForm.ticker}
                     onChange={(e) => setManualForm({ ...manualForm, ticker: e.target.value.toUpperCase() })}
                     onBlur={(e) => handleTickerLookup(e.target.value)}
                     placeholder="e.g. COIN"
-                    className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                    className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-3 py-2 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">FD Shares (M)</label>
+                  <label className="block text-xs text-[var(--ink-3)] mb-1">FD Shares (M)</label>
                   <input
                     type="text"
                     value={manualForm.fdSharesM}
                     onChange={(e) => setManualForm({ ...manualForm, fdSharesM: e.target.value })}
                     placeholder="e.g. 250.5"
-                    className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                    className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-3 py-2 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">
+                <label className="block text-xs text-[var(--ink-3)] mb-1">
                   Company Name *
                   {tickerLookupLoading && <span className="ml-2 text-orange-400 animate-pulse">Looking up...</span>}
                 </label>
@@ -463,42 +463,42 @@ export default function Dashboard() {
                   value={manualForm.name}
                   onChange={(e) => setManualForm({ ...manualForm, name: e.target.value })}
                   placeholder={tickerLookupLoading ? 'Fetching from Finnhub...' : 'e.g. Coinbase Global (auto-filled from ticker)'}
-                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                  className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-3 py-2 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Fair Value ($/share)</label>
+                <label className="block text-xs text-[var(--ink-3)] mb-1">Fair Value ($/share)</label>
                 <input
                   type="text"
                   value={manualForm.fairValueOverride}
                   onChange={(e) => setManualForm({ ...manualForm, fairValueOverride: e.target.value })}
                   placeholder="e.g. 42.50"
-                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                  className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-3 py-2 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Valuation Link (URL)</label>
+                <label className="block text-xs text-[var(--ink-3)] mb-1">Valuation Link (URL)</label>
                 <input
                   type="text"
                   value={manualForm.fairValueOverrideUrl}
                   onChange={(e) => setManualForm({ ...manualForm, fairValueOverrideUrl: e.target.value })}
                   placeholder="https://docs.google.com/spreadsheets/..."
-                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                  className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-3 py-2 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Valuation Label</label>
+                <label className="block text-xs text-[var(--ink-3)] mb-1">Valuation Label</label>
                 <input
                   type="text"
                   value={manualForm.fairValueOverrideLabel}
                   onChange={(e) => setManualForm({ ...manualForm, fairValueOverrideLabel: e.target.value })}
                   placeholder="e.g. DCF Model, Northland SOTP"
-                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                  className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-3 py-2 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
                 />
               </div>
               {manualForm.fairValueOverrideUrl.includes('docs.google.com/spreadsheets') && (
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">
+                  <label className="block text-xs text-[var(--ink-3)] mb-1">
                     Sheet Range Name
                     <span className="text-gray-600 ml-1">(auto-sync on refresh)</span>
                   </label>
@@ -507,15 +507,15 @@ export default function Dashboard() {
                     value={manualForm.fairValueSourceRange}
                     onChange={(e) => setManualForm({ ...manualForm, fairValueSourceRange: e.target.value })}
                     placeholder='e.g. Price Target'
-                    className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                    className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-3 py-2 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
                   />
                 </div>
               )}
               {createManualMutation.isError && (
-                <p className="text-red-400 text-xs">{(createManualMutation.error as Error).message}</p>
+                <p className="text-[var(--neg)] text-xs">{(createManualMutation.error as Error).message}</p>
               )}
               <div className="flex justify-end gap-2 pt-2">
-                <button onClick={() => setShowAddManual(false)} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition">Cancel</button>
+                <button onClick={() => setShowAddManual(false)} className="px-4 py-2 text-sm text-[var(--ink-3)] hover:text-white transition">Cancel</button>
                 <button
                   onClick={() => createManualMutation.mutate(manualForm)}
                   disabled={!manualForm.ticker || !manualForm.name || createManualMutation.isPending}
@@ -531,59 +531,59 @@ export default function Dashboard() {
 
       {/* Summary Cards */}
       <div className={`grid grid-cols-1 gap-4 mb-6 ${totals.impliedProjectDebt > 0 ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
-        <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
-          <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Mining EV</p>
+        <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-4">
+          <p className="text-xs text-[var(--ink-3)] uppercase tracking-wider mb-1">Mining EV</p>
           <p className="text-2xl font-bold text-orange-500">${formatNumber(totals.evMining)}M</p>
         </div>
-        <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
-          <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">HPC Contracted EV</p>
+        <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-4">
+          <p className="text-xs text-[var(--ink-3)] uppercase tracking-wider mb-1">HPC Contracted EV</p>
           <p className="text-2xl font-bold text-purple-400">${formatNumber(totals.evHpcContracted)}M</p>
         </div>
-        <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
-          <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">HPC Pipeline EV</p>
+        <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-4">
+          <p className="text-xs text-[var(--ink-3)] uppercase tracking-wider mb-1">HPC Pipeline EV</p>
           <p className="text-2xl font-bold text-purple-300">${formatNumber(totals.evHpcPipeline)}M</p>
         </div>
         {totals.impliedProjectDebt > 0 && (
-          <div className="bg-gray-800 border border-rose-900/50 rounded-lg p-4">
+          <div className="bg-[var(--bg-elevated)] border border-rose-900/50 rounded-lg p-4">
             <p className="text-xs text-rose-400 uppercase tracking-wider mb-1">Implied Project Debt</p>
             <p className="text-2xl font-bold text-rose-400">-${formatNumber(totals.impliedProjectDebt)}M</p>
           </div>
         )}
-        <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
-          <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Total EV</p>
+        <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-4">
+          <p className="text-xs text-[var(--ink-3)] uppercase tracking-wider mb-1">Total EV</p>
           <p className="text-2xl font-bold text-orange-500">${formatNumber(totals.totalEv)}M</p>
         </div>
       </div>
 
       {/* Main Table */}
-      <div className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
+      <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-700">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-200" onClick={() => handleSort('ticker')}>
+              <tr className="border-b border-[var(--hairline)]">
+                <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider cursor-pointer select-none hover:text-[var(--ink-1)]" onClick={() => handleSort('ticker')}>
                   Ticker {sortKey === 'ticker' && (sortDir === 'asc' ? '▲' : '▼')}
                 </th>
-                <th className="px-2 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-200" onClick={() => handleSort('freshness')} title="Data freshness">
+                <th className="px-2 py-3 text-center text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider cursor-pointer select-none hover:text-[var(--ink-1)]" onClick={() => handleSort('freshness')} title="Data freshness">
                   {sortKey === 'freshness' ? (sortDir === 'asc' ? '▲' : '▼') : '⬤'}
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Price</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Mkt Cap</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Net Liquid</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">IT MW</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider">Price</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider">Mkt Cap</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider">Net Liquid</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider">IT MW</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-orange-500 uppercase tracking-wider" colSpan={3}>
                   Enterprise Value ($M)
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-200" onClick={() => handleSort('fairValue')}>
+                <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider cursor-pointer select-none hover:text-[var(--ink-1)]" onClick={() => handleSort('fairValue')}>
                   Fair Value {sortKey === 'fairValue' && (sortDir === 'asc' ? '▲' : '▼')}
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-200" onClick={() => handleSort('upside')}>
+                <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider cursor-pointer select-none hover:text-[var(--ink-1)]" onClick={() => handleSort('upside')}>
                   Upside {sortKey === 'upside' && (sortDir === 'asc' ? '▲' : '▼')}
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">$/MW/yr</th>
-                <th className="px-2 py-3 text-center text-xs font-medium text-gray-400 uppercase tracking-wider w-10"></th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider">$/MW/yr</th>
+                <th className="px-2 py-3 text-center text-xs font-medium text-[var(--ink-3)] uppercase tracking-wider w-10"></th>
               </tr>
-              <tr className="border-b border-gray-600 bg-gray-800/50">
+              <tr className="border-b border-[var(--hairline)] bg-[var(--bg-elevated)]/50">
                 <th className="px-4 py-2"></th>
                 <th className="px-2 py-2"></th>
                 <th className="px-4 py-2"></th>
@@ -599,7 +599,7 @@ export default function Dashboard() {
                 <th className="px-2 py-2"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-700">
+            <tbody className="divide-y divide-[var(--hairline)]">
               {valuations.map((v) => {
                 // Calculate upside: (Fair Value Per Share / Stock Price - 1) * 100
                 const upside = v.stockPrice && v.stockPrice > 0 && v.fairValuePerShare
@@ -626,16 +626,16 @@ export default function Dashboard() {
                 return (
                   <React.Fragment key={v.ticker}>
                     <tr
-                      className={`hover:bg-gray-700/50 cursor-pointer transition ${v.isManual ? 'border-l-2 border-l-blue-500/50' : ''}`}
+                      className={`hover:bg-[var(--bg-sunken)]/50 cursor-pointer transition ${v.isManual ? 'border-l-2 border-l-blue-500/50' : ''}`}
                       onClick={toggleExpand}
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5">
                           {!v.isManual ? (
                             isExpanded ? (
-                              <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                              <ChevronDown className="w-4 h-4 text-[var(--ink-3)] flex-shrink-0" />
                             ) : (
-                              <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                              <ChevronRight className="w-4 h-4 text-[var(--ink-3)] flex-shrink-0" />
                             )
                           ) : (
                             <span className="w-4" />
@@ -683,13 +683,13 @@ export default function Dashboard() {
                           );
                         })()}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-green-400 cursor-help" title={marketCapM != null ? `Mkt Cap: $${formatNumber(marketCapM, 0)}M` : v.stockPrice ? 'Mkt Cap: shares outstanding not set' : undefined}>
+                      <td className="px-4 py-3 text-right font-mono text-[var(--pos)] cursor-help" title={marketCapM != null ? `Mkt Cap: $${formatNumber(marketCapM, 0)}M` : v.stockPrice ? 'Mkt Cap: shares outstanding not set' : undefined}>
                         {v.stockPrice ? formatMoney(v.stockPrice) : '-'}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-gray-300">
+                      <td className="px-4 py-3 text-right font-mono text-[var(--ink-2)]">
                         {marketCapM ? `$${formatNumber(marketCapM, 0)}M` : '-'}
                       </td>
-                      <td className={`px-4 py-3 text-right font-mono ${v.netLiquid >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      <td className={`px-4 py-3 text-right font-mono ${v.netLiquid >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
                         {!v.isManual ? formatNumber(v.netLiquid, 0) : '-'}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-cyan-400">
@@ -725,48 +725,48 @@ export default function Dashboard() {
                         {editingOverride?.ticker === v.ticker && (
                           <div
                             ref={popoverRef}
-                            className="absolute right-0 top-full mt-1 z-50 bg-gray-900 border border-gray-600 rounded-lg shadow-xl p-4 w-72"
+                            className="absolute right-0 top-full mt-1 z-50 bg-[var(--bg-canvas)] border border-[var(--hairline)] rounded-lg shadow-xl p-4 w-72"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <h3 className="text-xs font-semibold text-gray-300 mb-3 uppercase tracking-wider">
+                            <h3 className="text-xs font-semibold text-[var(--ink-2)] mb-3 uppercase tracking-wider">
                               Fair Value Override — {v.ticker}
                             </h3>
                             <div className="space-y-2">
                               <div>
-                                <label className="block text-xs text-gray-400 mb-1">Fair Value ($/share)</label>
+                                <label className="block text-xs text-[var(--ink-3)] mb-1">Fair Value ($/share)</label>
                                 <input
                                   type="text"
                                   value={editingOverride.fairValueOverride}
                                   onChange={(e) => setEditingOverride({ ...editingOverride, fairValueOverride: e.target.value })}
                                   placeholder={v.calculatedFairValue ? `SOTP: ${formatMoney(v.calculatedFairValue)}` : 'Enter value'}
-                                  className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                                  className="w-full bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded px-2 py-1.5 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
                                   autoFocus
                                   onKeyDown={(e) => { if (e.key === 'Enter') handleSaveOverride(); if (e.key === 'Escape') setEditingOverride(null); }}
                                 />
                               </div>
                               <div>
-                                <label className="block text-xs text-gray-400 mb-1">Link (URL)</label>
+                                <label className="block text-xs text-[var(--ink-3)] mb-1">Link (URL)</label>
                                 <input
                                   type="text"
                                   value={editingOverride.fairValueOverrideUrl}
                                   onChange={(e) => setEditingOverride({ ...editingOverride, fairValueOverrideUrl: e.target.value })}
                                   placeholder="https://..."
-                                  className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                                  className="w-full bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded px-2 py-1.5 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
                                 />
                               </div>
                               <div>
-                                <label className="block text-xs text-gray-400 mb-1">Label</label>
+                                <label className="block text-xs text-[var(--ink-3)] mb-1">Label</label>
                                 <input
                                   type="text"
                                   value={editingOverride.fairValueOverrideLabel}
                                   onChange={(e) => setEditingOverride({ ...editingOverride, fairValueOverrideLabel: e.target.value })}
                                   placeholder="e.g. DCF Model"
-                                  className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                                  className="w-full bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded px-2 py-1.5 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
                                 />
                               </div>
                               {editingOverride.fairValueOverrideUrl.includes('docs.google.com/spreadsheets') && (
                                 <div>
-                                  <label className="block text-xs text-gray-400 mb-1">
+                                  <label className="block text-xs text-[var(--ink-3)] mb-1">
                                     Sheet Range Name
                                     <span className="text-gray-600 ml-1">(auto-sync on refresh)</span>
                                   </label>
@@ -775,16 +775,16 @@ export default function Dashboard() {
                                     value={editingOverride.fairValueSourceRange}
                                     onChange={(e) => setEditingOverride({ ...editingOverride, fairValueSourceRange: e.target.value })}
                                     placeholder='e.g. Price Target'
-                                    className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-sm text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none"
+                                    className="w-full bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded px-2 py-1.5 text-sm text-white placeholder-[var(--ink-3)] focus:border-orange-500 focus:outline-none"
                                   />
                                 </div>
                               )}
                               <div className="flex items-center justify-between pt-2">
-                                <button onClick={handleClearOverride} className="text-xs text-red-400 hover:text-red-300 transition" title="Revert to SOTP value">
+                                <button onClick={handleClearOverride} className="text-xs text-[var(--neg)] hover:text-red-300 transition" title="Revert to SOTP value">
                                   Clear Override
                                 </button>
                                 <div className="flex gap-2">
-                                  <button onClick={() => setEditingOverride(null)} className="text-xs text-gray-400 hover:text-white transition px-2 py-1">Cancel</button>
+                                  <button onClick={() => setEditingOverride(null)} className="text-xs text-[var(--ink-3)] hover:text-white transition px-2 py-1">Cancel</button>
                                   <button
                                     onClick={handleSaveOverride}
                                     disabled={updateOverrideMutation.isPending}
@@ -803,11 +803,11 @@ export default function Dashboard() {
                         {upside !== null ? (
                           <div className="flex items-center justify-end gap-1">
                             {upside >= 0 ? (
-                              <TrendingUp className="w-4 h-4 text-green-400" />
+                              <TrendingUp className="w-4 h-4 text-[var(--pos)]" />
                             ) : (
-                              <TrendingDown className="w-4 h-4 text-red-400" />
+                              <TrendingDown className="w-4 h-4 text-[var(--neg)]" />
                             )}
-                            <span className={`font-mono font-semibold ${upside >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            <span className={`font-mono font-semibold ${upside >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
                               {upside >= 0 ? '+' : ''}{formatNumber(upside, 0)}%
                             </span>
                           </div>
@@ -845,7 +845,7 @@ export default function Dashboard() {
                                   deleteManualMutation.mutate(v.ticker);
                                 }
                               }}
-                              className="text-gray-500 hover:text-red-400 transition p-1"
+                              className="text-gray-500 hover:text-[var(--neg)] transition p-1"
                               title="Delete manual ticker"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -856,18 +856,18 @@ export default function Dashboard() {
                     </tr>
                     {isExpanded && !v.isManual && (
                       <tr className="bg-gray-850">
-                        <td colSpan={13} className="px-6 py-4 bg-gray-800/60">
+                        <td colSpan={13} className="px-6 py-4 bg-[var(--bg-elevated)]/60">
                           {/* Summary stats */}
                           <div className="flex items-center gap-8 mb-3 text-xs">
                             <div>
                               <span className="text-gray-500">Shares Out:</span>{' '}
-                              <span className="font-mono text-gray-300">
+                              <span className="font-mono text-[var(--ink-2)]">
                                 {v.sharesOutM ? `${formatNumber(v.sharesOutM, 1)}M` : '-'}
                               </span>
                             </div>
                             <div>
                               <span className="text-gray-500">FD Shares:</span>{' '}
-                              <span className="font-mono text-gray-300">
+                              <span className="font-mono text-[var(--ink-2)]">
                                 {v.fdSharesM ? `${formatNumber(v.fdSharesM, 1)}M` : '-'}
                               </span>
                             </div>
@@ -885,7 +885,7 @@ export default function Dashboard() {
                             </div>
                             <div>
                               <span className="text-gray-500">Net Liquidity:</span>{' '}
-                              <span className={`font-mono ${(v.netLiquid ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              <span className={`font-mono ${(v.netLiquid ?? 0) >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
                                 ${formatNumber(v.netLiquid ?? 0, 0)}M
                               </span>
                             </div>
@@ -924,7 +924,7 @@ export default function Dashboard() {
                           {Array.isArray(v.hpcSites) && v.hpcSites.length > 0 ? (
                             <table className="w-full text-xs">
                               <thead>
-                                <tr className="border-b border-gray-700">
+                                <tr className="border-b border-[var(--hairline)]">
                                   <th className="py-1.5 text-left text-gray-500 font-medium">Site</th>
                                   <th className="py-1.5 text-left text-gray-500 font-medium">Building</th>
                                   <th className="py-1.5 text-left text-gray-500 font-medium">Type</th>
@@ -937,7 +937,7 @@ export default function Dashboard() {
                                   <th className="py-1.5 text-right text-gray-500 font-medium">$/MW/yr</th>
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-gray-700/50">
+                              <tbody className="divide-y divide-[var(--hairline)]/50">
                                 {v.hpcSites.map((site, i) => {
                                   const siteNoiPerMw = site.mw > 0 && site.noiAnnualM > 0 ? site.noiAnnualM / site.mw : null;
                                   const catLabel = site.category === 'MINING' ? 'Mining' :
@@ -946,11 +946,11 @@ export default function Dashboard() {
                                   const catColor = site.category === 'MINING' ? 'bg-orange-900/50 text-orange-400' :
                                     site.category === 'HPC_CONTRACTED' ? 'bg-cyan-900/50 text-cyan-400' :
                                     site.category === 'PIPELINE' ? 'bg-purple-900/50 text-purple-400' :
-                                    'bg-gray-700 text-gray-400';
+                                    'bg-[var(--bg-sunken)] text-[var(--ink-3)]';
                                   return (
-                                  <tr key={i} className="hover:bg-gray-700/30">
-                                    <td className="py-1.5 text-gray-300">{site.siteName}</td>
-                                    <td className="py-1.5 text-gray-400">{site.buildingName}</td>
+                                  <tr key={i} className="hover:bg-[var(--bg-sunken)]/30">
+                                    <td className="py-1.5 text-[var(--ink-2)]">{site.siteName}</td>
+                                    <td className="py-1.5 text-[var(--ink-3)]">{site.buildingName}</td>
                                     <td className="py-1.5">
                                       <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${catColor}`}>
                                         {catLabel}
@@ -959,19 +959,19 @@ export default function Dashboard() {
                                     <td className="py-1.5 text-cyan-400">{site.tenant || '-'}</td>
                                     <td className="py-1.5">
                                       <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                        site.phase === 'OPERATIONAL' ? 'bg-green-900/50 text-green-400' :
-                                        site.phase === 'CONSTRUCTION' ? 'bg-yellow-900/50 text-yellow-400' :
+                                        site.phase === 'OPERATIONAL' ? 'bg-green-900/50 text-[var(--pos)]' :
+                                        site.phase === 'CONSTRUCTION' ? 'bg-yellow-900/50 text-[var(--warn)]' :
                                         site.phase === 'DEVELOPMENT' ? 'bg-blue-900/50 text-blue-400' :
-                                        'bg-gray-700 text-gray-400'
+                                        'bg-[var(--bg-sunken)] text-[var(--ink-3)]'
                                       }`}>
                                         {site.phase}
                                       </span>
                                     </td>
-                                    <td className="py-1.5 text-right font-mono text-gray-300">{formatNumber(site.mw, 0)}</td>
+                                    <td className="py-1.5 text-right font-mono text-[var(--ink-2)]">{formatNumber(site.mw, 0)}</td>
                                     <td className="py-1.5 text-right font-mono text-purple-400">
                                       {site.leaseValueM > 0 ? formatNumber(site.leaseValueM, 0) : '-'}
                                     </td>
-                                    <td className="py-1.5 text-right font-mono text-gray-300">
+                                    <td className="py-1.5 text-right font-mono text-[var(--ink-2)]">
                                       {site.noiAnnualM > 0 ? formatNumber(site.noiAnnualM, 1) : '-'}
                                     </td>
                                     <td className="py-1.5 text-right font-mono text-orange-400">

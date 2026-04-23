@@ -28,11 +28,11 @@ function getApiUrl(): string {
 
 // Development phase colors and labels
 const phaseConfig: Record<string, { label: string; color: string; prob: number }> = {
-  OPERATIONAL: { label: 'Operational', color: 'bg-green-900/50 text-green-400 border-green-700', prob: 1.0 },
+  OPERATIONAL: { label: 'Operational', color: 'bg-green-900/50 text-[var(--pos)] border-green-700', prob: 1.0 },
   CONSTRUCTION: { label: 'Construction', color: 'bg-blue-900/50 text-blue-400 border-blue-700', prob: 0.9 },
-  DEVELOPMENT: { label: 'Development', color: 'bg-yellow-900/50 text-yellow-400 border-yellow-700', prob: 0.7 },
+  DEVELOPMENT: { label: 'Development', color: 'bg-yellow-900/50 text-[var(--warn)] border-yellow-700', prob: 0.7 },
   EXCLUSIVITY: { label: 'Exclusivity', color: 'bg-purple-900/50 text-purple-400 border-purple-700', prob: 0.5 },
-  DILIGENCE: { label: 'Diligence', color: 'bg-gray-700/50 text-gray-400 border-gray-600', prob: 0.3 },
+  DILIGENCE: { label: 'Diligence', color: 'bg-[var(--bg-sunken)]/50 text-[var(--ink-3)] border-[var(--hairline)]', prob: 0.3 },
 };
 
 const useTypeConfig: Record<string, { label: string; color: string }> = {
@@ -42,9 +42,9 @@ const useTypeConfig: Record<string, { label: string; color: string }> = {
   HPC_AI_PLANNED: { label: 'HPC Planned', color: 'bg-purple-800/30 text-purple-300 border-purple-600' },
   GPU_CLOUD: { label: 'GPU Cloud', color: 'bg-blue-900/50 text-blue-400 border-blue-700' },
   COLOCATION: { label: 'Colocation', color: 'bg-cyan-900/50 text-cyan-400 border-cyan-700' },
-  MIXED: { label: 'Mixed', color: 'bg-gray-700/50 text-gray-400 border-gray-600' },
-  UNCONTRACTED: { label: 'Uncontracted', color: 'bg-gray-800/50 text-gray-500 border-gray-700' },
-  UNCONTRACTED_ROFR: { label: 'ROFR', color: 'bg-gray-800/50 text-gray-500 border-gray-700' },
+  MIXED: { label: 'Mixed', color: 'bg-[var(--bg-sunken)]/50 text-[var(--ink-3)] border-[var(--hairline)]' },
+  UNCONTRACTED: { label: 'Uncontracted', color: 'bg-[var(--bg-elevated)]/50 text-[var(--ink-3)] border-[var(--hairline)]' },
+  UNCONTRACTED_ROFR: { label: 'ROFR', color: 'bg-[var(--bg-elevated)]/50 text-[var(--ink-3)] border-[var(--hairline)]' },
 };
 
 // Simplified options for editing - the 3 main use types
@@ -720,19 +720,19 @@ export default function Projects() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--bg-canvas)] flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500" />
       </div>
     );
   }
 
   return (
-    <div className="h-screen bg-gray-900 text-white flex flex-col overflow-hidden">
+    <div className="h-screen bg-[var(--bg-canvas)] text-[var(--ink-1)] flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between p-4 flex-shrink-0">
         <div>
-          <h1 className="text-xl font-semibold text-gray-300">Projects</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
+          <h1 className="text-xl font-semibold text-[var(--ink-2)]">Projects</h1>
+          <p className="text-sm text-[var(--ink-3)] mt-0.5">
             {filteredRows.length} buildings
           </p>
         </div>
@@ -740,25 +740,25 @@ export default function Projects() {
 
       {/* Filters */}
       <div className="px-4 pb-3 flex-shrink-0">
-        <div className="bg-gray-800 border border-gray-700 rounded-lg p-3">
+        <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-3">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex-1 min-w-[200px] max-w-md relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ink-3)]" />
               <input
                 type="text"
                 placeholder="Search ticker, site, building, tenant..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                className="w-full pl-10 pr-4 py-2 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded-lg text-sm text-[var(--ink-1)] placeholder-[var(--ink-3)] focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
               />
             </div>
 
             <div className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-gray-500" />
+              <Filter className="h-4 w-4 text-[var(--ink-3)]" />
               <select
                 value={filterTicker}
                 onChange={(e) => setFilterTicker(e.target.value)}
-                className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm"
+                className="bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded-lg px-3 py-2 text-sm"
               >
                 <option value="">All Companies</option>
                 {uniqueTickers.map(t => <option key={t} value={t}>{t}</option>)}
@@ -768,7 +768,7 @@ export default function Projects() {
             <select
               value={filterPhase}
               onChange={(e) => setFilterPhase(e.target.value)}
-              className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm"
+              className="bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded-lg px-3 py-2 text-sm"
             >
               <option value="">All Phases</option>
               {Object.entries(phaseConfig).map(([k, v]) => (
@@ -779,7 +779,7 @@ export default function Projects() {
             <select
               value={filterUseType}
               onChange={(e) => setFilterUseType(e.target.value)}
-              className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm"
+              className="bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded-lg px-3 py-2 text-sm"
             >
               <option value="">All Use Types</option>
               <option value="BTC_MINING">BTC Mining</option>
@@ -790,7 +790,7 @@ export default function Projects() {
             <select
               value={filterTenant}
               onChange={(e) => setFilterTenant(e.target.value)}
-              className="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm"
+              className="bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded-lg px-3 py-2 text-sm"
             >
               <option value="">All Tenants</option>
               {uniqueTenants.map(t => <option key={t} value={t}>{t}</option>)}
@@ -800,9 +800,9 @@ export default function Projects() {
               value={filterEv}
               onChange={(e) => setFilterEv(e.target.value as '' | 'included' | 'excluded')}
               className={`border rounded-lg px-3 py-2 text-sm ${
-                filterEv === 'included' ? 'bg-green-900/30 border-green-600 text-green-400' :
-                filterEv === 'excluded' ? 'bg-gray-700 border-gray-600 text-gray-400' :
-                'bg-gray-700 border-gray-600 text-white'
+                filterEv === 'included' ? 'bg-green-900/30 border-green-600 text-[var(--pos)]' :
+                filterEv === 'excluded' ? 'bg-[var(--bg-sunken)] border-[var(--hairline)] text-[var(--ink-3)]' :
+                'bg-[var(--bg-sunken)] border-[var(--hairline)] text-[var(--ink-1)]'
               }`}
             >
               <option value="">All (EV)</option>
@@ -821,7 +821,7 @@ export default function Projects() {
 
             <button
               onClick={handleExportExcel}
-              className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 border border-gray-600 text-gray-300 hover:text-white rounded-lg px-3 py-2 text-sm transition ml-auto"
+              className="flex items-center gap-1.5 bg-[var(--bg-sunken)] hover:bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-2)] hover:text-[var(--ink-1)] rounded-lg px-3 py-2 text-sm transition ml-auto"
               title="Export current view to Excel"
             >
               <Download className="h-4 w-4" />
@@ -833,22 +833,22 @@ export default function Projects() {
 
       {/* Table with sticky header */}
       <div className="flex-1 overflow-hidden px-4 pb-4">
-        <div className="h-full bg-gray-800 border border-gray-700 rounded-lg overflow-hidden flex flex-col">
+        <div className="h-full bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg overflow-hidden flex flex-col">
           <div className="overflow-auto flex-1">
             <table className="w-full text-sm table-fixed">
-              <thead className="sticky top-0 z-10 bg-gray-800">
-                <tr className="border-b border-gray-700">
+              <thead className="sticky top-0 z-10 bg-[var(--bg-elevated)]">
+                <tr className="border-b border-[var(--hairline)]">
                   {columns.map((col) => (
                     <th
                       key={col.key}
                       style={{ width: getColumnWidth(col), minWidth: col.minWidth }}
-                      className={`px-2 py-2 text-xs font-medium uppercase ${col.headerClass || 'text-gray-400'} ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} ${col.sortable ? 'cursor-pointer hover:bg-gray-700/50 select-none' : ''} relative group`}
+                      className={`px-2 py-2 text-xs font-medium uppercase ${col.headerClass || 'text-[var(--ink-3)]'} ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} ${col.sortable ? 'cursor-pointer hover:bg-[var(--bg-sunken)]/50 select-none' : ''} relative group`}
                       onClick={() => col.sortable && handleSort(col.key as SortKey)}
                     >
                       <div className="flex items-center gap-1" style={{ justifyContent: col.align === 'right' ? 'flex-end' : col.align === 'center' ? 'center' : 'flex-start' }}>
                         <span>{col.label}</span>
                         {col.sortable && (
-                          <span className="text-gray-600">
+                          <span className="text-[var(--ink-3)]">
                             {sortKey === col.key ? (
                               sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
                             ) : (
@@ -886,7 +886,7 @@ export default function Projects() {
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-700/50">
+              <tbody className="divide-y divide-[var(--hairline)]/50">
                 {filteredRows.map((row, idx) => {
                   const isEditing = editingBuilding === row.buildingId;
 
@@ -894,12 +894,12 @@ export default function Projects() {
                   return (
                     <React.Fragment key={rowKey}>
                     <tr
-                      className={`hover:bg-gray-700/30 transition cursor-pointer ${
+                      className={`hover:bg-[var(--bg-sunken)]/30 transition cursor-pointer ${
                         selectedBuildingId === row.buildingId ? 'bg-orange-900/20 border-l-2 border-orange-500' : ''
                       } ${!row.includeInValuation ? 'opacity-40' : ''}`}
                       onClick={() => !isEditing && setSelectedBuildingId(row.buildingId)}
                     >
-                      <td className="px-2 py-1.5 text-gray-500 text-xs">{idx + 1}</td>
+                      <td className="px-2 py-1.5 text-[var(--ink-3)] text-xs">{idx + 1}</td>
                       <td className="px-1 py-1.5 text-center">
                         <button
                           onClick={(e) => {
@@ -908,8 +908,8 @@ export default function Projects() {
                           }}
                           className={`p-0.5 rounded transition-colors ${
                             row.includeInValuation
-                              ? 'text-green-400 hover:text-green-300 hover:bg-green-900/30'
-                              : 'text-gray-600 hover:text-gray-400 hover:bg-gray-700/50'
+                              ? 'text-[var(--pos)] hover:text-green-300 hover:bg-green-900/30'
+                              : 'text-[var(--ink-3)] hover:text-[var(--ink-3)] hover:bg-[var(--bg-sunken)]/50'
                           }`}
                           title={row.includeInValuation ? 'Included in EV — click to exclude' : 'Excluded from EV — click to include'}
                         >
@@ -919,10 +919,10 @@ export default function Projects() {
                       <td className="px-2 py-1.5">
                         <span className="text-orange-500 font-medium text-xs">{row.ticker}</span>
                       </td>
-                      <td className="px-2 py-1.5 text-gray-300 text-xs truncate" title={`${row.siteName} / ${row.campusName}`}>
+                      <td className="px-2 py-1.5 text-[var(--ink-2)] text-xs truncate" title={`${row.siteName} / ${row.campusName}`}>
                         {row.siteName}
                       </td>
-                      <td className="px-2 py-1.5 text-gray-200 text-xs truncate" title={row.buildingName}>
+                      <td className="px-2 py-1.5 text-[var(--ink-1)] text-xs truncate" title={row.buildingName}>
                         {row.buildingName}
                       </td>
                       <td className="px-2 py-1.5">
@@ -930,14 +930,14 @@ export default function Projects() {
                           <select
                             value={editFormData.developmentPhase || ''}
                             onChange={(e) => setEditFormData({ ...editFormData, developmentPhase: e.target.value })}
-                            className="bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs w-full"
+                            className="bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs w-full"
                           >
                             {Object.entries(phaseConfig).map(([k, v]) => (
                               <option key={k} value={k}>{v.label}</option>
                             ))}
                           </select>
                         ) : (
-                          <span className={`text-xs px-1.5 py-0.5 rounded-full border ${phaseConfig[row.phase]?.color || 'bg-gray-700 text-gray-400'}`}>
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full border ${phaseConfig[row.phase]?.color || 'bg-[var(--bg-sunken)] text-[var(--ink-3)]'}`}>
                             {phaseConfig[row.phase]?.label || row.phase}
                           </span>
                         )}
@@ -947,25 +947,25 @@ export default function Projects() {
                           <select
                             value={editFormData.useType || ''}
                             onChange={(e) => setEditFormData({ ...editFormData, useType: e.target.value })}
-                            className="bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs w-full"
+                            className="bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs w-full"
                           >
                             {editableUseTypes.map(({ value, label }) => (
                               <option key={value} value={value}>{label}</option>
                             ))}
                           </select>
                         ) : (
-                          <span className={`text-xs px-1.5 py-0.5 rounded-full border ${useTypeConfig[row.useType]?.color || 'bg-gray-700 text-gray-400'}`}>
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full border ${useTypeConfig[row.useType]?.color || 'bg-[var(--bg-sunken)] text-[var(--ink-3)]'}`}>
                             {useTypeConfig[row.useType]?.label || row.useType}
                           </span>
                         )}
                       </td>
-                      <td className="px-2 py-1.5 text-gray-400 text-xs truncate" title={row.tenant || ''}>
+                      <td className="px-2 py-1.5 text-[var(--ink-3)] text-xs truncate" title={row.tenant || ''}>
                         {isEditing && row.usePeriodId ? (
                           <input
                             type="text"
                             value={editFormData.tenant || ''}
                             onChange={(e) => setEditFormData({ ...editFormData, tenant: e.target.value })}
-                            className="w-full bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs"
+                            className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs"
                             placeholder="Tenant"
                           />
                         ) : (
@@ -981,37 +981,37 @@ export default function Projects() {
                               ? setEditFormData({ ...editFormData, mwAllocation: e.target.value })
                               : setEditFormData({ ...editFormData, itMw: e.target.value })
                             }
-                            className="w-full bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs text-right"
+                            className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs text-right"
                           />
                         ) : row.itMw !== null ? (
-                          <span className="text-gray-300 text-xs">{Math.round(row.itMw)}</span>
+                          <span className="text-[var(--ink-2)] text-xs">{Math.round(row.itMw)}</span>
                         ) : (
-                          <span className="text-gray-600 text-xs">-</span>
+                          <span className="text-[var(--ink-3)] text-xs">-</span>
                         )}
                       </td>
                       <td className="px-2 py-1.5 text-right font-mono">
                         {(() => {
                           const val = calcValuation(row);
                           if (val !== null && val !== undefined) {
-                            return <span className="text-green-400 text-xs">{formatMoney(Math.round(val))}</span>;
+                            return <span className="text-[var(--pos)] text-xs">{formatMoney(Math.round(val))}</span>;
                           }
-                          return <span className="text-gray-600 text-xs">-</span>;
+                          return <span className="text-[var(--ink-3)] text-xs">-</span>;
                         })()}
                       </td>
                       <td className="px-2 py-1.5 text-right font-mono">
                         {row.dollarPerMwYr !== null ? (
                           <span className="text-cyan-300 text-xs">${row.dollarPerMwYr.toFixed(2)}M</span>
                         ) : (
-                          <span className="text-gray-600 text-xs">-</span>
+                          <span className="text-[var(--ink-3)] text-xs">-</span>
                         )}
                       </td>
-                      <td className="px-2 py-1.5 text-right text-xs text-gray-400">
+                      <td className="px-2 py-1.5 text-right text-xs text-[var(--ink-3)]">
                         {isEditing ? (
                           <input
                             type="date"
                             value={editFormData.energizationDate || ''}
                             onChange={(e) => setEditFormData({ ...editFormData, energizationDate: e.target.value })}
-                            className="w-full bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs"
+                            className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs"
                           />
                         ) : (
                           formatDate(row.energizationDate)
@@ -1024,13 +1024,13 @@ export default function Projects() {
                               <button
                                 onClick={(e) => { e.stopPropagation(); saveBuilding(); }}
                                 disabled={updateBuildingMutation.isPending}
-                                className="p-1 bg-green-600 text-white rounded hover:bg-green-700"
+                                className="p-1 bg-green-600 text-[var(--ink-1)] rounded hover:bg-green-700"
                               >
                                 <Save className="h-3 w-3" />
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); setEditingBuilding(null); setEditFormData({}); }}
-                                className="p-1 bg-gray-600 text-white rounded hover:bg-gray-500"
+                                className="p-1 bg-gray-600 text-[var(--ink-1)] rounded hover:bg-gray-500"
                               >
                                 <X className="h-3 w-3" />
                               </button>
@@ -1039,17 +1039,17 @@ export default function Projects() {
                             <>
                               <button
                                 onClick={(e) => { e.stopPropagation(); startEditBuilding(row); }}
-                                className="p-1 hover:bg-gray-600 rounded"
+                                className="p-1 hover:bg-[var(--bg-sunken)] rounded"
                                 title="Edit"
                               >
-                                <Edit2 className="h-3 w-3 text-gray-500" />
+                                <Edit2 className="h-3 w-3 text-[var(--ink-3)]" />
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ id: row.buildingId, name: row.buildingName }); }}
                                 className="p-1 hover:bg-red-900/50 rounded"
                                 title="Delete"
                               >
-                                <Trash2 className="h-3 w-3 text-red-500/70 hover:text-red-400" />
+                                <Trash2 className="h-3 w-3 text-[var(--neg)]/70 hover:text-[var(--neg)]" />
                               </button>
                             </>
                           )}
@@ -1058,49 +1058,49 @@ export default function Projects() {
                     </tr>
                     {/* Lease detail row when editing a split/use period */}
                     {isEditing && row.usePeriodId && (
-                      <tr key={`${row.buildingId}-${row.usePeriodId}-detail`} className="bg-gray-800/50">
+                      <tr key={`${row.buildingId}-${row.usePeriodId}-detail`} className="bg-[var(--bg-elevated)]/50">
                         <td colSpan={3}></td>
                         <td colSpan={8} className="px-2 py-2">
                           <div className="flex items-center gap-3 flex-wrap">
                             <div className="flex items-center gap-1">
-                              <label className="text-[10px] text-gray-500">Lease $M:</label>
+                              <label className="text-[10px] text-[var(--ink-3)]">Lease $M:</label>
                               <input
                                 type="number"
                                 value={editFormData.leaseValueM || ''}
                                 onChange={(e) => setEditFormData({ ...editFormData, leaseValueM: e.target.value })}
-                                className="w-20 bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs"
+                                className="w-20 bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs"
                               />
                             </div>
                             <div className="flex items-center gap-1">
-                              <label className="text-[10px] text-gray-500">Years:</label>
+                              <label className="text-[10px] text-[var(--ink-3)]">Years:</label>
                               <input
                                 type="number"
                                 value={editFormData.leaseYears || ''}
                                 onChange={(e) => setEditFormData({ ...editFormData, leaseYears: e.target.value })}
-                                className="w-16 bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs"
+                                className="w-16 bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs"
                               />
                             </div>
                             <div className="flex items-center gap-1">
-                              <label className="text-[10px] text-gray-500">NOI%:</label>
+                              <label className="text-[10px] text-[var(--ink-3)]">NOI%:</label>
                               <input
                                 type="number"
                                 value={editFormData.noiPct || ''}
                                 onChange={(e) => setEditFormData({ ...editFormData, noiPct: e.target.value })}
                                 placeholder="e.g. 85"
-                                className="w-16 bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs"
+                                className="w-16 bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs"
                               />
                             </div>
                             <div className="flex items-center gap-1">
-                              <label className="text-[10px] text-gray-500">Lease Start:</label>
+                              <label className="text-[10px] text-[var(--ink-3)]">Lease Start:</label>
                               <input
                                 type="date"
                                 value={editFormData.leaseStart || ''}
                                 min={editFormData.energizationDate || ''}
                                 onChange={(e) => setEditFormData({ ...editFormData, leaseStart: e.target.value })}
-                                className="bg-gray-700 border border-gray-600 text-white rounded px-1 py-0.5 text-xs"
+                                className="bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs"
                               />
                               {editFormData.leaseStart && editFormData.energizationDate && editFormData.leaseStart < editFormData.energizationDate && (
-                                <span className="text-red-400 text-[10px]">Before energization!</span>
+                                <span className="text-[var(--neg)] text-[10px]">Before energization!</span>
                               )}
                             </div>
                           </div>
@@ -1114,7 +1114,7 @@ export default function Projects() {
 
                 {filteredRows.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={11} className="px-4 py-8 text-center text-[var(--ink-3)]">
                       No buildings found. Import data to get started.
                     </td>
                   </tr>
@@ -1128,28 +1128,28 @@ export default function Projects() {
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4">
+          <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-6 max-w-md w-full mx-4">
             <div className="flex items-center gap-3 mb-4">
-              <Trash2 className="h-6 w-6 text-red-500" />
-              <h2 className="text-lg font-semibold text-gray-200">Delete Building</h2>
+              <Trash2 className="h-6 w-6 text-[var(--neg)]" />
+              <h2 className="text-lg font-semibold text-[var(--ink-1)]">Delete Building</h2>
             </div>
-            <p className="text-sm text-gray-400 mb-2">
+            <p className="text-sm text-[var(--ink-3)] mb-2">
               Are you sure you want to delete this building?
             </p>
-            <p className="text-sm text-white font-medium mb-4 p-2 bg-gray-700/50 rounded">
+            <p className="text-sm text-[var(--ink-1)] font-medium mb-4 p-2 bg-[var(--bg-sunken)]/50 rounded">
               "{deleteConfirm.name}"
             </p>
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setDeleteConfirm(null)}
-                className="px-4 py-2 text-sm text-gray-400 hover:text-gray-300"
+                className="px-4 py-2 text-sm text-[var(--ink-3)] hover:text-[var(--ink-2)]"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDelete}
                 disabled={deleteBuildingMutation.isPending}
-                className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                className="px-4 py-2 text-sm bg-red-600 text-[var(--ink-1)] rounded hover:bg-red-700 disabled:opacity-50"
               >
                 Delete
               </button>

@@ -183,34 +183,34 @@ export default function MiningValuation() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--bg-canvas)] flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6">
+    <div className="min-h-screen bg-[var(--bg-canvas)] text-[var(--ink-1)] p-6">
       <div className="max-w-full mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <Pickaxe className="h-6 w-6 text-orange-500" />
             <h1 className="text-2xl font-bold">Mining Valuation</h1>
-            <span className="text-sm text-gray-500">Self-Mining Profitability Model</span>
+            <span className="text-sm text-[var(--ink-3)]">Self-Mining Profitability Model</span>
           </div>
           <button
             onClick={() => setShowAddForm(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+            className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-[var(--ink-1)] rounded-lg hover:bg-orange-700"
           >
             Add Company
           </button>
         </div>
 
         {/* Assumptions Banner - Link to Factors */}
-        <div className="bg-gray-800 border border-gray-700 rounded-lg p-3 mb-4 flex items-center justify-between">
+        <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-3 mb-4 flex items-center justify-between">
           <div className="flex items-center gap-6 text-sm">
-            <span className="text-gray-400">Using global assumptions:</span>
+            <span className="text-[var(--ink-3)]">Using global assumptions:</span>
             <span className="text-orange-400">Daily Rev/EH: <span className="font-mono">${assumptions.dailyRevPerEh.toLocaleString()}</span></span>
             <span className="text-orange-400">EBITDA Multiple: <span className="font-mono">{assumptions.ebitdaMultiple}x</span></span>
             <span className="text-orange-400">Pool Fee: <span className="font-mono">{(assumptions.poolFeePct * 100).toFixed(1)}%</span></span>
@@ -222,10 +222,10 @@ export default function MiningValuation() {
         </div>
 
         {/* Table */}
-        <div className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
+        <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
-              <thead className="bg-gray-900 text-gray-400 uppercase">
+              <thead className="bg-[var(--bg-canvas)] text-[var(--ink-3)] uppercase">
                 <tr>
                   <th className="px-2 py-2 text-left">Ticker</th>
                   <th className="px-2 py-2 text-right bg-blue-900/20">EH/s</th>
@@ -236,26 +236,26 @@ export default function MiningValuation() {
                   <th className="px-2 py-2 text-right">Fees ($M)</th>
                   <th className="px-2 py-2 text-right">EBITDA ($M)</th>
                   <th className="px-2 py-2 text-right">Margin</th>
-                  <th className="px-2 py-2 text-right text-green-400">Self Val ($M)</th>
+                  <th className="px-2 py-2 text-right text-[var(--pos)]">Self Val ($M)</th>
                   <th className="px-2 py-2 text-right bg-purple-900/20">Host MW</th>
                   <th className="px-2 py-2 text-right text-purple-400">Host Val ($M)</th>
-                  <th className="px-2 py-2 text-right text-yellow-400 font-bold">Total ($M)</th>
+                  <th className="px-2 py-2 text-right text-[var(--warn)] font-bold">Total ($M)</th>
                   <th className="px-2 py-2 text-center">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-700">
+              <tbody className="divide-y divide-[var(--hairline)]">
                 {/* Add new row */}
                 {showAddForm && (
                   <tr className="bg-green-900/20">
                     <td className="px-2 py-1">
-                      <input type="text" value={newRow.ticker || ''} onChange={(e) => setNewRow({ ...newRow, ticker: e.target.value.toUpperCase() })} className="w-16 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs" placeholder="TICKER" />
+                      <input type="text" value={newRow.ticker || ''} onChange={(e) => setNewRow({ ...newRow, ticker: e.target.value.toUpperCase() })} className="w-16 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-1 py-1 text-xs" placeholder="TICKER" />
                     </td>
-                    <td className="px-2 py-1"><input type="number" step="0.1" value={newRow.hashrateEh || ''} onChange={(e) => setNewRow({ ...newRow, hashrateEh: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
-                    <td className="px-2 py-1"><input type="number" step="0.1" value={newRow.efficiencyJth || ''} onChange={(e) => setNewRow({ ...newRow, efficiencyJth: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
-                    <td className="px-2 py-1"><input type="number" step="0.001" value={newRow.powerCostKwh || ''} onChange={(e) => setNewRow({ ...newRow, powerCostKwh: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
-                    <td colSpan={5} className="px-2 py-1 text-gray-500 text-center text-[10px]">Auto-calculated</td>
-                    <td className="px-2 py-1"><input type="number" value={newRow.hostedMw || ''} onChange={(e) => setNewRow({ ...newRow, hostedMw: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
-                    <td colSpan={2} className="px-2 py-1 text-gray-500 text-center text-[10px]">Auto</td>
+                    <td className="px-2 py-1"><input type="number" step="0.1" value={newRow.hashrateEh || ''} onChange={(e) => setNewRow({ ...newRow, hashrateEh: e.target.value })} className="w-14 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-1 py-1 text-xs text-right" /></td>
+                    <td className="px-2 py-1"><input type="number" step="0.1" value={newRow.efficiencyJth || ''} onChange={(e) => setNewRow({ ...newRow, efficiencyJth: e.target.value })} className="w-14 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-1 py-1 text-xs text-right" /></td>
+                    <td className="px-2 py-1"><input type="number" step="0.001" value={newRow.powerCostKwh || ''} onChange={(e) => setNewRow({ ...newRow, powerCostKwh: e.target.value })} className="w-14 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-1 py-1 text-xs text-right" /></td>
+                    <td colSpan={5} className="px-2 py-1 text-[var(--ink-3)] text-center text-[10px]">Auto-calculated</td>
+                    <td className="px-2 py-1"><input type="number" value={newRow.hostedMw || ''} onChange={(e) => setNewRow({ ...newRow, hostedMw: e.target.value })} className="w-14 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-1 py-1 text-xs text-right" /></td>
+                    <td colSpan={2} className="px-2 py-1 text-[var(--ink-3)] text-center text-[10px]">Auto</td>
                     <td className="px-2 py-1 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <button onClick={saveNew} className="p-1 bg-green-600 rounded hover:bg-green-700"><Save className="h-3 w-3" /></button>
@@ -267,16 +267,16 @@ export default function MiningValuation() {
 
                 {/* Data rows */}
                 {calculatedData.map((row) => (
-                  <tr key={row.ticker} className="hover:bg-gray-700/30">
+                  <tr key={row.ticker} className="hover:bg-[var(--bg-sunken)]/30">
                     {editingTicker === row.ticker ? (
                       <>
                         <td className="px-2 py-1 font-medium text-orange-400">{row.ticker}</td>
-                        <td className="px-2 py-1"><input type="number" step="0.1" value={editForm.hashrateEh || ''} onChange={(e) => setEditForm({ ...editForm, hashrateEh: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
-                        <td className="px-2 py-1"><input type="number" step="0.1" value={editForm.efficiencyJth || ''} onChange={(e) => setEditForm({ ...editForm, efficiencyJth: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
-                        <td className="px-2 py-1"><input type="number" step="0.001" value={editForm.powerCostKwh || ''} onChange={(e) => setEditForm({ ...editForm, powerCostKwh: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
-                        <td colSpan={5} className="px-2 py-1 text-gray-500 text-center text-[10px]">Auto-calculated</td>
-                        <td className="px-2 py-1"><input type="number" value={editForm.hostedMw || ''} onChange={(e) => setEditForm({ ...editForm, hostedMw: e.target.value })} className="w-14 bg-gray-700 border border-gray-600 rounded px-1 py-1 text-xs text-right" /></td>
-                        <td colSpan={2} className="px-2 py-1 text-gray-500 text-center text-[10px]">Auto</td>
+                        <td className="px-2 py-1"><input type="number" step="0.1" value={editForm.hashrateEh || ''} onChange={(e) => setEditForm({ ...editForm, hashrateEh: e.target.value })} className="w-14 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-1 py-1 text-xs text-right" /></td>
+                        <td className="px-2 py-1"><input type="number" step="0.1" value={editForm.efficiencyJth || ''} onChange={(e) => setEditForm({ ...editForm, efficiencyJth: e.target.value })} className="w-14 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-1 py-1 text-xs text-right" /></td>
+                        <td className="px-2 py-1"><input type="number" step="0.001" value={editForm.powerCostKwh || ''} onChange={(e) => setEditForm({ ...editForm, powerCostKwh: e.target.value })} className="w-14 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-1 py-1 text-xs text-right" /></td>
+                        <td colSpan={5} className="px-2 py-1 text-[var(--ink-3)] text-center text-[10px]">Auto-calculated</td>
+                        <td className="px-2 py-1"><input type="number" value={editForm.hostedMw || ''} onChange={(e) => setEditForm({ ...editForm, hostedMw: e.target.value })} className="w-14 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-1 py-1 text-xs text-right" /></td>
+                        <td colSpan={2} className="px-2 py-1 text-[var(--ink-3)] text-center text-[10px]">Auto</td>
                         <td className="px-2 py-1 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <button onClick={saveEdit} className="p-1 bg-green-600 rounded hover:bg-green-700"><Save className="h-3 w-3" /></button>
@@ -291,18 +291,18 @@ export default function MiningValuation() {
                         <td className="px-2 py-1 text-right font-mono text-blue-300">{formatNum(parseFloat(row.efficiencyJth || '0'), 1)}</td>
                         <td className="px-2 py-1 text-right font-mono text-blue-300">${formatNum(parseFloat(row.powerCostKwh || '0'), 3)}</td>
                         <td className="px-2 py-1 text-right font-mono">${formatNum(row.annRevM, 1)}</td>
-                        <td className="px-2 py-1 text-right font-mono text-red-400">${formatNum(row.annPowerM, 1)}</td>
-                        <td className="px-2 py-1 text-right font-mono text-red-400">${formatNum(row.poolFeesM, 1)}</td>
-                        <td className={`px-2 py-1 text-right font-mono ${row.ebitdaM >= 0 ? 'text-green-400' : 'text-red-400'}`}>${formatNum(row.ebitdaM, 1)}</td>
-                        <td className={`px-2 py-1 text-right font-mono ${row.margin >= 0 ? 'text-gray-400' : 'text-red-400'}`}>{formatPct(row.margin)}</td>
-                        <td className="px-2 py-1 text-right font-mono text-green-400">${formatNum(row.selfMiningValM, 1)}</td>
+                        <td className="px-2 py-1 text-right font-mono text-[var(--neg)]">${formatNum(row.annPowerM, 1)}</td>
+                        <td className="px-2 py-1 text-right font-mono text-[var(--neg)]">${formatNum(row.poolFeesM, 1)}</td>
+                        <td className={`px-2 py-1 text-right font-mono ${row.ebitdaM >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>${formatNum(row.ebitdaM, 1)}</td>
+                        <td className={`px-2 py-1 text-right font-mono ${row.margin >= 0 ? 'text-[var(--ink-3)]' : 'text-[var(--neg)]'}`}>{formatPct(row.margin)}</td>
+                        <td className="px-2 py-1 text-right font-mono text-[var(--pos)]">${formatNum(row.selfMiningValM, 1)}</td>
                         <td className="px-2 py-1 text-right font-mono text-purple-300">{formatNum(parseFloat(row.hostedMw || '0'), 0)}</td>
                         <td className="px-2 py-1 text-right font-mono text-purple-400">${formatNum(row.hostedValM, 1)}</td>
-                        <td className="px-2 py-1 text-right font-mono text-yellow-400 font-bold">${formatNum(row.totalValM, 1)}</td>
+                        <td className="px-2 py-1 text-right font-mono text-[var(--warn)] font-bold">${formatNum(row.totalValM, 1)}</td>
                         <td className="px-2 py-1 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <button onClick={() => startEdit(row)} className="p-1 hover:bg-gray-600 rounded"><Edit2 className="h-3 w-3 text-gray-500" /></button>
-                            <button onClick={() => deleteMutation.mutate(row.ticker)} className="p-1 hover:bg-red-900/50 rounded"><Trash2 className="h-3 w-3 text-red-500/70" /></button>
+                            <button onClick={() => startEdit(row)} className="p-1 hover:bg-[var(--bg-sunken)] rounded"><Edit2 className="h-3 w-3 text-[var(--ink-3)]" /></button>
+                            <button onClick={() => deleteMutation.mutate(row.ticker)} className="p-1 hover:bg-red-900/50 rounded"><Trash2 className="h-3 w-3 text-[var(--neg)]/70" /></button>
                           </div>
                         </td>
                       </>
@@ -312,27 +312,27 @@ export default function MiningValuation() {
 
                 {/* Totals row */}
                 {calculatedData.length > 0 && (
-                  <tr className="bg-gray-900 font-bold border-t-2 border-orange-500">
+                  <tr className="bg-[var(--bg-canvas)] font-bold border-t-2 border-orange-500">
                     <td className="px-2 py-2 text-orange-400">TOTAL</td>
                     <td className="px-2 py-2 text-right font-mono">{formatNum(totals.hashrateEh, 1)}</td>
                     <td className="px-2 py-2"></td>
                     <td className="px-2 py-2"></td>
                     <td className="px-2 py-2 text-right font-mono">${formatNum(totals.annRevM, 0)}</td>
-                    <td className="px-2 py-2 text-right font-mono text-red-400">${formatNum(totals.annPowerM, 0)}</td>
-                    <td className="px-2 py-2 text-right font-mono text-red-400">${formatNum(totals.poolFeesM, 0)}</td>
-                    <td className="px-2 py-2 text-right font-mono text-green-400">${formatNum(totals.ebitdaM, 0)}</td>
+                    <td className="px-2 py-2 text-right font-mono text-[var(--neg)]">${formatNum(totals.annPowerM, 0)}</td>
+                    <td className="px-2 py-2 text-right font-mono text-[var(--neg)]">${formatNum(totals.poolFeesM, 0)}</td>
+                    <td className="px-2 py-2 text-right font-mono text-[var(--pos)]">${formatNum(totals.ebitdaM, 0)}</td>
                     <td className="px-2 py-2"></td>
-                    <td className="px-2 py-2 text-right font-mono text-green-400">${formatNum(totals.selfMiningValM, 0)}</td>
+                    <td className="px-2 py-2 text-right font-mono text-[var(--pos)]">${formatNum(totals.selfMiningValM, 0)}</td>
                     <td className="px-2 py-2 text-right font-mono">{formatNum(totals.hostedMw, 0)}</td>
                     <td className="px-2 py-2 text-right font-mono text-purple-400">${formatNum(totals.hostedValM, 0)}</td>
-                    <td className="px-2 py-2 text-right font-mono text-yellow-400">${formatNum(totals.totalValM, 0)}</td>
+                    <td className="px-2 py-2 text-right font-mono text-[var(--warn)]">${formatNum(totals.totalValM, 0)}</td>
                     <td className="px-2 py-2"></td>
                   </tr>
                 )}
 
                 {valuations.length === 0 && !showAddForm && (
                   <tr>
-                    <td colSpan={14} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={14} className="px-4 py-8 text-center text-[var(--ink-3)]">
                       No mining valuations yet. Click "Add Company" to get started.
                     </td>
                   </tr>
@@ -343,11 +343,11 @@ export default function MiningValuation() {
         </div>
 
         {/* Legend */}
-        <div className="mt-4 text-[10px] text-gray-500 flex gap-6">
+        <div className="mt-4 text-[10px] text-[var(--ink-3)] flex gap-6">
           <span><span className="text-blue-300">Blue</span> = Input fields</span>
-          <span><span className="text-green-400">Green</span> = Self-mining value</span>
+          <span><span className="text-[var(--pos)]">Green</span> = Self-mining value</span>
           <span><span className="text-purple-400">Purple</span> = Hosted value</span>
-          <span><span className="text-yellow-400">Yellow</span> = Total valuation</span>
+          <span><span className="text-[var(--warn)]">Yellow</span> = Total valuation</span>
         </div>
       </div>
     </div>

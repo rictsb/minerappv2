@@ -1,0 +1,296 @@
+/* =========================================================
+   BTC Miner Terminal — Design Tokens
+   Modern institutional light theme (Koyfin/Linear inspired)
+   ========================================================= */
+
+:root {
+  /* Surfaces */
+  --bg: #f7f6f1;            /* warm paper */
+  --bg-elevated: #ffffff;
+  --bg-subtle: #f1efe9;
+  --bg-row-hover: #fbfaf5;
+  --bg-row-selected: #fdf1e8;
+
+  /* Borders */
+  --border: #e5e2d8;
+  --border-strong: #d6d2c5;
+  --hairline: #efece3;
+
+  /* Ink */
+  --ink-1: #14130f;         /* primary text */
+  --ink-2: #4a4842;         /* secondary */
+  --ink-3: #78756a;         /* tertiary */
+  --ink-4: #a8a59a;         /* quaternary */
+  --ink-on-accent: #ffffff;
+
+  /* Brand */
+  --btc: #e85d1f;
+  --btc-ink: #c24a12;
+  --btc-soft: #fef1e6;
+  --btc-border: #f6c8a3;
+
+  /* Categorical */
+  --cat-hpc: #0e7490;       /* cyan — contracted */
+  --cat-hpc-soft: #e6f4f7;
+  --cat-hpc-border: #b8dde5;
+  --cat-pipeline: #6d28d9;  /* violet — pipeline */
+  --cat-pipeline-soft: #f1ecfb;
+  --cat-pipeline-border: #d6c5f4;
+  --cat-mining: #b45309;    /* amber — mining */
+  --cat-mining-soft: #fdf4e3;
+  --cat-mining-border: #f0d9a6;
+
+  /* Status */
+  --pos: #047857;
+  --pos-soft: #e6f4ef;
+  --neg: #be123c;
+  --neg-soft: #fbe9ec;
+  --warn: #a16207;
+  --warn-soft: #fbf3d8;
+  --info: #1d4ed8;
+  --info-soft: #e7ecfb;
+
+  /* Phase dots */
+  --phase-op: #047857;
+  --phase-con: #b45309;
+  --phase-dev: #1d4ed8;
+  --phase-exc: #6d28d9;
+  --phase-dil: #78756a;
+
+  /* Shadows */
+  --sh-xs: 0 1px 0 rgba(20, 19, 15, 0.04);
+  --sh-sm: 0 1px 2px rgba(20, 19, 15, 0.06), 0 1px 0 rgba(20, 19, 15, 0.03);
+  --sh-md: 0 8px 24px -8px rgba(20, 19, 15, 0.08), 0 2px 6px rgba(20, 19, 15, 0.04);
+  --sh-lg: 0 24px 48px -12px rgba(20, 19, 15, 0.14);
+  --sh-pop: 0 0 0 1px var(--border-strong), 0 20px 40px -12px rgba(20, 19, 15, 0.18);
+
+  /* Radii */
+  --r-xs: 3px;
+  --r-sm: 5px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+
+  /* Type */
+  --ff-sans: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --ff-mono: 'Geist Mono', ui-monospace, 'JetBrains Mono', Menlo, monospace;
+  --ff-display: 'Geist', ui-sans-serif, system-ui, sans-serif;
+
+  /* Sizes */
+  --fs-micro: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 26px;
+  --fs-3xl: 34px;
+
+  /* Layout */
+  --rail-w: 56px;
+  --rail-w-open: 208px;
+  --pulse-h: 40px;
+  --topbar-h: 48px;
+}
+
+/* ============== Reset ============== */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink-1);
+  font-family: var(--ff-sans);
+  font-size: var(--fs-base);
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.45;
+}
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+input, textarea, select { font: inherit; color: inherit; }
+::selection { background: var(--btc-soft); color: var(--btc-ink); }
+
+/* ============== Scrollbars ============== */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-4); }
+
+/* ============== Utilities ============== */
+.mono { font-family: var(--ff-mono); font-feature-settings: 'tnum', 'ss01'; }
+.num { font-family: var(--ff-mono); font-variant-numeric: tabular-nums; }
+.eyebrow {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.divider { height: 1px; background: var(--hairline); }
+.rule { border-top: 1px solid var(--hairline); }
+
+/* ============== Root shell ============== */
+html, body, #root { height: 100%; min-height: 100vh; }
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--rail-w) 1fr;
+  grid-template-rows: var(--pulse-h) 1fr;
+  grid-template-areas:
+    "rail pulse"
+    "rail main";
+  min-height: 100vh;
+}
+.shell.rail-open { grid-template-columns: var(--rail-w-open) 1fr; }
+
+.rail { grid-area: rail; }
+.pulse { grid-area: pulse; min-width: 0; }
+.main { grid-area: main; overflow: auto; min-width: 0; min-height: 0; }
+
+/* ============== Pill / chip ============== */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  line-height: 1.5;
+}
+.chip-dot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
+
+/* ============== KBD ============== */
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  color: var(--ink-2);
+  box-shadow: inset 0 -1px 0 var(--border-strong);
+}
+
+/* ============== Focus ring ============== */
+*:focus-visible {
+  outline: 2px solid var(--btc);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+/* ============== Table basics ============== */
+.tbl {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--fs-sm);
+}
+.tbl th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--ink-3);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 10px 12px;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  user-select: none;
+  white-space: nowrap;
+}
+.tbl th.num-col, .tbl td.num-col { text-align: right; }
+.tbl th.center, .tbl td.center { text-align: center; }
+.tbl td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--hairline);
+  vertical-align: middle;
+}
+.tbl tbody tr { cursor: pointer; }
+.tbl tbody tr:hover { background: var(--bg-row-hover); }
+.tbl tbody tr.selected { background: var(--bg-row-selected); }
+.tbl tbody tr.selected td:first-child { box-shadow: inset 2px 0 0 var(--btc); }
+
+/* ============== Card ============== */
+.card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+/* ============== Button ============== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--ink-1);
+  transition: background 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+.btn:hover { background: var(--bg-subtle); }
+.btn-primary {
+  background: var(--ink-1);
+  border-color: var(--ink-1);
+  color: #fff;
+}
+.btn-primary:hover { background: #000; }
+.btn-ghost { border-color: transparent; background: transparent; }
+.btn-ghost:hover { background: var(--bg-subtle); }
+.btn-brand {
+  background: var(--btc);
+  border-color: var(--btc);
+  color: #fff;
+}
+.btn-brand:hover { background: var(--btc-ink); border-color: var(--btc-ink); }
+.btn-sm { padding: 4px 8px; font-size: var(--fs-xs); }
+
+/* ============== Misc ============== */
+.loading-shimmer {
+  background: linear-gradient(90deg, var(--hairline) 0%, var(--bg-subtle) 50%, var(--hairline) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+  border-radius: 3px;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.hover-underline:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* Sparkline baseline */
+.spark { display: inline-block; vertical-align: middle; }
+
+/* Phase dots */
+.phase-op { background: var(--phase-op); }
+.phase-con { background: var(--phase-con); }
+.phase-dev { background: var(--phase-dev); }
+.phase-exc { background: var(--phase-exc); }
+.phase-dil { background: var(--phase-dil); }
+
+/* Tabular number alignment in tables */
+.tbl td.num-col, .tbl th.num-col { font-variant-numeric: tabular-nums; font-family: var(--ff-mono); }
+
+/* Compact table variant */
+.tbl.compact th, .tbl.compact td { padding: 7px 10px; font-size: var(--fs-xs); }
+.tbl.compact th { font-size: 9px; }

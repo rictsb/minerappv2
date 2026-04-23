@@ -209,37 +209,37 @@ export default function MapView() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--bg-canvas)] flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6">
+    <div className="min-h-screen bg-[var(--bg-canvas)] text-[var(--ink-1)] p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <MapPin className="h-6 w-6 text-green-500" />
+          <MapPin className="h-6 w-6 text-[var(--pos)]" />
           <h1 className="text-2xl font-bold">Site Map</h1>
-          <span className="text-sm text-gray-500">Geographic view of data center sites</span>
+          <span className="text-sm text-[var(--ink-3)]">Geographic view of data center sites</span>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-4">
+      <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-4 mb-4">
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4 text-gray-400" />
-            <span className="text-sm text-gray-400">Filters:</span>
+            <Filter className="h-4 w-4 text-[var(--ink-3)]" />
+            <span className="text-sm text-[var(--ink-3)]">Filters:</span>
           </div>
 
           <div className="flex items-center gap-2">
-            <label className="text-xs text-gray-500">Company:</label>
+            <label className="text-xs text-[var(--ink-3)]">Company:</label>
             <select
               value={selectedCompany}
               onChange={(e) => setSelectedCompany(e.target.value)}
-              className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm"
+              className="bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-2 py-1 text-sm"
             >
               <option value="all">All Companies</option>
               {companies.map(ticker => (
@@ -249,11 +249,11 @@ export default function MapView() {
           </div>
 
           <div className="flex items-center gap-2">
-            <label className="text-xs text-gray-500">Phase:</label>
+            <label className="text-xs text-[var(--ink-3)]">Phase:</label>
             <select
               value={selectedPhase}
               onChange={(e) => setSelectedPhase(e.target.value)}
-              className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm"
+              className="bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-2 py-1 text-sm"
             >
               <option value="all">All Phases</option>
               <option value="OPERATIONAL">Operational</option>
@@ -265,11 +265,11 @@ export default function MapView() {
           </div>
 
           <div className="flex items-center gap-2">
-            <label className="text-xs text-gray-500">Color by:</label>
+            <label className="text-xs text-[var(--ink-3)]">Color by:</label>
             <select
               value={colorBy}
               onChange={(e) => setColorBy(e.target.value as 'company' | 'phase')}
-              className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm"
+              className="bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-2 py-1 text-sm"
             >
               <option value="company">Company</option>
               <option value="phase">Phase</option>
@@ -277,10 +277,10 @@ export default function MapView() {
           </div>
 
           <div className="ml-auto flex items-center gap-4 text-sm">
-            <span className="text-gray-400">
+            <span className="text-[var(--ink-3)]">
               <span className="font-mono text-orange-400">{summaryStats.siteCount}</span> sites
             </span>
-            <span className="text-gray-400">
+            <span className="text-[var(--ink-3)]">
               <span className="font-mono text-cyan-400">{summaryStats.totalMw.toLocaleString()}</span> MW total
             </span>
           </div>
@@ -288,7 +288,7 @@ export default function MapView() {
       </div>
 
       {/* Map */}
-      <div className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden" style={{ height: '600px' }}>
+      <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg overflow-hidden" style={{ height: '600px' }}>
         <MapContainer
           center={[39.8283, -98.5795]} // Center of US
           zoom={4}
@@ -325,7 +325,7 @@ export default function MapView() {
                   <div className="min-w-[250px] text-gray-900">
                     <div className="flex items-center gap-2 mb-2">
                       <span
-                        className="px-2 py-0.5 rounded text-xs font-bold text-white"
+                        className="px-2 py-0.5 rounded text-xs font-bold text-[var(--ink-1)]"
                         style={{ backgroundColor: COMPANY_COLORS[site.ticker] || '#6b7280' }}
                       >
                         {site.ticker}
@@ -333,13 +333,13 @@ export default function MapView() {
                       <span className="font-semibold">{site.name}</span>
                     </div>
 
-                    <div className="text-sm text-gray-600 mb-3">
+                    <div className="text-sm text-[var(--ink-3)] mb-3">
                       {site.state ? `${site.state}, ` : ''}{site.country}
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 mb-3 text-sm">
                       <div className="flex items-center gap-1">
-                        <Zap className="h-3 w-3 text-yellow-500" />
+                        <Zap className="h-3 w-3 text-[var(--warn)]" />
                         <span>{stats.totalMw.toLocaleString()} MW</span>
                       </div>
                       <div className="flex items-center gap-1">
@@ -350,12 +350,12 @@ export default function MapView() {
 
                     {stats.phases.length > 0 && (
                       <div className="mb-2">
-                        <span className="text-xs text-gray-500">Phases: </span>
+                        <span className="text-xs text-[var(--ink-3)]">Phases: </span>
                         <div className="flex flex-wrap gap-1 mt-1">
                           {stats.phases.map(phase => (
                             <span
                               key={phase}
-                              className="px-1.5 py-0.5 rounded text-xs text-white"
+                              className="px-1.5 py-0.5 rounded text-xs text-[var(--ink-1)]"
                               style={{ backgroundColor: PHASE_COLORS[phase] || '#6b7280' }}
                             >
                               {phase.toLowerCase()}
@@ -367,7 +367,7 @@ export default function MapView() {
 
                     {stats.useTypes.length > 0 && (
                       <div className="mb-2">
-                        <span className="text-xs text-gray-500">Uses: </span>
+                        <span className="text-xs text-[var(--ink-3)]">Uses: </span>
                         <span className="text-xs">
                           {stats.useTypes.map(ut => USE_TYPE_LABELS[ut] || ut).join(', ')}
                         </span>
@@ -376,7 +376,7 @@ export default function MapView() {
 
                     {stats.tenants.length > 0 && (
                       <div className="mb-2">
-                        <span className="text-xs text-gray-500">Tenants: </span>
+                        <span className="text-xs text-[var(--ink-3)]">Tenants: </span>
                         <span className="text-xs font-medium">{stats.tenants.join(', ')}</span>
                       </div>
                     )}
@@ -399,11 +399,11 @@ export default function MapView() {
       </div>
 
       {/* Legend */}
-      <div className="mt-4 bg-gray-800 border border-gray-700 rounded-lg p-4">
+      <div className="mt-4 bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-4">
         <div className="flex flex-wrap gap-6">
           {colorBy === 'company' ? (
             <div>
-              <span className="text-xs text-gray-500 uppercase tracking-wider">Companies</span>
+              <span className="text-xs text-[var(--ink-3)] uppercase tracking-wider">Companies</span>
               <div className="flex flex-wrap gap-3 mt-2">
                 {companies.map(ticker => (
                   <div key={ticker} className="flex items-center gap-1.5">
@@ -411,14 +411,14 @@ export default function MapView() {
                       className="w-3 h-3 rounded-full"
                       style={{ backgroundColor: COMPANY_COLORS[ticker] || '#6b7280' }}
                     />
-                    <span className="text-xs text-gray-400">{ticker}</span>
+                    <span className="text-xs text-[var(--ink-3)]">{ticker}</span>
                   </div>
                 ))}
               </div>
             </div>
           ) : (
             <div>
-              <span className="text-xs text-gray-500 uppercase tracking-wider">Phases</span>
+              <span className="text-xs text-[var(--ink-3)] uppercase tracking-wider">Phases</span>
               <div className="flex flex-wrap gap-3 mt-2">
                 {Object.entries(PHASE_COLORS).map(([phase, color]) => (
                   <div key={phase} className="flex items-center gap-1.5">
@@ -426,7 +426,7 @@ export default function MapView() {
                       className="w-3 h-3 rounded-full"
                       style={{ backgroundColor: color }}
                     />
-                    <span className="text-xs text-gray-400">{phase.toLowerCase()}</span>
+                    <span className="text-xs text-[var(--ink-3)]">{phase.toLowerCase()}</span>
                   </div>
                 ))}
               </div>
@@ -434,23 +434,23 @@ export default function MapView() {
           )}
 
           <div className="ml-auto">
-            <span className="text-xs text-gray-500 uppercase tracking-wider">Marker Size = MW Capacity</span>
+            <span className="text-xs text-[var(--ink-3)] uppercase tracking-wider">Marker Size = MW Capacity</span>
             <div className="flex items-center gap-4 mt-2">
               <div className="flex items-center gap-1.5">
                 <div className="w-3 h-3 rounded-full bg-gray-500" />
-                <span className="text-xs text-gray-400">&lt;50 MW</span>
+                <span className="text-xs text-[var(--ink-3)]">&lt;50 MW</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-4 h-4 rounded-full bg-gray-500" />
-                <span className="text-xs text-gray-400">50-100 MW</span>
+                <span className="text-xs text-[var(--ink-3)]">50-100 MW</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-5 h-5 rounded-full bg-gray-500" />
-                <span className="text-xs text-gray-400">100-200 MW</span>
+                <span className="text-xs text-[var(--ink-3)]">100-200 MW</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-6 h-6 rounded-full bg-gray-500" />
-                <span className="text-xs text-gray-400">200+ MW</span>
+                <span className="text-xs text-[var(--ink-3)]">200+ MW</span>
               </div>
             </div>
           </div>

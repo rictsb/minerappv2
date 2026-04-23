@@ -126,10 +126,10 @@ const colorClasses: Record<string, string> = {
   purple: 'text-purple-400',
   blue: 'text-blue-400',
   cyan: 'text-cyan-400',
-  green: 'text-green-400',
+  green: 'text-[var(--pos)]',
   teal: 'text-teal-400',
-  yellow: 'text-yellow-400',
-  red: 'text-red-400',
+  yellow: 'text-[var(--warn)]',
+  red: 'text-[var(--neg)]',
   indigo: 'text-indigo-400',
   amber: 'text-amber-400',
   emerald: 'text-emerald-400',
@@ -334,14 +334,14 @@ export default function Factors() {
     return (
       <div key={config.key} className="mb-4">
         <div className="flex items-center justify-between mb-1.5">
-          <label className="text-sm text-gray-300">{config.label}</label>
+          <label className="text-sm text-[var(--ink-2)]">{config.label}</label>
           <div className="flex items-center gap-2">
             {isSaving && <Save className="w-3 h-3 text-orange-500 animate-pulse" />}
             <span className="text-sm font-mono text-orange-400 min-w-[70px] text-right">{config.format(value)}</span>
             {!isDefault && (
               <button
                 onClick={() => resetToDefault(config.key, config.defaultValue)}
-                className="text-xs text-gray-500 hover:text-gray-300 p-1"
+                className="text-xs text-[var(--ink-3)] hover:text-[var(--ink-2)] p-1"
                 title="Reset to default"
               >
                 <RotateCcw className="w-3 h-3" />
@@ -356,11 +356,11 @@ export default function Factors() {
           step={config.step}
           value={value}
           onChange={(e) => handleFactorChange(config.key, parseFloat(e.target.value))}
-          className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider-orange"
+          className="w-full h-2 bg-[var(--bg-sunken)] rounded-lg appearance-none cursor-pointer slider-orange"
         />
-        <div className="flex justify-between text-xs text-gray-500 mt-1">
+        <div className="flex justify-between text-xs text-[var(--ink-3)] mt-1">
           <span>{config.format(config.min)}</span>
-          <span className="text-gray-600">dflt: {config.format(config.defaultValue)}</span>
+          <span className="text-[var(--ink-3)]">dflt: {config.format(config.defaultValue)}</span>
           <span>{config.format(config.max)}</span>
         </div>
       </div>
@@ -379,16 +379,16 @@ export default function Factors() {
   const sofrRate = factors.sofrRate ?? 4.3;
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4">
+    <div className="min-h-screen bg-[var(--bg-canvas)] text-[var(--ink-1)] p-4">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-semibold text-gray-300">Valuation Factors</h1>
-          {loadingFactors && <Loader2 className="w-5 h-5 animate-spin text-gray-500" />}
+          <h1 className="text-xl font-semibold text-[var(--ink-2)]">Valuation Factors</h1>
+          {loadingFactors && <Loader2 className="w-5 h-5 animate-spin text-[var(--ink-3)]" />}
         </div>
         {modifiedCount > 0 && (
           <button
             onClick={resetAllToDefaults}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-400 hover:text-white border border-gray-600 hover:border-gray-500 rounded transition"
+            className="flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--ink-3)] hover:text-[var(--ink-1)] border border-[var(--hairline)] hover:border-gray-500 rounded transition"
           >
             <RotateCcw className="w-4 h-4" />
             Reset All ({modifiedCount})
@@ -396,7 +396,7 @@ export default function Factors() {
         )}
       </div>
 
-      <p className="text-sm text-gray-400 mb-4">
+      <p className="text-sm text-[var(--ink-3)] mb-4">
         Adjust these factors to modify valuation calculations. Changes auto-save and immediately update the dashboard.
       </p>
 
@@ -409,7 +409,7 @@ export default function Factors() {
           }).length;
 
           return (
-            <div key={section.id} className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
+            <div key={section.id} className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg overflow-hidden">
               <button
                 onClick={() => toggleSection(section.id)}
                 className="w-full flex items-center justify-between p-4 hover:bg-gray-750 transition"
@@ -424,9 +424,9 @@ export default function Factors() {
                   )}
                 </h3>
                 {isCollapsed ? (
-                  <ChevronRight className="w-4 h-4 text-gray-500" />
+                  <ChevronRight className="w-4 h-4 text-[var(--ink-3)]" />
                 ) : (
-                  <ChevronDown className="w-4 h-4 text-gray-500" />
+                  <ChevronDown className="w-4 h-4 text-[var(--ink-3)]" />
                 )}
               </button>
 
@@ -445,24 +445,24 @@ export default function Factors() {
                     </div>
                   )}
                   {section.id === 'phases' && (
-                    <p className="text-xs text-gray-500 mb-3">
+                    <p className="text-xs text-[var(--ink-3)] mb-3">
                       Default probability weights by development phase. Override per-building in Projects.
                     </p>
                   )}
                   {section.id === 'tenantCredit' && (
-                    <p className="text-xs text-gray-500 mb-3">
+                    <p className="text-xs text-[var(--ink-3)] mb-3">
                       Credit spreads vs SOFR ({sofrRate.toFixed(1)}%). Negative = better credit.
                     </p>
                   )}
                   {section.id === 'mining' && (
-                    <div className="mb-4 p-3 bg-gray-700/30 border border-gray-600/50 rounded">
+                    <div className="mb-4 p-3 bg-[var(--bg-sunken)]/30 border border-[var(--hairline)]/50 rounded">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-400">Daily Rev per EH</span>
+                        <span className="text-sm text-[var(--ink-3)]">Daily Rev per EH</span>
                         <span className="text-sm font-mono text-orange-400">
                           ${Math.round(((factors.btcPrice || 97000) / 97000) * 29400).toLocaleString()}
                         </span>
                       </div>
-                      <p className="text-[10px] text-gray-500 mt-1">
+                      <p className="text-[10px] text-[var(--ink-3)] mt-1">
                         Auto-derived from BTC price (baseline: $29,400 @ $97k BTC)
                       </p>
                     </div>
@@ -475,7 +475,7 @@ export default function Factors() {
                           {!defaultTenantKeys.has(config.key) && (
                             <button
                               onClick={() => removeTenant(config.key)}
-                              className="absolute top-2 right-0 p-1 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition"
+                              className="absolute top-2 right-0 p-1 text-[var(--ink-3)] hover:text-[var(--neg)] opacity-0 group-hover:opacity-100 transition"
                               title="Remove tenant"
                             >
                               <Trash2 className="w-3 h-3" />
@@ -491,11 +491,11 @@ export default function Factors() {
                             onChange={(e) => setNewTenantName(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && addTenant()}
                             placeholder="Tenant name"
-                            className="flex-1 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white"
+                            className="flex-1 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-2 py-1 text-sm text-[var(--ink-1)]"
                             autoFocus
                           />
-                          <button onClick={addTenant} className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-500">Add</button>
-                          <button onClick={() => { setShowAddTenant(false); setNewTenantName(''); }} className="px-2 py-1 text-xs text-gray-400 hover:text-white">Cancel</button>
+                          <button onClick={addTenant} className="px-2 py-1 text-xs bg-indigo-600 text-[var(--ink-1)] rounded hover:bg-indigo-500">Add</button>
+                          <button onClick={() => { setShowAddTenant(false); setNewTenantName(''); }} className="px-2 py-1 text-xs text-[var(--ink-3)] hover:text-[var(--ink-1)]">Cancel</button>
                         </div>
                       ) : (
                         <button
@@ -512,14 +512,14 @@ export default function Factors() {
 
                   {/* Tenant credit implied rates table */}
                   {section.id === 'tenantCredit' && (
-                    <div className="mt-3 bg-gray-900/50 rounded p-2">
-                      <div className="text-xs text-gray-500 mb-2">Implied Rates (SOFR + Spread)</div>
+                    <div className="mt-3 bg-[var(--bg-canvas)]/50 rounded p-2">
+                      <div className="text-xs text-[var(--ink-3)] mb-2">Implied Rates (SOFR + Spread)</div>
                       <div className="grid grid-cols-2 gap-1 text-xs">
                         {FACTOR_CONFIGS.tenantCredit.slice(0, 6).map((config) => {
                           const spread = factors[config.key] ?? config.defaultValue;
                           const impliedRate = sofrRate + spread;
                           return (
-                            <div key={config.key} className="flex justify-between text-gray-400">
+                            <div key={config.key} className="flex justify-between text-[var(--ink-3)]">
                               <span>{config.label}</span>
                               <span className="font-mono text-emerald-400">{impliedRate.toFixed(2)}%</span>
                             </div>

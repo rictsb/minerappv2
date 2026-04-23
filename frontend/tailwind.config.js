@@ -7,7 +7,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // BTC Mining theme colors
+        // BTC Mining theme colors (existing)
         btc: {
           50: '#fff7ed',
           100: '#ffedd5',
@@ -20,6 +20,49 @@ export default {
           800: '#9a3412',
           900: '#7c2d12',
         },
+        // Design system tokens
+        ink: {
+          1: 'var(--ink-1)',
+          2: 'var(--ink-2)',
+          3: 'var(--ink-3)',
+          4: 'var(--ink-4)',
+        },
+        bg: {
+          canvas: 'var(--bg)',
+          elevated: 'var(--bg-elevated)',
+          subtle: 'var(--bg-subtle)',
+        },
+        pos: 'var(--pos)',
+        'pos-soft': 'var(--pos-soft)',
+        neg: 'var(--neg)',
+        'neg-soft': 'var(--neg-soft)',
+        warn: 'var(--warn)',
+        'warn-soft': 'var(--warn-soft)',
+        info: 'var(--info)',
+        'info-soft': 'var(--info-soft)',
+        hairline: 'var(--hairline)',
+        'hairline-strong': 'var(--border-strong)',
+        'cat-hpc': 'var(--cat-hpc)',
+        'cat-pipeline': 'var(--cat-pipeline)',
+        'cat-mining': 'var(--cat-mining)',
+      },
+      fontFamily: {
+        sans: ['Geist', 'Inter', 'system-ui', 'sans-serif'],
+        mono: ['Geist Mono', 'ui-monospace', 'Menlo', 'monospace'],
+      },
+      boxShadow: {
+        xs: 'var(--sh-xs)',
+        card: 'var(--sh-sm)',
+        pop: 'var(--sh-pop)',
+        md: 'var(--sh-md)',
+        lg: 'var(--sh-lg)',
+      },
+      borderRadius: {
+        xs: '3px',
+        sm: '5px',
+        md: '8px',
+        lg: '12px',
+        xl: '16px',
       },
     },
   },

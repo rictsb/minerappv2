@@ -1,0 +1,88 @@
+/* ====================================================================
+   Miner Terminal — global terminal classes (used by shared components)
+   Import once from src/index.css. Safe to use alongside Tailwind.
+   ==================================================================== */
+
+/* Tabular numerals utility */
+.num {
+  font-family: 'Geist Mono', ui-monospace, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Eyebrow label */
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+/* ============== Data table ============== */
+.tbl {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+.tbl th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--ink-3);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 10px 12px;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  user-select: none;
+  white-space: nowrap;
+}
+.tbl th.num-col,
+.tbl td.num-col {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: 'Geist Mono', ui-monospace, Menlo, monospace;
+}
+.tbl th.center,
+.tbl td.center { text-align: center; }
+.tbl td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--hairline);
+  vertical-align: middle;
+}
+.tbl tbody tr { cursor: pointer; }
+.tbl tbody tr:hover { background: var(--bg-row-hover); }
+.tbl tbody tr.selected { background: var(--bg-row-selected); }
+.tbl tbody tr.selected td:first-child { box-shadow: inset 2px 0 0 var(--btc); }
+
+/* Compact variant */
+.tbl.compact th,
+.tbl.compact td { padding: 7px 10px; font-size: 11px; }
+.tbl.compact th { font-size: 9px; }
+
+/* ============== Keyboard chip ============== */
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: 'Geist Mono', ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  color: var(--ink-2);
+  box-shadow: inset 0 -1px 0 var(--border-strong);
+}
+
+/* Hairline separator */
+.hairline { height: 1px; background: var(--hairline); }
+
+/* Selection color */
+::selection { background: var(--btc-soft); color: var(--btc-ink); }

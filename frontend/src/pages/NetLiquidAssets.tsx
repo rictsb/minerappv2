@@ -206,34 +206,34 @@ export default function NetLiquidAssets() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--bg-canvas)] flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6">
+    <div className="min-h-screen bg-[var(--bg-canvas)] text-[var(--ink-1)] p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             <Wallet className="h-6 w-6 text-blue-500" />
             <h1 className="text-2xl font-bold">Net Liquid Assets</h1>
-            <span className="text-sm text-gray-500">Cash + Crypto Holdings - Debt</span>
+            <span className="text-sm text-[var(--ink-3)]">Cash + Crypto Holdings - Debt</span>
           </div>
           <button
             onClick={() => setShowAddForm(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-[var(--ink-1)] rounded-lg hover:bg-blue-700"
           >
             Add Company
           </button>
         </div>
 
         {/* Price Banner - Link to Factors */}
-        <div className="bg-gray-800 border border-gray-700 rounded-lg p-3 mb-4 flex items-center justify-between">
+        <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-3 mb-4 flex items-center justify-between">
           <div className="flex items-center gap-6 text-sm">
-            <span className="text-gray-400">Using global prices:</span>
+            <span className="text-[var(--ink-3)]">Using global prices:</span>
             <span className="text-orange-400">BTC: <span className="font-mono">${prices.btcPrice.toLocaleString()}</span></span>
             <span className="text-purple-400">ETH: <span className="font-mono">${prices.ethPrice.toLocaleString()}</span></span>
           </div>
@@ -243,10 +243,10 @@ export default function NetLiquidAssets() {
         </div>
 
         {/* Table */}
-        <div className="bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
+        <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-900 text-gray-400 text-xs uppercase">
+              <thead className="bg-[var(--bg-canvas)] text-[var(--ink-3)] text-xs uppercase">
                 <tr>
                   <th className="px-3 py-3 text-left">Ticker</th>
                   <th className="px-3 py-3 text-right bg-blue-900/20">Cash ($M)</th>
@@ -256,35 +256,35 @@ export default function NetLiquidAssets() {
                   <th className="px-3 py-3 text-right">ETH Value ($M)</th>
                   <th className="px-3 py-3 text-right text-cyan-400">Total Liquid ($M)</th>
                   <th className="px-3 py-3 text-right bg-red-900/20">Total Debt ($M)</th>
-                  <th className="px-3 py-3 text-right text-yellow-400 font-bold">Net Liquid ($M)</th>
+                  <th className="px-3 py-3 text-right text-[var(--warn)] font-bold">Net Liquid ($M)</th>
                   <th className="px-3 py-3 text-right bg-green-900/20">FD Shares (M)</th>
                   <th className="px-3 py-3 text-center">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-700">
+              <tbody className="divide-y divide-[var(--hairline)]">
                 {/* Add new row */}
                 {showAddForm && (
                   <tr className="bg-blue-900/20">
                     <td className="px-3 py-2">
-                      <input type="text" value={newRow.ticker || ''} onChange={(e) => setNewRow({ ...newRow, ticker: e.target.value.toUpperCase() })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs" placeholder="TICKER" />
+                      <input type="text" value={newRow.ticker || ''} onChange={(e) => setNewRow({ ...newRow, ticker: e.target.value.toUpperCase() })} className="w-20 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-2 py-1 text-xs" placeholder="TICKER" />
                     </td>
                     <td className="px-3 py-2">
-                      <input type="number" value={newRow.cashM || ''} onChange={(e) => setNewRow({ ...newRow, cashM: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
+                      <input type="number" value={newRow.cashM || ''} onChange={(e) => setNewRow({ ...newRow, cashM: e.target.value })} className="w-20 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-2 py-1 text-xs text-right" />
                     </td>
                     <td className="px-3 py-2">
-                      <input type="number" value={newRow.btcCount || ''} onChange={(e) => setNewRow({ ...newRow, btcCount: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
+                      <input type="number" value={newRow.btcCount || ''} onChange={(e) => setNewRow({ ...newRow, btcCount: e.target.value })} className="w-20 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-2 py-1 text-xs text-right" />
                     </td>
-                    <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
+                    <td className="px-3 py-2 text-[var(--ink-3)] text-center text-xs">Auto</td>
                     <td className="px-3 py-2">
-                      <input type="number" value={newRow.ethCount || ''} onChange={(e) => setNewRow({ ...newRow, ethCount: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
+                      <input type="number" value={newRow.ethCount || ''} onChange={(e) => setNewRow({ ...newRow, ethCount: e.target.value })} className="w-20 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-2 py-1 text-xs text-right" />
                     </td>
-                    <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
-                    <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
+                    <td className="px-3 py-2 text-[var(--ink-3)] text-center text-xs">Auto</td>
+                    <td className="px-3 py-2 text-[var(--ink-3)] text-center text-xs">Auto</td>
                     <td className="px-3 py-2">
-                      <input type="number" value={newRow.totalDebtM || ''} onChange={(e) => setNewRow({ ...newRow, totalDebtM: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
+                      <input type="number" value={newRow.totalDebtM || ''} onChange={(e) => setNewRow({ ...newRow, totalDebtM: e.target.value })} className="w-20 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-2 py-1 text-xs text-right" />
                     </td>
-                    <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
-                    <td className="px-3 py-2 text-gray-400 text-center text-xs">-</td>
+                    <td className="px-3 py-2 text-[var(--ink-3)] text-center text-xs">Auto</td>
+                    <td className="px-3 py-2 text-[var(--ink-3)] text-center text-xs">-</td>
                     <td className="px-3 py-2 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <button onClick={saveNew} className="p-1 bg-green-600 rounded hover:bg-green-700"><Save className="h-3 w-3" /></button>
@@ -296,27 +296,27 @@ export default function NetLiquidAssets() {
 
                 {/* Data rows */}
                 {calculatedData.map((row) => (
-                  <tr key={row.ticker} className="hover:bg-gray-700/30">
+                  <tr key={row.ticker} className="hover:bg-[var(--bg-sunken)]/30">
                     {editingTicker === row.ticker ? (
                       <>
                         <td className="px-3 py-2 font-medium text-orange-400">{row.ticker}</td>
                         <td className="px-3 py-2">
-                          <input type="number" value={editForm.cashM || ''} onChange={(e) => setEditForm({ ...editForm, cashM: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
+                          <input type="number" value={editForm.cashM || ''} onChange={(e) => setEditForm({ ...editForm, cashM: e.target.value })} className="w-20 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-2 py-1 text-xs text-right" />
                         </td>
                         <td className="px-3 py-2">
-                          <input type="number" value={editForm.btcCount || ''} onChange={(e) => setEditForm({ ...editForm, btcCount: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
+                          <input type="number" value={editForm.btcCount || ''} onChange={(e) => setEditForm({ ...editForm, btcCount: e.target.value })} className="w-20 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-2 py-1 text-xs text-right" />
                         </td>
-                        <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
+                        <td className="px-3 py-2 text-[var(--ink-3)] text-center text-xs">Auto</td>
                         <td className="px-3 py-2">
-                          <input type="number" value={editForm.ethCount || ''} onChange={(e) => setEditForm({ ...editForm, ethCount: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
+                          <input type="number" value={editForm.ethCount || ''} onChange={(e) => setEditForm({ ...editForm, ethCount: e.target.value })} className="w-20 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-2 py-1 text-xs text-right" />
                         </td>
-                        <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
-                        <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
+                        <td className="px-3 py-2 text-[var(--ink-3)] text-center text-xs">Auto</td>
+                        <td className="px-3 py-2 text-[var(--ink-3)] text-center text-xs">Auto</td>
                         <td className="px-3 py-2">
-                          <input type="number" value={editForm.totalDebtM || ''} onChange={(e) => setEditForm({ ...editForm, totalDebtM: e.target.value })} className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right" />
+                          <input type="number" value={editForm.totalDebtM || ''} onChange={(e) => setEditForm({ ...editForm, totalDebtM: e.target.value })} className="w-20 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-2 py-1 text-xs text-right" />
                         </td>
-                        <td className="px-3 py-2 text-gray-500 text-center text-xs">Auto</td>
-                        <td className="px-3 py-2 text-gray-400 text-center text-xs">-</td>
+                        <td className="px-3 py-2 text-[var(--ink-3)] text-center text-xs">Auto</td>
+                        <td className="px-3 py-2 text-[var(--ink-3)] text-center text-xs">-</td>
                         <td className="px-3 py-2 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <button onClick={saveEdit} className="p-1 bg-green-600 rounded hover:bg-green-700"><Save className="h-3 w-3" /></button>
@@ -333,8 +333,8 @@ export default function NetLiquidAssets() {
                         <td className="px-3 py-2 text-right font-mono text-purple-400">{formatNum(row.ethCount)}</td>
                         <td className="px-3 py-2 text-right font-mono text-purple-300">${formatNum(row.ethValueM, 1)}</td>
                         <td className="px-3 py-2 text-right font-mono text-cyan-400">${formatNum(row.totalLiquidM, 1)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-red-400">${formatNum(row.totalDebtM)}</td>
-                        <td className={`px-3 py-2 text-right font-mono font-bold ${row.netLiquidM >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        <td className="px-3 py-2 text-right font-mono text-[var(--neg)]">${formatNum(row.totalDebtM)}</td>
+                        <td className={`px-3 py-2 text-right font-mono font-bold ${row.netLiquidM >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
                           ${formatNum(row.netLiquidM, 1)}
                         </td>
                         <td className="px-3 py-2 text-right">
@@ -344,7 +344,7 @@ export default function NetLiquidAssets() {
                                 type="number"
                                 value={fdSharesValue}
                                 onChange={(e) => setFdSharesValue(e.target.value)}
-                                className="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-xs text-right"
+                                className="w-20 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded px-2 py-1 text-xs text-right"
                                 autoFocus
                               />
                               <button
@@ -367,7 +367,7 @@ export default function NetLiquidAssets() {
                                 setEditingFdShares(row.ticker);
                                 setFdSharesValue(company?.fdSharesM || '');
                               }}
-                              className="font-mono text-green-400 cursor-pointer hover:bg-green-900/30 px-2 py-1 rounded"
+                              className="font-mono text-[var(--pos)] cursor-pointer hover:bg-green-900/30 px-2 py-1 rounded"
                               title="Click to edit FD shares"
                             >
                               {companyMap.get(row.ticker)?.fdSharesM ? formatNum(companyMap.get(row.ticker)!.fdSharesM, 1) : '-'}
@@ -376,8 +376,8 @@ export default function NetLiquidAssets() {
                         </td>
                         <td className="px-3 py-2 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <button onClick={() => startEdit(row)} className="p-1 hover:bg-gray-600 rounded"><Edit2 className="h-3 w-3 text-gray-500" /></button>
-                            <button onClick={() => deleteMutation.mutate(row.ticker)} className="p-1 hover:bg-red-900/50 rounded"><Trash2 className="h-3 w-3 text-red-500/70" /></button>
+                            <button onClick={() => startEdit(row)} className="p-1 hover:bg-[var(--bg-sunken)] rounded"><Edit2 className="h-3 w-3 text-[var(--ink-3)]" /></button>
+                            <button onClick={() => deleteMutation.mutate(row.ticker)} className="p-1 hover:bg-red-900/50 rounded"><Trash2 className="h-3 w-3 text-[var(--neg)]/70" /></button>
                           </div>
                         </td>
                       </>
@@ -387,7 +387,7 @@ export default function NetLiquidAssets() {
 
                 {/* Totals row */}
                 {calculatedData.length > 0 && (
-                  <tr className="bg-gray-900 font-bold border-t-2 border-blue-500">
+                  <tr className="bg-[var(--bg-canvas)] font-bold border-t-2 border-blue-500">
                     <td className="px-3 py-3 text-blue-400">TOTAL</td>
                     <td className="px-3 py-3 text-right font-mono">${formatNum(totals.cashM)}</td>
                     <td className="px-3 py-3 text-right font-mono text-orange-400">{formatNum(totals.btcCount)}</td>
@@ -395,8 +395,8 @@ export default function NetLiquidAssets() {
                     <td className="px-3 py-3 text-right font-mono text-purple-400">{formatNum(totals.ethCount)}</td>
                     <td className="px-3 py-3 text-right font-mono text-purple-300">${formatNum(totals.ethValueM, 0)}</td>
                     <td className="px-3 py-3 text-right font-mono text-cyan-400">${formatNum(totals.totalLiquidM, 0)}</td>
-                    <td className="px-3 py-3 text-right font-mono text-red-400">${formatNum(totals.totalDebtM)}</td>
-                    <td className={`px-3 py-3 text-right font-mono font-bold ${totals.netLiquidM >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    <td className="px-3 py-3 text-right font-mono text-[var(--neg)]">${formatNum(totals.totalDebtM)}</td>
+                    <td className={`px-3 py-3 text-right font-mono font-bold ${totals.netLiquidM >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
                       ${formatNum(totals.netLiquidM, 0)}
                     </td>
                     <td className="px-3 py-3"></td>
@@ -406,7 +406,7 @@ export default function NetLiquidAssets() {
 
                 {assets.length === 0 && !showAddForm && (
                   <tr>
-                    <td colSpan={11} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={11} className="px-4 py-8 text-center text-[var(--ink-3)]">
                       No net liquid assets yet. Click "Add Company" to get started.
                     </td>
                   </tr>
@@ -417,12 +417,12 @@ export default function NetLiquidAssets() {
         </div>
 
         {/* Legend */}
-        <div className="mt-4 text-[10px] text-gray-500 flex gap-6 flex-wrap">
+        <div className="mt-4 text-[10px] text-[var(--ink-3)] flex gap-6 flex-wrap">
           <span><span className="text-blue-300">Blue</span> = Cash input</span>
           <span><span className="text-orange-400">Orange</span> = BTC holdings</span>
           <span><span className="text-purple-400">Purple</span> = ETH holdings</span>
-          <span><span className="text-red-400">Red</span> = Debt</span>
-          <span><span className="text-green-400">Green</span> = FD Shares (click to edit)</span>
+          <span><span className="text-[var(--neg)]">Red</span> = Debt</span>
+          <span><span className="text-[var(--pos)]">Green</span> = FD Shares (click to edit)</span>
         </div>
       </div>
     </div>
