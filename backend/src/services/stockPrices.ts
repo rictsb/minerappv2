@@ -391,6 +391,49 @@ export async function updateAllStockPrices(): Promise<{
 }
 
 /**
+ * Fetch historical daily closing prices from Finnhub stock candles endpoint.
+ * Returns an array of closing prices (oldest→newest) for the given ticker.
+ * Uses daily resolution ('D') and fetches `days` calendar days of history.
+ */
+export async function fetchStockCandles(
+  ticker: string,
+  days: number = 30
+): Promise<number[] | null> {
+  if (!FINNHUB_API_KEY) {
+    console.error('FINNHUB_API_KEY not set');
+    return null;
+  }
+
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const from = now - days * 86400;
+    const url = `https://finnhub.io/api/v1/stock/candle?symbol=${ticker}&resolution=D&from=${from}&to=${now}&token=${FINNHUB_API_KEY}`;
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error(`Finnhub candle API error for ${ticker}: ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json() as {
+      s?: string;   // status: "ok" or "no_data"
+      c?: number[];  // close prices
+      t?: number[];  // timestamps
+    };
+
+    if (data.s !== 'ok' || !data.c || data.c.length === 0) {
+      console.error(`No candle data for ${ticker}: status=${data.s}`);
+      return null;
+    }
+
+    return data.c; // array of closing prices, oldest first
+  } catch (error) {
+    console.error(`Error fetching candles for ${ticker}:`, error);
+    return null;
+  }
+}
+
+/**
  * Get cached prices from database
  */
 export async function getCachedPrices(): Promise<Record<string, number | null>> {

@@ -116,33 +116,44 @@ interface ManualTickerForm {
 }
 
 /**
- * Deterministic 30-day price walk synthesized from ticker + current price.
- * This is a PLACEHOLDER — replace with a real endpoint when one exists.
- * TODO(backend): expose GET /api/v1/stock-prices/:ticker/history?days=30
- * Then swap `makeSparkPoints(ticker, price)` for a useQuery fetching that.
+ * Hook to fetch real 30-day historical closing prices from Finnhub via our backend.
+ * Returns a map of ticker → number[] (closing prices, oldest→newest).
+ * Data is cached for 15 minutes and shared across all tickers in a single batch.
  */
-function makeSparkPoints(ticker: string, currentPrice: number, days: number = 30): number[] {
-  // Seed a simple LCG from the ticker so each ticker has a consistent shape
-  let seed = 0;
-  for (let i = 0; i < ticker.length; i++) seed = (seed * 31 + ticker.charCodeAt(i)) >>> 0;
-  const rand = () => {
-    seed = (seed * 1664525 + 1013904223) >>> 0;
-    return seed / 0xffffffff;
-  };
-  // Build 30 daily log-returns ~ N(0, 0.03) and scale to land on currentPrice at t=days-1
-  const rets: number[] = [];
-  for (let i = 0; i < days; i++) {
-    // Box-Muller
-    const u1 = Math.max(rand(), 1e-9);
-    const u2 = rand();
-    const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-    rets.push(z * 0.028);
-  }
-  // Walk forward from an arbitrary start, then rescale so last == currentPrice
-  const walk: number[] = [1];
-  for (let i = 0; i < rets.length; i++) walk.push(walk[i] * Math.exp(rets[i]));
-  const scale = currentPrice / walk[walk.length - 1];
-  return walk.map((x) => x * scale);
+function useSparklineData(tickers: string[]): Record<string, number[]> {
+  const apiUrl = getApiUrl();
+  const stableTickers = useMemo(() => [...tickers].sort().join(','), [tickers]);
+
+  const { data } = useQuery<Record<string, number[]>>({
+    queryKey: ['sparklines', stableTickers],
+    queryFn: async () => {
+      const tickerList = stableTickers.split(',').filter(Boolean);
+      const results: Record<string, number[]> = {};
+
+      // Fetch in parallel (backend handles Finnhub rate limiting)
+      const fetches = tickerList.map(async (ticker) => {
+        try {
+          const res = await fetch(`${apiUrl}/api/v1/stock-prices/${ticker}/history?days=30`);
+          if (res.ok) {
+            const json = await res.json();
+            if (json.prices && json.prices.length > 1) {
+              results[ticker] = json.prices;
+            }
+          }
+        } catch {
+          // Silently skip failed tickers — sparkline just won't render
+        }
+      });
+
+      await Promise.all(fetches);
+      return results;
+    },
+    staleTime: 15 * 60 * 1000,  // Cache for 15 min
+    refetchOnWindowFocus: false,
+    enabled: stableTickers.length > 0,
+  });
+
+  return data || {};
 }
 
 function getApiUrl(): string {
@@ -413,6 +424,10 @@ export default function Dashboard() {
 
   const selectedVal = selectedTicker ? valuations.find((v) => v.ticker === selectedTicker) : null;
 
+  // Fetch real 30-day sparkline data for all tickers
+  const allTickers = useMemo(() => valuations.filter(v => !v.isManual).map(v => v.ticker), [valuations]);
+  const sparklineData = useSparklineData(allTickers);
+
   // ── Render ─────────────────────────────────────────────────────────────
 
   if (isLoading) {
@@ -565,10 +580,10 @@ export default function Dashboard() {
                         ? (v.fairValuePerShare / v.stockPrice - 1) * 100
                         : null;
 
-                    const sparkPoints = makeSparkPoints(v.ticker, v.stockPrice || 100);
+                    const sparkPoints = sparklineData[v.ticker] || [];
                     const oneDayDelta = sparkPoints.length >= 2
                       ? ((sparkPoints[sparkPoints.length - 1] / sparkPoints[sparkPoints.length - 2]) - 1) * 100
-                      : 0;
+                      : (v.stockPrice ? 0 : 0);
 
                     const sotpItems = [
                       { value: Math.max(0, v.netLiquid), fill: COLORS.netLiquid, label: 'Net Liquid' },
@@ -623,14 +638,14 @@ export default function Dashboard() {
                         </td>
                         <td className="num-col text-ink-1">{v.stockPrice ? fmtMoney(v.stockPrice) : '—'}</td>
                         <td className="num-col">
-                          {v.stockPrice ? (
+                          {sparkPoints.length >= 2 ? (
                             <DeltaPill value={oneDayDelta} size="sm" precision={1} />
                           ) : (
                             <span className="text-ink-4">—</span>
                           )}
                         </td>
                         <td className="num-col">
-                          {v.stockPrice ? (
+                          {sparkPoints.length > 1 ? (
                             <Sparkline
                               points={sparkPoints}
                               width={72}
@@ -794,6 +809,7 @@ export default function Dashboard() {
       {selectedVal && (
         <TickerDetailPanel
           v={selectedVal}
+          sparkPoints={sparklineData[selectedVal.ticker] || []}
           onClose={() => setSelectedTicker(null)}
           onCapexInFinancials={async () => {
             try {
@@ -912,10 +928,12 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
 
 function TickerDetailPanel({
   v,
+  sparkPoints,
   onClose,
   onCapexInFinancials,
 }: {
   v: Valuation;
+  sparkPoints: number[];
   onClose: () => void;
   onCapexInFinancials: () => void;
 }) {
@@ -963,18 +981,13 @@ function TickerDetailPanel({
                 {v.stockPrice ? fmtMoney(v.stockPrice) : '—'}
               </div>
             </div>
-            {v.stockPrice && (
+            {sparkPoints.length > 1 && (
               <div className="flex-1">
                 <Sparkline
-                  points={makeSparkPoints(v.ticker, v.stockPrice)}
+                  points={sparkPoints}
                   width={180}
                   height={40}
-                  stroke={
-                    makeSparkPoints(v.ticker, v.stockPrice).slice(-1)[0] >=
-                    makeSparkPoints(v.ticker, v.stockPrice)[0]
-                      ? 'var(--pos)'
-                      : 'var(--neg)'
-                  }
+                  stroke={sparkPoints[sparkPoints.length - 1] >= sparkPoints[0] ? 'var(--pos)' : 'var(--neg)'}
                 />
               </div>
             )}

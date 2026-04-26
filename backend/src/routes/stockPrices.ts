@@ -9,6 +9,7 @@ import {
   getCachedPrices,
   fetchStockPrice,
   fetchCompanyInfo,
+  fetchStockCandles,
 } from '../services/stockPrices.js';
 
 const router = Router();
@@ -54,6 +55,25 @@ router.get('/lookup/:ticker', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error looking up company:', error);
     res.status(500).json({ error: 'Failed to look up company' });
+  }
+});
+
+// GET /api/v1/stock-prices/:ticker/history
+// Get historical daily closing prices for a ticker (for sparklines)
+router.get('/:ticker/history', async (req: Request, res: Response) => {
+  try {
+    const { ticker } = req.params;
+    const days = Math.min(parseInt(req.query.days as string) || 30, 365);
+    const candles = await fetchStockCandles(ticker.toUpperCase(), days);
+
+    if (!candles) {
+      return res.status(404).json({ error: `No history found for ${ticker}` });
+    }
+
+    res.json({ ticker: ticker.toUpperCase(), days, prices: candles });
+  } catch (error) {
+    console.error('Error fetching price history:', error);
+    res.status(500).json({ error: 'Failed to fetch price history' });
   }
 });
 
