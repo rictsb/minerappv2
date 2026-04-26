@@ -867,6 +867,7 @@ app.patch('/api/v1/use-periods/:id', async (req, res) => {
     if (body.annualRevM !== undefined) data.annualRevM = body.annualRevM;
     if (body.noiAnnualM !== undefined) data.noiAnnualM = body.noiAnnualM;
     if (body.capexPerMwOverride !== undefined) data.capexPerMwOverride = body.capexPerMwOverride;
+    if (body.leaseConfirmed !== undefined) data.leaseConfirmed = body.leaseConfirmed;
 
     // Recompute noiAnnualM if lease data changed
     if (body.leaseValueM !== undefined || body.leaseYears !== undefined || body.noiPct !== undefined) {
@@ -1468,7 +1469,7 @@ app.get('/api/v1/valuation', async (req, res) => {
             const currentUses = building.usePeriods.filter((up: any) => up.isCurrent || (!up.isCurrent && !up.endDate));
 
             // Helper to build enriched hpcSite entry with factor waterfall
-            const makeSiteEntry = (result: any, category: string, tenant: string, mw: number, leaseValM: number) => ({
+            const makeSiteEntry = (result: any, category: string, tenant: string, mw: number, leaseValM: number, leaseConfirmed: boolean = false) => ({
               siteName: site.name,
               buildingName: building.name,
               tenant,
@@ -1478,6 +1479,7 @@ app.get('/api/v1/valuation', async (req, res) => {
               valuation: Math.round(result.valuationM),
               phase: building.developmentPhase,
               category,
+              leaseConfirmed,
               energizationDate: building.energizationDate || null,
               factors: {
                 ...bfDetails,
@@ -1537,17 +1539,18 @@ app.get('/api/v1/valuation', async (req, res) => {
                 const hasLease = currentUse.tenant && currentUse.leaseValueM;
                 const leaseValM = Number(currentUse.leaseValueM) || 0;
 
+                const confirmed = currentUse.leaseConfirmed === true;
                 if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
-                  hpcSites.push(makeSiteEntry(result, 'MINING', currentUse.tenant || '', mw, leaseValM));
+                  hpcSites.push(makeSiteEntry(result, 'MINING', currentUse.tenant || '', mw, leaseValM, confirmed));
                 } else if ((useType === 'HPC_AI_HOSTING' || useType === 'GPU_CLOUD') && hasLease) {
                   mwHpcContracted += mw;
                   totalLeaseValueM += leaseValM;
                   evHpcContracted += result.valuationM;
-                  hpcSites.push(makeSiteEntry(result, 'HPC_CONTRACTED', currentUse.tenant || '', mw, leaseValM));
+                  hpcSites.push(makeSiteEntry(result, 'HPC_CONTRACTED', currentUse.tenant || '', mw, leaseValM, confirmed));
                 } else {
                   mwHpcPipeline += mw;
                   evHpcPipeline += result.valuationM;
-                  hpcSites.push(makeSiteEntry(result, 'PIPELINE', currentUse.tenant || '', mw, leaseValM));
+                  hpcSites.push(makeSiteEntry(result, 'PIPELINE', currentUse.tenant || '', mw, leaseValM, false));
                 }
 
                 periodValuations.push({ buildingId: building.id, usePeriodId: currentUse.id, valuationM: result.valuationM });

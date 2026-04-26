@@ -96,6 +96,7 @@ interface UsePeriod {
   leaseStructure: string | null;
   startDate: string | null;
   endDate: string | null;
+  leaseConfirmed?: boolean;
   computedValuationM?: number;
 }
 
@@ -149,6 +150,7 @@ interface FlatBuilding {
   state: string | null;
   grid: string | null;
   category?: 'HPC_CONTRACTED' | 'PIPELINE' | 'MINING';
+  leaseConfirmed: boolean;
   grossValue: number | null;
   capexDeduction: number | null;
   valuationMethod?: 'MW PIPELINE' | 'NOI CAP RATE' | 'MINING HASHRATE';
@@ -358,6 +360,7 @@ export default function Projects() {
                 state: site.state || null,
                 grid: building.grid || null,
                 category,
+                leaseConfirmed: currentUse.leaseConfirmed === true,
                 grossValue,
                 capexDeduction,
                 valuationMethod,
@@ -392,6 +395,7 @@ export default function Projects() {
                     state: site.state || null,
                     grid: building.grid || null,
                     category,
+                    leaseConfirmed: false,
                     grossValue: (building as any).unallocatedValuationM ?? null,
                     capexDeduction: null,
                     valuationMethod: 'MW PIPELINE',
@@ -421,6 +425,7 @@ export default function Projects() {
                   state: site.state || null,
                   grid: building.grid || null,
                   category,
+                  leaseConfirmed: false,
                   grossValue: null,
                   capexDeduction: null,
                   valuationMethod: 'MW PIPELINE',
@@ -699,7 +704,19 @@ export default function Projects() {
                             <span className="text-ink-4 text-[11px]">—</span>
                           )}
                         </td>
-                        <td className="text-[11px] text-ink-2 truncate max-w-[120px]" title={row.tenant || ''}>{row.tenant || '—'}</td>
+                        <td>
+                          <div className="flex items-center gap-[5px]">
+                            <span className="text-[11px] text-ink-2 truncate max-w-[100px]" title={row.tenant || ''}>{row.tenant || '—'}</span>
+                            {row.tenant && row.leaseConfirmed && (
+                              <span className="inline-flex items-center gap-[2px] text-[8px] font-semibold uppercase tracking-wider text-[var(--pos)]" title="Lease verified">
+                                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                              </span>
+                            )}
+                            {row.tenant && row.category === 'HPC_CONTRACTED' && !row.leaseConfirmed && (
+                              <span className="text-[8px] font-semibold uppercase tracking-wider text-[var(--warn)]" title="Lease unconfirmed — thesis">?</span>
+                            )}
+                          </div>
+                        </td>
                         <td className="text-[11px] text-ink-1 font-medium">{row.state || '—'}</td>
                         <td className="text-[11px] text-ink-2">{row.grid || '—'}</td>
                         <td className="num-col text-ink-2">{row.itMw !== null ? fmt(row.itMw, 0) : '—'}</td>

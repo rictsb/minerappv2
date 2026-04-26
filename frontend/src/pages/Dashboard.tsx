@@ -57,6 +57,7 @@ interface HpcSite {
   phase: string;
   dollarsPerMwYr?: number;
   category?: 'HPC_CONTRACTED' | 'PIPELINE' | 'MINING';
+  leaseConfirmed?: boolean;
 }
 
 interface Valuation {
@@ -1099,18 +1100,31 @@ function TickerDetailPanel({
               {v.hpcSites.slice(0, 5).map((s, i) => (
                 <div key={i} className="text-[12px] flex items-start justify-between gap-2 p-2 bg-canvas rounded-sm">
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-ink-1 truncate">{s.siteName}</div>
+                    <div className="flex items-center gap-[6px]">
+                      <span className="font-medium text-ink-1 truncate">{s.siteName}</span>
+                      {s.leaseConfirmed && (
+                        <span className="inline-flex items-center gap-[3px] text-[9px] font-medium uppercase tracking-wider text-[var(--pos)]" title="Lease verified">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                          Verified
+                        </span>
+                      )}
+                      {s.category === 'HPC_CONTRACTED' && !s.leaseConfirmed && (
+                        <span className="text-[9px] font-medium uppercase tracking-wider text-[var(--warn)]" title="Lease unconfirmed — thesis">
+                          Unconfirmed
+                        </span>
+                      )}
+                    </div>
                     <div className="text-[11px] text-ink-3 truncate">{s.buildingName} · {s.tenant || 'N/A'}</div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    {s.phase && (
-                      <Badge color={s.phase === 'PIPELINE' ? 'pipeline' : 'mining'}>
-                        {s.phase}
+                    {s.category && (
+                      <Badge color={s.category === 'HPC_CONTRACTED' ? 'hpc' : s.category === 'PIPELINE' ? 'pipeline' : 'mining'}>
+                        {s.category === 'HPC_CONTRACTED' ? 'HPC' : s.category === 'PIPELINE' ? 'PIPELINE' : 'MINING'}
                       </Badge>
                     )}
                     <div className="text-right">
                       <div className="num text-ink-1 font-medium">{fmt(s.mw, 0)} MW</div>
-                      <div className="text-ink-3 text-[10px]">{s.tenant ? s.tenant.split(' ')[0] : '—'}</div>
+                      <div className="num text-ink-3 text-[10px]">{fmtM(s.valuation)}</div>
                     </div>
                   </div>
                 </div>

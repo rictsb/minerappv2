@@ -191,6 +191,7 @@ model UsePeriod {
   noiAnnualM          Decimal? @db.Decimal(12, 2)
   leaseStart          DateTime?
   leaseEnd            DateTime?  // Calculated or explicit lease end date
+  leaseConfirmed      Boolean  @default(false) @map("lease_confirmed")  // Verified lease (press release, SEC filing, signed deal)
   leaseNotes          String?
 
   // Mining-specific (for self-mining use)
