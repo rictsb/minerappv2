@@ -24,7 +24,9 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
+  RefreshCw,
   Pencil,
+  Plus,
   X,
   ExternalLink,
   Check,
@@ -152,6 +154,7 @@ function getApiUrl(): string {
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(() => {
     const saved = localStorage.getItem('lastPriceRefresh');
@@ -210,9 +213,8 @@ export default function Dashboard() {
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['valuation'] }),
   });
-  void freshnessMutation;
+  void freshnessMutation; // available for future UI integration
 
-  // Reserved for manual price refresh button
   const refreshPricesMutation = useMutation({
     mutationFn: async () => {
       const apiUrl = getApiUrl();
@@ -220,15 +222,20 @@ export default function Dashboard() {
       if (!res.ok) throw new Error('Failed to refresh prices');
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      setRefreshMessage(`Updated ${data.updated} prices`);
       const now = new Date();
       setLastRefresh(now);
       localStorage.setItem('lastPriceRefresh', now.toISOString());
       queryClient.invalidateQueries({ queryKey: ['valuation'] });
       queryClient.invalidateQueries({ queryKey: ['companies'] });
+      setTimeout(() => setRefreshMessage(null), 3000);
+    },
+    onError: (error: Error) => {
+      setRefreshMessage(`Error: ${error.message}`);
+      setTimeout(() => setRefreshMessage(null), 3000);
     },
   });
-  void refreshPricesMutation;
 
   const updateOverrideMutation = useMutation({
     mutationFn: async (data: {
@@ -432,11 +439,33 @@ export default function Dashboard() {
         className={`flex-1 min-w-0 overflow-auto transition-all duration-200 ${selectedVal ? 'mr-[520px]' : ''}`}
       >
         <div className="p-6">
-          {/* Header with title, badge, and subtitle */}
+          {/* Header with title, badge, buttons, and subtitle */}
           <div className="mb-6">
             <div className="flex items-center gap-3 mb-1">
               <h1 className="text-[24px] font-semibold text-ink-1">BTC Miner Dashboard</h1>
               <Badge color="brand">LIVE SOTP</Badge>
+              <div className="ml-auto flex items-center gap-2">
+                {refreshMessage && (
+                  <span className={`text-[12px] ${refreshMessage.includes('Error') ? 'text-[var(--neg)]' : 'text-[var(--pos)]'}`}>
+                    {refreshMessage}
+                  </span>
+                )}
+                <button
+                  onClick={() => setShowAddManual(true)}
+                  className="inline-flex items-center gap-[6px] px-3 py-[6px] rounded-sm border border-[var(--border-strong)] bg-elevated hover:bg-subtle text-[12px] text-ink-1"
+                >
+                  <Plus className="w-[14px] h-[14px]" />
+                  Add Ticker
+                </button>
+                <button
+                  onClick={() => refreshPricesMutation.mutate()}
+                  disabled={refreshPricesMutation.isPending}
+                  className="inline-flex items-center gap-[6px] px-3 py-[6px] rounded-sm bg-[var(--btc)] hover:bg-[var(--btc-ink)] text-white text-[12px] disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-[14px] h-[14px] ${refreshPricesMutation.isPending ? 'animate-spin' : ''}`} />
+                  {refreshPricesMutation.isPending ? 'Refreshing…' : 'Refresh Prices'}
+                </button>
+              </div>
             </div>
             {valuations.length > 0 && (
               <div className="text-[13px] text-ink-3">
