@@ -24,29 +24,25 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
-  RefreshCw,
   Pencil,
-  Plus,
   X,
   ExternalLink,
   Check,
   Trash2,
   ChevronRight,
+  Download,
 } from 'lucide-react';
 
 import Card from '../components/Card';
 import Badge from '../components/Badge';
-import Confidence from '../components/Confidence';
 import DeltaPill from '../components/DeltaPill';
 import SOTPBar from '../components/SOTPBar';
+import Sparkline from '../components/Sparkline';
 import TickerMark from '../components/TickerMark';
-import SectionHeader from '../components/SectionHeader';
-import { fmt, fmtM, fmtMoney } from '../lib/format';
+import { fmt, fmtM, fmtMoney, fmtPct } from '../lib/format';
 import { COLORS } from '../lib/colors';
 
 // ── Types (match backend exactly) ─────────────────────────────────────────
-
-type FreshnessLevel = 0 | 1 | 2 | 3;
 
 interface HpcSite {
   siteName: string;
@@ -116,6 +112,36 @@ interface ManualTickerForm {
   fdSharesM: string;
 }
 
+/**
+ * Deterministic 30-day price walk synthesized from ticker + current price.
+ * This is a PLACEHOLDER — replace with a real endpoint when one exists.
+ * TODO(backend): expose GET /api/v1/stock-prices/:ticker/history?days=30
+ * Then swap `makeSparkPoints(ticker, price)` for a useQuery fetching that.
+ */
+function makeSparkPoints(ticker: string, currentPrice: number, days: number = 30): number[] {
+  // Seed a simple LCG from the ticker so each ticker has a consistent shape
+  let seed = 0;
+  for (let i = 0; i < ticker.length; i++) seed = (seed * 31 + ticker.charCodeAt(i)) >>> 0;
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0xffffffff;
+  };
+  // Build 30 daily log-returns ~ N(0, 0.03) and scale to land on currentPrice at t=days-1
+  const rets: number[] = [];
+  for (let i = 0; i < days; i++) {
+    // Box-Muller
+    const u1 = Math.max(rand(), 1e-9);
+    const u2 = rand();
+    const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    rets.push(z * 0.028);
+  }
+  // Walk forward from an arbitrary start, then rescale so last == currentPrice
+  const walk: number[] = [1];
+  for (let i = 0; i < rets.length; i++) walk.push(walk[i] * Math.exp(rets[i]));
+  const scale = currentPrice / walk[walk.length - 1];
+  return walk.map((x) => x * scale);
+}
+
 function getApiUrl(): string {
   let apiUrl = import.meta.env.VITE_API_URL || '';
   if (apiUrl && !apiUrl.startsWith('http')) apiUrl = `https://${apiUrl}`;
@@ -126,7 +152,6 @@ function getApiUrl(): string {
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
-  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(() => {
     const saved = localStorage.getItem('lastPriceRefresh');
@@ -171,6 +196,7 @@ export default function Dashboard() {
 
   // ── Mutations (unchanged from original) ────────────────────────────────
 
+  // Reserved for future ticker freshness cycling UI
   const freshnessMutation = useMutation({
     mutationFn: async ({ ticker, freshness }: { ticker: string; freshness: number }) => {
       const apiUrl = getApiUrl();
@@ -184,16 +210,9 @@ export default function Dashboard() {
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['valuation'] }),
   });
+  void freshnessMutation;
 
-  const updateFreshness = useCallback(
-    (ticker: string) => {
-      const current = valData?.valuations?.find((v) => v.ticker === ticker)?.freshness || 0;
-      const next = (current + 1) % 4;
-      freshnessMutation.mutate({ ticker, freshness: next });
-    },
-    [valData, freshnessMutation]
-  );
-
+  // Reserved for manual price refresh button
   const refreshPricesMutation = useMutation({
     mutationFn: async () => {
       const apiUrl = getApiUrl();
@@ -201,20 +220,15 @@ export default function Dashboard() {
       if (!res.ok) throw new Error('Failed to refresh prices');
       return res.json();
     },
-    onSuccess: (data) => {
-      setRefreshMessage(`Updated ${data.updated} prices`);
+    onSuccess: () => {
       const now = new Date();
       setLastRefresh(now);
       localStorage.setItem('lastPriceRefresh', now.toISOString());
       queryClient.invalidateQueries({ queryKey: ['valuation'] });
       queryClient.invalidateQueries({ queryKey: ['companies'] });
-      setTimeout(() => setRefreshMessage(null), 3000);
-    },
-    onError: (error: Error) => {
-      setRefreshMessage(`Error: ${error.message}`);
-      setTimeout(() => setRefreshMessage(null), 3000);
     },
   });
+  void refreshPricesMutation;
 
   const updateOverrideMutation = useMutation({
     mutationFn: async (data: {
@@ -389,7 +403,6 @@ export default function Dashboard() {
     { marketCapM: 0, totalValueM: 0, evMining: 0, evHpcContracted: 0, evHpcPipeline: 0, totalEv: 0, impliedProjectDebt: 0 }
   );
 
-  const factors = valData?.factors;
   const selectedVal = selectedTicker ? valuations.find((v) => v.ticker === selectedTicker) : null;
 
   // ── Render ─────────────────────────────────────────────────────────────
@@ -419,85 +432,99 @@ export default function Dashboard() {
         className={`flex-1 min-w-0 overflow-auto transition-all duration-200 ${selectedVal ? 'mr-[520px]' : ''}`}
       >
         <div className="p-6">
-          <SectionHeader
-            eyebrow="Valuation Terminal"
-            title="Bitcoin Miner Coverage"
-            subtitle={
-              factors
-                ? `BTC ${fmtMoney(factors.btcPrice, 0)} · Contracted ${fmtM(factors.mwValueHpcContracted)}/MW · Pipeline ${fmtM(factors.mwValueHpcUncontracted)}/MW · NOI ${factors.noiMultiple}×`
-                : undefined
-            }
-            right={
-              <>
-                {refreshMessage && (
-                  <span
-                    className={`text-[12px] ${refreshMessage.includes('Error') ? 'text-[var(--neg)]' : 'text-[var(--pos)]'}`}
-                  >
-                    {refreshMessage}
-                  </span>
-                )}
-                {lastRefresh && !refreshMessage && (
-                  <span className="text-[11px] text-ink-3">
-                    Updated{' '}
-                    {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ·{' '}
-                    {lastRefresh.toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                  </span>
-                )}
-                <button
-                  onClick={() => setShowAddManual(true)}
-                  className="inline-flex items-center gap-[6px] px-3 py-[6px] rounded-sm border border-[var(--border-strong)] bg-elevated hover:bg-subtle text-[12px] text-ink-1"
-                >
-                  <Plus className="w-[14px] h-[14px]" />
-                  Add Ticker
-                </button>
-                <button
-                  onClick={() => refreshPricesMutation.mutate()}
-                  disabled={refreshPricesMutation.isPending}
-                  className="inline-flex items-center gap-[6px] px-3 py-[6px] rounded-sm bg-[var(--btc)] hover:bg-[var(--btc-ink)] text-white text-[12px] disabled:opacity-50"
-                >
-                  <RefreshCw
-                    className={`w-[14px] h-[14px] ${refreshPricesMutation.isPending ? 'animate-spin' : ''}`}
-                  />
-                  {refreshPricesMutation.isPending ? 'Refreshing…' : 'Refresh Prices'}
-                </button>
-              </>
-            }
-          />
-
-          {/* Summary KPIs */}
-          <div className="grid grid-cols-4 gap-3 mb-6" style={{ gridTemplateColumns: totals.impliedProjectDebt > 0 ? 'repeat(5, 1fr)' : 'repeat(4, 1fr)' }}>
-            <KPI label="Mining EV" value={fmtM(totals.evMining)} accent={COLORS.mining} />
-            <KPI label="HPC Contracted" value={fmtM(totals.evHpcContracted)} accent={COLORS.hpc} />
-            <KPI label="HPC Pipeline" value={fmtM(totals.evHpcPipeline)} accent={COLORS.pipeline} />
-            {totals.impliedProjectDebt > 0 && (
-              <KPI label="Implied Debt" value={`−${fmtM(totals.impliedProjectDebt)}`} accent={COLORS.debt} />
+          {/* Header with title, badge, and subtitle */}
+          <div className="mb-6">
+            <div className="flex items-center gap-3 mb-1">
+              <h1 className="text-[24px] font-semibold text-ink-1">BTC Miner Dashboard</h1>
+              <Badge color="brand">LIVE SOTP</Badge>
+            </div>
+            {valuations.length > 0 && (
+              <div className="text-[13px] text-ink-3">
+                {valuations.length} tickers · {valuations.reduce((sum, v) => sum + (v.hpcSites?.length || 0), 0)} sites ·{' '}
+                {fmt(valuations.reduce((sum, v) => sum + v.totalMw, 0), 0)} MW tracked
+                {lastRefresh && ` · Last refresh ${getTimeAgo(lastRefresh)}`}
+              </div>
             )}
-            <KPI label="Total EV" value={fmtM(totals.totalEv)} accent={COLORS.ink1} highlight />
+          </div>
+
+          {/* Three KPI cards */}
+          <div className="grid grid-cols-3 gap-3 mb-6">
+            <KPI
+              label="AGGREGATE EV"
+              value={fmtM(totals.totalEv)}
+              accent={COLORS.ink1}
+              subtitle="Sum of parts"
+            />
+            <KPI
+              label="AGGREGATE NET LIQUID"
+              value={fmtM(totals.marketCapM)}
+              accent={COLORS.netLiquid}
+              subtitle="Cash + debt + BTC + ETH"
+            />
+            <div className="relative">
+              <KPI
+                label="TOTAL VALUE"
+                value={fmtM(totals.totalValueM)}
+                accent={COLORS.btc}
+                subtitle="EV + Net liquid"
+                highlight
+              />
+              <div className="absolute top-3 right-3 flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    // Export functionality - can be enhanced later
+                    const data = valuations.map(v => ({
+                      ticker: v.ticker,
+                      name: v.name,
+                      price: v.stockPrice,
+                      fairValue: v.fairValuePerShare,
+                      totalValue: v.totalValueM,
+                    }));
+                    const csv = [
+                      ['Ticker', 'Name', 'Price', 'Fair Value', 'Total Value'],
+                      ...data.map(d => [d.ticker, d.name, d.price, d.fairValue, d.totalValue])
+                    ].map(row => row.join(',')).join('\n');
+                    const blob = new Blob([csv], { type: 'text/csv' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'dashboard-export.csv';
+                    a.click();
+                  }}
+                  className="text-ink-4 hover:text-ink-1 p-1"
+                  title="Export data"
+                >
+                  <Download className="w-[14px] h-[14px]" />
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Main table */}
           <Card padding="none">
             <div className="overflow-auto">
-              <table className="tbl" style={{ minWidth: 1100 }}>
+              <table className="tbl" style={{ minWidth: 1300 }}>
                 <thead>
                   <tr>
                     <SortTh active={sortKey === 'ticker'} dir={sortDir} onClick={() => handleSort('ticker')}>
-                      Ticker
+                      TICKER
                     </SortTh>
-                    <SortTh active={sortKey === 'freshness'} dir={sortDir} onClick={() => handleSort('freshness')} className="center" title="Data freshness" />
-                    <th className="num-col">Price</th>
-                    <th className="num-col">Mkt Cap</th>
-                    <th className="num-col">Net Liq.</th>
+                    <th className="num-col">PRICE</th>
+                    <th className="num-col" style={{ width: 60 }}>1D</th>
+                    <th className="num-col" style={{ width: 88 }}>30D</th>
                     <th className="num-col">MW</th>
-                    <th>SOTP</th>
+                    <th className="num-col">NET LIQ.</th>
+                    <th style={{ width: 120 }}>SOTP</th>
                     <th className="num-col">EV</th>
+                    <SortTh active={sortKey === 'ticker'} dir={sortDir} onClick={() => handleSort('ticker')} className="num-col">
+                      TOTAL
+                    </SortTh>
                     <SortTh active={sortKey === 'fairValue'} dir={sortDir} onClick={() => handleSort('fairValue')} className="num-col">
-                      Fair Val.
+                      FAIR VAL.
                     </SortTh>
                     <SortTh active={sortKey === 'upside'} dir={sortDir} onClick={() => handleSort('upside')} className="num-col">
-                      Upside
+                      UPSIDE
                     </SortTh>
-                    <th className="num-col">$/MW/yr</th>
                     <th className="center" style={{ width: 48 }} />
                   </tr>
                 </thead>
@@ -507,11 +534,11 @@ export default function Dashboard() {
                       v.stockPrice && v.stockPrice > 0 && v.fairValuePerShare
                         ? (v.fairValuePerShare / v.stockPrice - 1) * 100
                         : null;
-                    const sharesForMktCap = v.sharesOutM || v.fdSharesM;
-                    const marketCapM = v.stockPrice && sharesForMktCap ? v.stockPrice * sharesForMktCap : null;
-                    const totalHpcNoi = v.hpcSites?.reduce((s, x) => s + (x.noiAnnualM || 0), 0) || 0;
-                    const totalHpcMw = v.hpcSites?.reduce((s, x) => s + (x.mw || 0), 0) || 0;
-                    const dollarPerMwYr = totalHpcMw > 0 ? totalHpcNoi / totalHpcMw : null;
+
+                    const sparkPoints = makeSparkPoints(v.ticker, v.stockPrice || 100);
+                    const oneDayDelta = sparkPoints.length >= 2
+                      ? ((sparkPoints[sparkPoints.length - 1] / sparkPoints[sparkPoints.length - 2]) - 1) * 100
+                      : 0;
 
                     const sotpItems = [
                       { value: Math.max(0, v.netLiquid), fill: COLORS.netLiquid, label: 'Net Liquid' },
@@ -564,22 +591,31 @@ export default function Dashboard() {
                             </div>
                           </div>
                         </td>
-                        <td className="center">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); updateFreshness(v.ticker); }}
-                            title={`Freshness: ${v.freshness || 0} — click to cycle`}
-                            className="inline-flex items-center"
-                          >
-                            <Confidence value={(v.freshness || 0) as FreshnessLevel} />
-                          </button>
-                        </td>
                         <td className="num-col text-ink-1">{v.stockPrice ? fmtMoney(v.stockPrice) : '—'}</td>
-                        <td className="num-col text-ink-2">{marketCapM ? fmtM(marketCapM) : '—'}</td>
-                        <td className={`num-col ${v.netLiquid >= 0 ? 'text-ink-1' : 'text-[var(--neg)]'}`}>
-                          {!v.isManual ? fmt(v.netLiquid, 0) : '—'}
+                        <td className="num-col">
+                          {v.stockPrice ? (
+                            <DeltaPill value={oneDayDelta} size="sm" precision={1} />
+                          ) : (
+                            <span className="text-ink-4">—</span>
+                          )}
+                        </td>
+                        <td className="num-col">
+                          {v.stockPrice ? (
+                            <Sparkline
+                              points={sparkPoints}
+                              width={72}
+                              height={20}
+                              stroke={sparkPoints[sparkPoints.length - 1] >= sparkPoints[0] ? 'var(--pos)' : 'var(--neg)'}
+                            />
+                          ) : (
+                            <span className="text-ink-4">—</span>
+                          )}
                         </td>
                         <td className="num-col text-ink-2">
                           {!v.isManual && v.totalMw > 0 ? fmt(v.totalMw, 0) : '—'}
+                        </td>
+                        <td className={`num-col ${v.netLiquid >= 0 ? 'text-ink-1' : 'text-[var(--neg)]'}`}>
+                          {!v.isManual ? fmt(v.netLiquid, 0) : '—'}
                         </td>
                         <td>
                           <div className="flex items-center gap-2">
@@ -587,6 +623,7 @@ export default function Dashboard() {
                           </div>
                         </td>
                         <td className="num-col text-ink-1">{!v.isManual ? fmt(v.totalEv, 0) : '—'}</td>
+                        <td className="num-col text-ink-1">{!v.isManual ? fmt(v.totalValueM, 0) : '—'}</td>
                         <td className="num-col relative">
                           <span
                             className="font-medium"
@@ -679,9 +716,6 @@ export default function Dashboard() {
                         </td>
                         <td className="num-col">
                           {upside !== null ? <DeltaPill value={upside} size="sm" precision={0} /> : <span className="text-ink-4">—</span>}
-                        </td>
-                        <td className="num-col text-ink-2">
-                          {!v.isManual && dollarPerMwYr !== null ? fmtM(dollarPerMwYr, 2) : '—'}
                         </td>
                         <td className="center">
                           <div className="flex items-center gap-0 justify-center">
@@ -785,23 +819,26 @@ function KPI({
   value,
   accent,
   highlight = false,
+  subtitle,
 }: {
   label: string;
   value: string;
   accent: string;
   highlight?: boolean;
+  subtitle?: string;
 }) {
   return (
     <div
       className={`bg-elevated border rounded-md p-4 ${highlight ? 'border-[color:var(--btc-border)]' : 'border-hairline'}`}
     >
-      <div className="eyebrow mb-[6px]">{label}</div>
+      <div className="eyebrow mb-[2px]">{label}</div>
       <div
         className="num text-[22px] font-medium tracking-tight"
         style={{ color: accent }}
       >
         {value}
       </div>
+      {subtitle && <div className="text-[11px] text-ink-3 mt-1">{subtitle}</div>}
     </div>
   );
 }
@@ -859,6 +896,8 @@ function TickerDetailPanel({
     { value: v.evHpcPipeline, fill: COLORS.pipeline, label: 'HPC Pipeline' },
   ];
 
+  const totalSotp = v.netLiquid + v.evMining + v.evHpcContracted + v.evHpcPipeline + (v.impliedProjectDebtM ?? 0);
+
   return (
     <aside
       className="fixed top-12 right-0 bottom-0 w-[520px] bg-elevated border-l border-hairline overflow-auto z-20"
@@ -875,7 +914,7 @@ function TickerDetailPanel({
             >
               {v.ticker}
             </Link>
-            <ChevronRight className="w-4 h-4 text-ink-4" />
+            <Badge color="slate">NASDAQ</Badge>
           </div>
           <div className="text-[11px] text-ink-3">{v.name}</div>
         </div>
@@ -885,60 +924,105 @@ function TickerDetailPanel({
       </div>
 
       <div className="p-5 space-y-5">
-        {/* Price row */}
-        <div className="flex items-baseline gap-4">
-          <div>
-            <div className="eyebrow mb-1">Price</div>
-            <div className="num text-[24px] font-medium text-ink-1">
-              {v.stockPrice ? fmtMoney(v.stockPrice) : '—'}
-            </div>
-          </div>
-          <div>
-            <div className="eyebrow mb-1">Fair Value</div>
-            <div
-              className="num text-[24px] font-medium"
-              style={{ color: v.hasOverride ? COLORS.warn : COLORS.ink1 }}
-            >
-              {v.fairValuePerShare ? fmtMoney(v.fairValuePerShare) : '—'}
-            </div>
-          </div>
-          {v.stockPrice && v.fairValuePerShare && (
+        {/* Price section with sparkline */}
+        <div>
+          <div className="flex items-center gap-4">
             <div>
-              <div className="eyebrow mb-1">Upside</div>
-              <DeltaPill
-                value={(v.fairValuePerShare / v.stockPrice - 1) * 100}
-                size="lg"
-                precision={0}
-              />
+              <div className="eyebrow mb-1">Price</div>
+              <div className="num text-[28px] font-medium text-ink-1">
+                {v.stockPrice ? fmtMoney(v.stockPrice) : '—'}
+              </div>
+            </div>
+            {v.stockPrice && (
+              <div className="flex-1">
+                <Sparkline
+                  points={makeSparkPoints(v.ticker, v.stockPrice)}
+                  width={180}
+                  height={40}
+                  stroke={
+                    makeSparkPoints(v.ticker, v.stockPrice).slice(-1)[0] >=
+                    makeSparkPoints(v.ticker, v.stockPrice)[0]
+                      ? 'var(--pos)'
+                      : 'var(--neg)'
+                  }
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Fair Value and Implied Upside */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="eyebrow mb-1">FAIR VALUE</div>
+              <div
+                className="num text-[20px] font-medium"
+                style={{ color: v.hasOverride ? COLORS.warn : COLORS.ink1 }}
+              >
+                {v.fairValuePerShare ? fmtMoney(v.fairValuePerShare) : '—'}
+              </div>
+            </div>
+            {v.stockPrice && v.fairValuePerShare && (
+              <div>
+                <div className="eyebrow mb-1">IMPLIED UPSIDE</div>
+                <DeltaPill
+                  value={(v.fairValuePerShare / v.stockPrice - 1) * 100}
+                  size="lg"
+                  precision={0}
+                />
+              </div>
+            )}
+          </div>
+          {v.sharesOutM && v.fairValuePerShare && (
+            <div className="text-[11px] text-ink-3">
+              {fmtMoney(v.fairValuePerShare * v.sharesOutM)}M ÷ {fmt(v.sharesOutM, 1)}M sh.
             </div>
           )}
         </div>
 
-        {/* SOTP breakdown */}
+        {/* SOTP breakdown with percentages */}
         <div>
-          <div className="eyebrow mb-2">Sum-of-the-Parts</div>
+          <div className="eyebrow mb-3">SUM OF PARTS</div>
           <SOTPBar items={sotpItems} width={480} height={12} />
-          <div className="mt-3 space-y-[6px]">
-            <SOTPRow label="Net Liquid" value={v.netLiquid} color={COLORS.netLiquid} />
-            <SOTPRow label="Mining EV" value={v.evMining} color={COLORS.mining} />
-            <SOTPRow label="HPC Contracted" value={v.evHpcContracted} color={COLORS.hpc} />
-            <SOTPRow label="HPC Pipeline" value={v.evHpcPipeline} color={COLORS.pipeline} />
+          <div className="mt-4 space-y-[8px]">
+            <SOTPRowWithPct
+              label="Net Liquid"
+              value={v.netLiquid}
+              color={COLORS.netLiquid}
+              total={totalSotp}
+            />
+            <SOTPRowWithPct
+              label="Mining"
+              value={v.evMining}
+              color={COLORS.mining}
+              total={totalSotp}
+            />
+            <SOTPRowWithPct
+              label="HPC Contracted"
+              value={v.evHpcContracted}
+              color={COLORS.hpc}
+              total={totalSotp}
+            />
+            <SOTPRowWithPct
+              label="HPC Pipeline"
+              value={v.evHpcPipeline}
+              color={COLORS.pipeline}
+              total={totalSotp}
+            />
             {(v.impliedProjectDebtM ?? 0) > 0 && (
-              <SOTPRow label="Implied Debt" value={-(v.impliedProjectDebtM ?? 0)} color={COLORS.debt} />
+              <SOTPRowWithPct
+                label="Implied Project Debt"
+                value={-(v.impliedProjectDebtM ?? 0)}
+                color={COLORS.debt}
+                total={totalSotp}
+              />
             )}
-            <div className="pt-2 mt-2 border-t border-hairline flex items-center justify-between">
+            <div className="pt-3 mt-3 border-t border-hairline flex items-center justify-between">
               <span className="text-[12px] font-medium text-ink-1">Total Value</span>
               <span className="num text-[13px] font-medium text-ink-1">{fmtM(v.totalValueM)}</span>
             </div>
           </div>
-        </div>
-
-        {/* Meta */}
-        <div className="grid grid-cols-2 gap-4 text-[12px]">
-          <Meta label="Shares Out" value={v.sharesOutM ? `${fmt(v.sharesOutM, 1)}M` : '—'} />
-          <Meta label="FD Shares" value={v.fdSharesM ? `${fmt(v.fdSharesM, 1)}M` : '—'} />
-          <Meta label="Total MW" value={v.totalMw > 0 ? `${fmt(v.totalMw, 0)} MW` : '—'} />
-          <Meta label="Lease Value" value={(v.totalLeaseValueM ?? 0) > 0 ? fmtM(v.totalLeaseValueM) : '—'} />
         </div>
 
         {(v.impliedProjectDebtM ?? 0) > 0 && (
@@ -959,35 +1043,50 @@ function TickerDetailPanel({
           </div>
         )}
 
-        {/* HPC Sites */}
+        {/* Portfolio section */}
+        <div>
+          <div className="eyebrow mb-3">PORTFOLIO</div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-ink-2">Total MW</span>
+              <span className="num text-ink-1 font-medium">{fmt(v.totalMw, 0)}</span>
+            </div>
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-ink-2">Hashrate (EH/s)</span>
+              <span className="num text-ink-1 font-medium">—</span>
+            </div>
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-ink-2">Efficiency (J/TH)</span>
+              <span className="num text-ink-1 font-medium">—</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Top Sites section */}
         {Array.isArray(v.hpcSites) && v.hpcSites.length > 0 && (
           <div>
-            <div className="eyebrow mb-2">Valued Sites</div>
-            <table className="tbl compact">
-              <thead>
-                <tr>
-                  <th>Site / Building</th>
-                  <th>Tenant</th>
-                  <th className="num-col">MW</th>
-                  <th className="num-col">Lease $M</th>
-                  <th className="num-col">NOI $M</th>
-                </tr>
-              </thead>
-              <tbody>
-                {v.hpcSites.map((s, i) => (
-                  <tr key={i} style={{ cursor: 'default' }}>
-                    <td>
-                      <div className="text-[11px] font-medium text-ink-1">{s.siteName}</div>
-                      <div className="text-[10px] text-ink-3">{s.buildingName}</div>
-                    </td>
-                    <td className="text-[11px] text-ink-2">{s.tenant || '—'}</td>
-                    <td className="num-col">{fmt(s.mw, 0)}</td>
-                    <td className="num-col">{fmt(s.leaseValueM, 0)}</td>
-                    <td className="num-col">{fmt(s.noiAnnualM, 1)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="eyebrow mb-3">TOP SITES</div>
+            <div className="space-y-2">
+              {v.hpcSites.slice(0, 5).map((s, i) => (
+                <div key={i} className="text-[12px] flex items-start justify-between gap-2 p-2 bg-canvas rounded-sm">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-ink-1 truncate">{s.siteName}</div>
+                    <div className="text-[11px] text-ink-3 truncate">{s.buildingName} · {s.tenant || 'N/A'}</div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {s.phase && (
+                      <Badge color={s.phase === 'PIPELINE' ? 'pipeline' : 'mining'}>
+                        {s.phase}
+                      </Badge>
+                    )}
+                    <div className="text-right">
+                      <div className="num text-ink-1 font-medium">{fmt(s.mw, 0)} MW</div>
+                      <div className="text-ink-3 text-[10px]">{s.tenant ? s.tenant.split(' ')[0] : '—'}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -1004,26 +1103,41 @@ function TickerDetailPanel({
   );
 }
 
-function SOTPRow({ label, value, color }: { label: string; value: number; color: string }) {
+function SOTPRowWithPct({
+  label,
+  value,
+  color,
+  total,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  total: number;
+}) {
+  const pct = total > 0 ? (value / total) * 100 : 0;
   return (
     <div className="flex items-center gap-2 text-[12px]">
       <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
-      <span className="text-ink-2 flex-1">{label}</span>
-      <span className={`num ${value < 0 ? 'text-[var(--neg)]' : 'text-ink-1'}`}>
-        {value < 0 ? '−' : ''}
-        {fmtM(Math.abs(value))}
-      </span>
+      <span className="text-ink-2 flex-1 min-w-0">{label}</span>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <span className="text-ink-3">{fmtPct(pct, 1)}</span>
+        <span className={`num font-medium ${value < 0 ? 'text-[var(--neg)]' : 'text-ink-1'}`}>
+          {value < 0 ? '−' : ''}
+          {fmtM(Math.abs(value))}
+        </span>
+      </div>
     </div>
   );
 }
 
-function Meta({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="eyebrow mb-[2px]">{label}</div>
-      <div className="num text-ink-1">{value}</div>
-    </div>
-  );
+function getTimeAgo(date: Date): string {
+  const now = new Date();
+  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hr ago`;
+  return `${Math.floor(seconds / 86400)} day ago`;
 }
 
 // ── Add Manual modal ────────────────────────────────────────────────────

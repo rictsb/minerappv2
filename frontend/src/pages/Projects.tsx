@@ -1,12 +1,31 @@
+/**
+ * Miner Terminal — Projects (redesigned)
+ *
+ * Enhanced Projects page with:
+ *   - KPI summary cards (SITES, CAPACITY, GROSS VALUE, VALUATION)
+ *   - New filter bar: category, phase, state, tenant dropdowns
+ *   - Redesigned table columns matching the design spec
+ *   - CATEGORY, PHASE, METHOD, NOI, CAPEX DED., GROSS, VALUATION columns
+ *   - Integration with /api/v1/valuation for category and valuation method
+ *
+ * Preserves 1:1 from the original:
+ *   - Flat-row expansion: Company → Site → Campus → Building → UsePeriods
+ *   - Filter state in localStorage
+ *   - Sort state in localStorage
+ *   - Excel export of filtered rows
+ *   - Include-in-valuation toggle (eye / eye-off)
+ *   - Delete building confirmation
+ *   - Unallocated-pipeline synthetic row
+ *   - ?ticker=XXX URL param → filter
+ *   - BuildingDetailPanel slideout
+ */
+
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Filter,
   Search,
-  Edit2,
-  Save,
-  X,
   Trash2,
   ArrowUp,
   ArrowDown,
@@ -14,45 +33,53 @@ import {
   Eye,
   EyeOff,
   Download,
+  Pencil,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import BuildingDetailPanel from '../components/BuildingDetailPanel';
+import Card from '../components/Card';
+import Badge from '../components/Badge';
+import TickerMark from '../components/TickerMark';
+import { fmt, fmtM, fmtMSigned } from '../lib/format';
 
 function getApiUrl(): string {
   let apiUrl = import.meta.env.VITE_API_URL || '';
-  if (apiUrl && !apiUrl.startsWith('http')) {
-    apiUrl = `https://${apiUrl}`;
-  }
+  if (apiUrl && !apiUrl.startsWith('http')) apiUrl = `https://${apiUrl}`;
   return apiUrl;
 }
 
-// Development phase colors and labels
-const phaseConfig: Record<string, { label: string; color: string; prob: number }> = {
-  OPERATIONAL: { label: 'Operational', color: 'bg-green-900/50 text-[var(--pos)] border-green-700', prob: 1.0 },
-  CONSTRUCTION: { label: 'Construction', color: 'bg-blue-900/50 text-blue-400 border-blue-700', prob: 0.9 },
-  DEVELOPMENT: { label: 'Development', color: 'bg-yellow-900/50 text-[var(--warn)] border-yellow-700', prob: 0.7 },
-  EXCLUSIVITY: { label: 'Exclusivity', color: 'bg-purple-900/50 text-purple-400 border-purple-700', prob: 0.5 },
-  DILIGENCE: { label: 'Diligence', color: 'bg-[var(--bg-sunken)]/50 text-[var(--ink-3)] border-[var(--hairline)]', prob: 0.3 },
+// Phase config → Badge color mapping + label abbreviation
+const phaseConfig: Record<string, { label: string; abbr: string; color: 'pos' | 'info' | 'warn' | 'pipeline' | 'slate'; prob: number }> = {
+  OPERATIONAL:  { label: 'Operational',  abbr: 'OP', color: 'pos',      prob: 1.0 },
+  CONSTRUCTION: { label: 'Construction', abbr: 'CON', color: 'warn',     prob: 0.9 },
+  DEVELOPMENT: { label: 'Development',  abbr: 'DEV', color: 'info',     prob: 0.7 },
+  EXCLUSIVITY: { label: 'Exclusivity',  abbr: 'EXC', color: 'pipeline', prob: 0.5 },
+  DILIGENCE:    { label: 'Diligence',    abbr: 'DIL', color: 'slate',    prob: 0.3 },
 };
 
-const useTypeConfig: Record<string, { label: string; color: string }> = {
-  BTC_MINING: { label: 'BTC Mining', color: 'bg-orange-900/50 text-orange-400 border-orange-700' },
-  BTC_MINING_HOSTING: { label: 'BTC Hosting', color: 'bg-orange-900/50 text-orange-400 border-orange-700' },
-  HPC_AI_HOSTING: { label: 'HPC/AI', color: 'bg-purple-900/50 text-purple-400 border-purple-700' },
-  HPC_AI_PLANNED: { label: 'HPC Planned', color: 'bg-purple-800/30 text-purple-300 border-purple-600' },
-  GPU_CLOUD: { label: 'GPU Cloud', color: 'bg-blue-900/50 text-blue-400 border-blue-700' },
-  COLOCATION: { label: 'Colocation', color: 'bg-cyan-900/50 text-cyan-400 border-cyan-700' },
-  MIXED: { label: 'Mixed', color: 'bg-[var(--bg-sunken)]/50 text-[var(--ink-3)] border-[var(--hairline)]' },
-  UNCONTRACTED: { label: 'Uncontracted', color: 'bg-[var(--bg-elevated)]/50 text-[var(--ink-3)] border-[var(--hairline)]' },
-  UNCONTRACTED_ROFR: { label: 'ROFR', color: 'bg-[var(--bg-elevated)]/50 text-[var(--ink-3)] border-[var(--hairline)]' },
+// Category mapping: HPC_CONTRACTED → HPC (teal), PIPELINE → PIPELINE (purple), MINING → MINING (amber)
+const categoryConfig: Record<string, { label: string; color: 'hpc' | 'pipeline' | 'mining' }> = {
+  HPC_CONTRACTED: { label: 'HPC', color: 'hpc' },
+  PIPELINE: { label: 'PIPELINE', color: 'pipeline' },
+  MINING: { label: 'MINING', color: 'mining' },
 };
 
-// Simplified options for editing - the 3 main use types
-const editableUseTypes = [
-  { value: 'BTC_MINING', label: 'BTC' },
-  { value: 'HPC_AI_HOSTING', label: 'HPC/AI' },
-  { value: 'GPU_CLOUD', label: 'GPU Cloud' },
-];
+interface HpcSite {
+  siteName: string;
+  buildingName: string;
+  category?: 'HPC_CONTRACTED' | 'PIPELINE' | 'MINING';
+  phase?: string;
+  mw?: number;
+  grossMw?: number;
+  capexDeductionM?: number;
+  valuationM?: number;
+  noiAnnualM?: number;
+  method?: string;
+}
+
+interface ValuationData {
+  hpcSites?: HpcSite[];
+}
 
 interface UsePeriod {
   id: string;
@@ -91,27 +118,9 @@ interface Building {
   computedValuationM?: number;
 }
 
-interface Campus {
-  id: string;
-  name: string;
-  buildings: Building[];
-}
-
-interface Site {
-  id: string;
-  name: string;
-  country: string;
-  state: string | null;
-  latitude: string | null;
-  longitude: string | null;
-  campuses: Campus[];
-}
-
-interface Company {
-  ticker: string;
-  name: string;
-  sites: Site[];
-}
+interface Campus { id: string; name: string; buildings: Building[]; }
+interface Site { id: string; name: string; country: string; state: string | null; campuses: Campus[]; }
+interface Company { ticker: string; name: string; sites: Site[]; }
 
 interface FlatBuilding {
   rowNum: number;
@@ -127,54 +136,27 @@ interface FlatBuilding {
   tenant: string | null;
   grossMw: number | null;
   itMw: number | null;
-  pue: number | null;
-  grid: string | null;
-  probability: number;
-  probabilityOverride: number | null;
-  regulatoryRisk: number;
   leaseValueM: number | null;
   leaseYears: number | null;
   noiPct: number | null;
   noiAnnualM: number | null;
-  leaseStart: string | null;
   energizationDate: string | null;
-  ownershipStatus: string | null;
   includeInValuation: boolean;
   computedValuationM: number | null;
   dollarPerMwYr: number | null;
   building: Building;
+  // New fields from valuation API
+  state: string | null;
+  grid: string | null;
+  category?: 'HPC_CONTRACTED' | 'PIPELINE' | 'MINING';
+  grossValue: number | null;
+  capexDeduction: number | null;
+  valuationMethod?: 'MW PIPELINE' | 'NOI CAP RATE' | 'MINING HASHRATE';
 }
 
-type SortKey = 'ticker' | 'siteName' | 'buildingName' | 'phase' | 'useType' | 'tenant' | 'itMw' | 'noiAnnualM' | 'dollarPerMwYr' | 'energizationDate';
+type SortKey = 'ticker' | 'siteName' | 'buildingName' | 'phase' | 'category' | 'state' | 'grid' | 'useType' | 'tenant' | 'itMw' | 'computedValuationM' | 'grossValue' | 'noiAnnualM' | 'dollarPerMwYr' | 'energizationDate';
 type SortDir = 'asc' | 'desc';
 
-interface ColumnDef {
-  key: SortKey | 'rowNum' | 'actions' | 'includeEv';
-  label: string;
-  sortable: boolean;
-  width: string;
-  minWidth: string;
-  align: 'left' | 'right' | 'center';
-  headerClass?: string;
-}
-
-const columns: ColumnDef[] = [
-  { key: 'rowNum', label: '#', sortable: false, width: '40px', minWidth: '40px', align: 'left' },
-  { key: 'includeEv', label: 'EV', sortable: false, width: '32px', minWidth: '32px', align: 'center' },
-  { key: 'ticker', label: 'Ticker', sortable: true, width: '70px', minWidth: '50px', align: 'left', headerClass: 'text-orange-400' },
-  { key: 'siteName', label: 'Site', sortable: true, width: '140px', minWidth: '80px', align: 'left' },
-  { key: 'buildingName', label: 'Building', sortable: true, width: '140px', minWidth: '80px', align: 'left' },
-  { key: 'phase', label: 'Phase', sortable: true, width: '100px', minWidth: '80px', align: 'left' },
-  { key: 'useType', label: 'Use', sortable: true, width: '90px', minWidth: '70px', align: 'left' },
-  { key: 'tenant', label: 'Tenant', sortable: true, width: '120px', minWidth: '80px', align: 'left' },
-  { key: 'itMw', label: 'IT MW', sortable: true, width: '65px', minWidth: '55px', align: 'right' },
-  { key: 'noiAnnualM', label: 'Value', sortable: true, width: '80px', minWidth: '70px', align: 'right' },
-  { key: 'dollarPerMwYr', label: '$/MW/yr', sortable: true, width: '75px', minWidth: '65px', align: 'right' },
-  { key: 'energizationDate', label: 'Energized', sortable: true, width: '85px', minWidth: '70px', align: 'right' },
-  { key: 'actions', label: 'Edit', sortable: false, width: '60px', minWidth: '60px', align: 'center' },
-];
-
-// Helper to persist filter state in localStorage
 function usePersistedState<T>(key: string, defaultValue: T): [T, (val: T) => void] {
   const [value, setValue] = useState<T>(() => {
     try {
@@ -194,8 +176,18 @@ export default function Projects() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = usePersistedState('projects-search', '');
   const [filterTicker, setFilterTicker] = usePersistedState('projects-ticker', '');
+  const [filterPhase, setFilterPhase] = usePersistedState('projects-phase', '');
+  const [filterUseType, setFilterUseType] = usePersistedState('projects-useType', '');
+  const [filterTenant, setFilterTenant] = usePersistedState('projects-tenant', '');
+  const [filterCategory, setFilterCategory] = usePersistedState('projects-category', '');
+  const [filterState, setFilterState] = usePersistedState('projects-state', '');
+  const [filterEv, setFilterEv] = usePersistedState<'' | 'included' | 'excluded'>('projects-ev', '');
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
+  const [sortKey, setSortKey] = usePersistedState<SortKey>('projects-sortKey', 'ticker');
+  const [sortDir, setSortDir] = usePersistedState<SortDir>('projects-sortDir', 'asc');
 
-  // If ?ticker=XXXX is in the URL, apply it as a filter and clean up the URL
+  // ?ticker=XXX param
   useEffect(() => {
     const urlTicker = searchParams.get('ticker');
     if (urlTicker) {
@@ -203,70 +195,33 @@ export default function Projects() {
       setSearchParams({}, { replace: true });
     }
   }, [searchParams, setFilterTicker, setSearchParams]);
-  const [filterPhase, setFilterPhase] = usePersistedState('projects-phase', '');
-  const [filterUseType, setFilterUseType] = usePersistedState('projects-useType', '');
-  const [filterTenant, setFilterTenant] = usePersistedState('projects-tenant', '');
-  const [filterEv, setFilterEv] = usePersistedState<'' | 'included' | 'excluded'>('projects-ev', '');
-  const [editingBuilding, setEditingBuilding] = useState<string | null>(null);
-  const [editFormData, setEditFormData] = useState<Record<string, any>>({});
-  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
-  const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
-  const [sortKey, setSortKey] = usePersistedState<SortKey>('projects-sortKey', 'ticker');
-  const [sortDir, setSortDir] = usePersistedState<SortDir>('projects-sortDir', 'asc');
 
-  const hasActiveFilters = searchTerm || filterTicker || filterPhase || filterUseType || filterTenant || filterEv;
-
+  const hasActiveFilters = searchTerm || filterTicker || filterPhase || filterUseType || filterTenant || filterCategory || filterState || filterEv;
   const clearAllFilters = useCallback(() => {
-    setSearchTerm('');
-    setFilterTicker('');
-    setFilterPhase('');
-    setFilterUseType('');
-    setFilterTenant('');
-    setFilterEv('');
-  }, [setSearchTerm, setFilterTicker, setFilterPhase, setFilterUseType, setFilterTenant, setFilterEv]);
-  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
-    const saved = localStorage.getItem('projects-column-widths');
-    return saved ? JSON.parse(saved) : {};
-  });
+    setSearchTerm(''); setFilterTicker(''); setFilterPhase(''); setFilterUseType(''); setFilterTenant(''); setFilterCategory(''); setFilterState(''); setFilterEv('');
+  }, [setSearchTerm, setFilterTicker, setFilterPhase, setFilterUseType, setFilterTenant, setFilterCategory, setFilterState, setFilterEv]);
 
   const { data: companies, isLoading } = useQuery({
     queryKey: ['companies'],
     queryFn: async () => {
-      const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/companies`);
+      const res = await fetch(`${getApiUrl()}/api/v1/companies`);
       if (!res.ok) throw new Error('Failed to fetch companies');
       return res.json() as Promise<Company[]>;
     },
   });
 
-  // Valuation comes directly from the companies endpoint (computedValuationM on each use period)
-  const calcValuation = useCallback((row: FlatBuilding) => {
-    return row.computedValuationM;
-  }, []);
-
-  const updateBuildingMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Record<string, any> }) => {
-      const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/buildings/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error('Failed to update building');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['companies'] });
-      queryClient.invalidateQueries({ queryKey: ['valuation'] });
-      setEditingBuilding(null);
-      setEditFormData({});
+  const { data: valuationData } = useQuery({
+    queryKey: ['valuation'],
+    queryFn: async () => {
+      const res = await fetch(`${getApiUrl()}/api/v1/valuation`);
+      if (!res.ok) throw new Error('Failed to fetch valuation');
+      return res.json() as Promise<ValuationData>;
     },
   });
 
   const toggleIncludeMutation = useMutation({
     mutationFn: async ({ id, include }: { id: string; include: boolean }) => {
-      const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/buildings/${id}`, {
+      const res = await fetch(`${getApiUrl()}/api/v1/buildings/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ includeInValuation: include }),
@@ -282,8 +237,7 @@ export default function Projects() {
 
   const deleteBuildingMutation = useMutation({
     mutationFn: async (id: string) => {
-      const apiUrl = getApiUrl();
-      const res = await fetch(`${apiUrl}/api/v1/buildings/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${getApiUrl()}/api/v1/buildings/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete building');
       return res.json();
     },
@@ -293,8 +247,29 @@ export default function Projects() {
     },
   });
 
-  // Flatten all buildings into a single list
-  const flatBuildings = useMemo(() => {
+  // Build a map from (siteName, buildingName) to HpcSite data for quick lookup
+  const hpcSiteMap = useMemo(() => {
+    const map = new Map<string, HpcSite>();
+    if (!valuationData?.hpcSites) return map;
+    for (const site of valuationData.hpcSites) {
+      map.set(`${site.siteName}|${site.buildingName}`, site);
+    }
+    return map;
+  }, [valuationData]);
+
+  // Determine valuation method based on use type and NOI
+  const getValuationMethod = (useType: string, noiAnnualM: number | null): 'MW PIPELINE' | 'NOI CAP RATE' | 'MINING HASHRATE' => {
+    if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
+      return 'MINING HASHRATE';
+    }
+    if (noiAnnualM && noiAnnualM > 0) {
+      return 'NOI CAP RATE';
+    }
+    return 'MW PIPELINE';
+  };
+
+  // Flatten all companies → buildings → use-period rows
+  const flatBuildings = useMemo<FlatBuilding[]>(() => {
     if (!companies) return [];
     const rows: FlatBuilding[] = [];
     let rowNum = 0;
@@ -311,160 +286,144 @@ export default function Projects() {
             if (filterEv === 'excluded' && building.includeInValuation) continue;
 
             const phase = building.developmentPhase || 'DILIGENCE';
-            const defaultProb = phaseConfig[phase]?.prob || 0.5;
-            const probOverride = building.probabilityOverride ? parseFloat(building.probabilityOverride) : null;
-
-            // Get current use periods + planned transitions (no endDate) — matches backend filter
             const currentUses = (building.usePeriods || []).filter(up => up.isCurrent || (!up.isCurrent && !up.endDate));
 
-            // Calculate MW allocation: explicit + remainder assignments
             const buildingItMw = building.itMw ? parseFloat(building.itMw) : 0;
+            const buildingGrossMw = building.grossMw ? parseFloat(building.grossMw) : null;
             const explicitlyAllocated = currentUses.reduce((sum, up) => sum + (up.mwAllocation ? parseFloat(up.mwAllocation) : 0), 0);
-            // Compute effective total: each period gets explicit MW or remainder
             let effectiveAllocated = 0;
             for (const up of currentUses) {
               const mw = up.mwAllocation ? parseFloat(up.mwAllocation) : 0;
               effectiveAllocated += mw || (currentUses.length === 1 ? buildingItMw : Math.max(buildingItMw - explicitlyAllocated, 0));
             }
 
-            // Build rows: one per current use period + one for unallocated remainder
-            // First, create rows for actual use periods
+            // Lookup HPC site data
+            const hpcKey = `${site.name}|${building.name}`;
+            const hpcData = hpcSiteMap.get(hpcKey);
+
             for (const currentUse of currentUses) {
               const useType = currentUse.useType || 'UNCONTRACTED';
               const tenant = currentUse.tenant || null;
-
               if (filterUseType && useType !== filterUseType) continue;
               if (filterTenant && (tenant || '') !== filterTenant) continue;
 
+              // Category from HPC data or derived from useType
+              let category: 'HPC_CONTRACTED' | 'PIPELINE' | 'MINING' | undefined = hpcData?.category;
+              if (!category) {
+                if (useType === 'BTC_MINING' || useType === 'BTC_MINING_HOSTING') {
+                  category = 'MINING';
+                } else if (useType === 'HPC_AI_HOSTING' || useType === 'HPC_AI_PLANNED' || useType === 'GPU_CLOUD' || useType === 'COLOCATION') {
+                  category = useType === 'HPC_AI_PLANNED' ? 'PIPELINE' : 'HPC_CONTRACTED';
+                }
+              }
+
+              if (filterCategory && category !== filterCategory) continue;
+              if (filterState && site.state !== filterState) continue;
+
               rowNum++;
               let periodMw: number | null;
-              if (currentUse.mwAllocation) {
-                periodMw = parseFloat(currentUse.mwAllocation);
-              } else if (currentUses.length > 1) {
-                periodMw = Math.max(buildingItMw - explicitlyAllocated, 0);
-              } else {
-                periodMw = buildingItMw || null;
-              }
+              if (currentUse.mwAllocation) periodMw = parseFloat(currentUse.mwAllocation);
+              else if (currentUses.length > 1) periodMw = Math.max(buildingItMw - explicitlyAllocated, 0);
+              else periodMw = buildingItMw || null;
 
               let noiAnnualM = currentUse.noiAnnualM ? parseFloat(currentUse.noiAnnualM) : null;
               if (!noiAnnualM && currentUse.leaseValueM && currentUse.noiPct) {
                 const leaseVal = parseFloat(currentUse.leaseValueM) || 0;
                 const leaseYrs = currentUse.leaseYears ? parseFloat(currentUse.leaseYears) : 10;
-                const noiPctRaw = parseFloat(currentUse.noiPct) || 0;
-                const noiPct = noiPctRaw <= 1 ? noiPctRaw : noiPctRaw / 100;
-                const annualRev = leaseVal / Math.max(leaseYrs, 0.1);
-                noiAnnualM = annualRev * noiPct;
+                const npRaw = parseFloat(currentUse.noiPct) || 0;
+                const np = npRaw <= 1 ? npRaw : npRaw / 100;
+                noiAnnualM = (leaseVal / Math.max(leaseYrs, 0.1)) * np;
               }
 
+              const grossValue = hpcData?.valuationM ?? currentUse.computedValuationM ?? building.computedValuationM ?? null;
+              const capexDeduction = hpcData?.capexDeductionM ?? null;
+              const valuationMethod = getValuationMethod(useType, noiAnnualM);
+
               rows.push({
-                rowNum,
-                ticker: company.ticker,
-                companyName: company.name,
-                siteName: site.name,
-                campusName: campus.name,
-                buildingId: building.id,
-                buildingName: building.name,
-                phase,
-                useType,
-                usePeriodId: currentUse.id,
-                tenant,
-                grossMw: building.grossMw ? parseFloat(building.grossMw) : null,
+                rowNum, ticker: company.ticker, companyName: company.name,
+                siteName: site.name, campusName: campus.name,
+                buildingId: building.id, buildingName: building.name,
+                phase, useType, usePeriodId: currentUse.id, tenant,
+                grossMw: buildingGrossMw,
                 itMw: periodMw,
-                pue: building.pue ? parseFloat(building.pue) : null,
-                grid: building.grid || null,
-                probability: probOverride ?? defaultProb,
-                probabilityOverride: probOverride,
-                regulatoryRisk: building.regulatoryRisk ? parseFloat(building.regulatoryRisk) : 1.0,
                 leaseValueM: currentUse.leaseValueM ? parseFloat(currentUse.leaseValueM) : null,
                 leaseYears: currentUse.leaseYears ? parseFloat(currentUse.leaseYears) : null,
                 noiPct: currentUse.noiPct ? parseFloat(currentUse.noiPct) : null,
                 noiAnnualM,
-                leaseStart: currentUse.leaseStart || currentUse.startDate || null,
                 energizationDate: building.energizationDate || null,
-                ownershipStatus: building.ownershipStatus || null,
                 includeInValuation: building.includeInValuation ?? true,
                 computedValuationM: currentUse.computedValuationM ?? building.computedValuationM ?? null,
                 dollarPerMwYr: (periodMw && periodMw > 0 && noiAnnualM && noiAnnualM > 0) ? noiAnnualM / periodMw : null,
                 building,
+                state: site.state || null,
+                grid: building.grid || null,
+                category,
+                grossValue,
+                capexDeduction,
+                valuationMethod,
               });
             }
 
-            // Then, add unallocated remainder row if there's leftover MW
+            // Unallocated-pipeline synthetic row
             const unallocMw = currentUses.length > 0 ? Math.max(0, buildingItMw - effectiveAllocated) : 0;
             if (unallocMw > 0) {
-              // Inherit use type from the building's existing splits
               const primaryUseType = currentUses[0]?.useType || 'HPC_AI_HOSTING';
               if (!(filterUseType && filterUseType !== primaryUseType) && !(filterTenant && filterTenant !== 'Unallocated Pipeline')) {
-                rowNum++;
-                rows.push({
-                  rowNum,
-                  ticker: company.ticker,
-                  companyName: company.name,
-                  siteName: site.name,
-                  campusName: campus.name,
-                  buildingId: building.id,
-                  buildingName: building.name,
-                  phase,
-                  useType: primaryUseType,
-                  usePeriodId: null,
-                  tenant: 'Unallocated Pipeline',
-                  grossMw: building.grossMw ? parseFloat(building.grossMw) : null,
-                  itMw: unallocMw,
-                  pue: building.pue ? parseFloat(building.pue) : null,
-                  grid: building.grid || null,
-                  probability: probOverride ?? defaultProb,
-                  probabilityOverride: probOverride,
-                  regulatoryRisk: building.regulatoryRisk ? parseFloat(building.regulatoryRisk) : 1.0,
-                  leaseValueM: null,
-                  leaseYears: null,
-                  noiPct: null,
-                  noiAnnualM: null,
-                  leaseStart: null,
-                  energizationDate: building.energizationDate || null,
-                  ownershipStatus: building.ownershipStatus || null,
-                  includeInValuation: building.includeInValuation ?? true,
-                  computedValuationM: (building as any).unallocatedValuationM ?? null,
-                  dollarPerMwYr: null,
-                  building,
-                });
+                const category: 'HPC_CONTRACTED' | 'PIPELINE' | 'MINING' | undefined =
+                  primaryUseType === 'BTC_MINING' || primaryUseType === 'BTC_MINING_HOSTING' ? 'MINING' : 'PIPELINE';
+                if (filterCategory && category !== filterCategory) {
+                  // skip if category filter doesn't match
+                } else if (filterState && site.state !== filterState) {
+                  // skip if state filter doesn't match
+                } else {
+                  rowNum++;
+                  rows.push({
+                    rowNum, ticker: company.ticker, companyName: company.name,
+                    siteName: site.name, campusName: campus.name,
+                    buildingId: building.id, buildingName: building.name,
+                    phase, useType: primaryUseType, usePeriodId: null,
+                    tenant: 'Unallocated Pipeline',
+                    grossMw: buildingGrossMw,
+                    itMw: unallocMw, leaseValueM: null, leaseYears: null, noiPct: null, noiAnnualM: null,
+                    energizationDate: building.energizationDate || null,
+                    includeInValuation: building.includeInValuation ?? true,
+                    computedValuationM: (building as any).unallocatedValuationM ?? null,
+                    dollarPerMwYr: null, building,
+                    state: site.state || null,
+                    grid: building.grid || null,
+                    category,
+                    grossValue: (building as any).unallocatedValuationM ?? null,
+                    capexDeduction: null,
+                    valuationMethod: 'MW PIPELINE',
+                  });
+                }
               }
             }
 
-            // For buildings with NO use periods, create a single default row
+            // Building with no use periods
             if (currentUses.length === 0) {
               const useType = 'UNCONTRACTED';
-              if (!(filterUseType && filterUseType !== useType)) {
+              const category: 'HPC_CONTRACTED' | 'PIPELINE' | 'MINING' | undefined = undefined;
+              if (!(filterUseType && filterUseType !== useType) && !(filterCategory && category !== filterCategory) && !(filterState && site.state !== filterState)) {
                 rowNum++;
                 rows.push({
-                  rowNum,
-                  ticker: company.ticker,
-                  companyName: company.name,
-                  siteName: site.name,
-                  campusName: campus.name,
-                  buildingId: building.id,
-                  buildingName: building.name,
-                  phase,
-                  useType,
-                  usePeriodId: null,
-                  tenant: null,
-                  grossMw: building.grossMw ? parseFloat(building.grossMw) : null,
+                  rowNum, ticker: company.ticker, companyName: company.name,
+                  siteName: site.name, campusName: campus.name,
+                  buildingId: building.id, buildingName: building.name,
+                  phase, useType, usePeriodId: null, tenant: null,
+                  grossMw: buildingGrossMw,
                   itMw: buildingItMw || null,
-                  pue: building.pue ? parseFloat(building.pue) : null,
-                  grid: building.grid || null,
-                  probability: probOverride ?? defaultProb,
-                  probabilityOverride: probOverride,
-                  regulatoryRisk: building.regulatoryRisk ? parseFloat(building.regulatoryRisk) : 1.0,
-                  leaseValueM: null,
-                  leaseYears: null,
-                  noiPct: null,
-                  noiAnnualM: null,
-                  leaseStart: null,
+                  leaseValueM: null, leaseYears: null, noiPct: null, noiAnnualM: null,
                   energizationDate: building.energizationDate || null,
-                  ownershipStatus: building.ownershipStatus || null,
                   includeInValuation: building.includeInValuation ?? true,
                   computedValuationM: building.computedValuationM ?? null,
-                  dollarPerMwYr: null,
-                  building,
+                  dollarPerMwYr: null, building,
+                  state: site.state || null,
+                  grid: building.grid || null,
+                  category,
+                  grossValue: null,
+                  capexDeduction: null,
+                  valuationMethod: 'MW PIPELINE',
                 });
               }
             }
@@ -472,684 +431,356 @@ export default function Projects() {
         }
       }
     }
-
     return rows;
-  }, [companies, filterTicker, filterPhase, filterUseType, filterTenant, filterEv]);
+  }, [companies, filterTicker, filterPhase, filterUseType, filterTenant, filterCategory, filterState, filterEv, hpcSiteMap]);
 
-  // Filter by search term
+  // Search filter + sort
   const filteredRows = useMemo(() => {
     let rows = flatBuildings;
-
     if (searchTerm) {
-      const search = searchTerm.toLowerCase();
-      rows = rows.filter(row => {
-        return row.buildingName.toLowerCase().includes(search) ||
-          row.ticker.toLowerCase().includes(search) ||
-          row.companyName.toLowerCase().includes(search) ||
-          row.siteName.toLowerCase().includes(search) ||
-          row.campusName.toLowerCase().includes(search) ||
-          row.tenant?.toLowerCase().includes(search);
-      });
+      const s = searchTerm.toLowerCase();
+      rows = rows.filter(r =>
+        r.buildingName.toLowerCase().includes(s) ||
+        r.ticker.toLowerCase().includes(s) ||
+        r.companyName.toLowerCase().includes(s) ||
+        r.siteName.toLowerCase().includes(s) ||
+        r.campusName.toLowerCase().includes(s) ||
+        r.tenant?.toLowerCase().includes(s) ||
+        r.state?.toLowerCase().includes(s) ||
+        r.grid?.toLowerCase().includes(s)
+      );
     }
-
-    // Sort
     const nullVal = sortDir === 'asc' ? Infinity : -Infinity;
     rows = [...rows].sort((a, b) => {
-      let aVal: any = a[sortKey];
-      let bVal: any = b[sortKey];
-
-      // Handle dates — convert to timestamps before general comparison
+      let aVal: any = a[sortKey]; let bVal: any = b[sortKey];
       if (sortKey === 'energizationDate') {
         aVal = aVal ? new Date(aVal).getTime() : nullVal;
         bVal = bVal ? new Date(bVal).getTime() : nullVal;
       } else {
-        // Handle nulls
         if (aVal === null || aVal === undefined || aVal === '') aVal = nullVal;
         if (bVal === null || bVal === undefined || bVal === '') bVal = nullVal;
-
-        // Handle strings
         if (typeof aVal === 'string') aVal = aVal.toLowerCase();
         if (typeof bVal === 'string') bVal = bVal.toLowerCase();
       }
-
       if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
       return 0;
     });
-
     return rows;
   }, [flatBuildings, searchTerm, sortKey, sortDir]);
 
-  const uniqueTickers = useMemo(() => {
-    return [...new Set(companies?.map(c => c.ticker) || [])].sort();
+  const uniqueStates = useMemo(() => {
+    if (!companies) return [];
+    const states = new Set<string>();
+    for (const c of companies) for (const s of c.sites || []) {
+      if (s.state) states.add(s.state);
+    }
+    return [...states].sort();
   }, [companies]);
-
   const uniqueTenants = useMemo(() => {
     if (!companies) return [];
     const tenants = new Set<string>();
-    for (const company of companies) {
-      for (const site of company.sites || []) {
-        for (const campus of site.campuses || []) {
-          for (const building of campus.buildings || []) {
-            const tenant = building.usePeriods?.[0]?.tenant;
-            if (tenant) tenants.add(tenant);
-          }
-        }
-      }
+    for (const c of companies) for (const s of c.sites || []) for (const cp of s.campuses || []) for (const b of cp.buildings || []) {
+      const t = b.usePeriods?.[0]?.tenant; if (t) tenants.add(t);
     }
     return [...tenants].sort();
   }, [companies]);
 
-  const handleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortKey(key);
-      setSortDir('asc');
+  // KPI computations from filtered rows
+  const kpiStats = useMemo(() => {
+    const uniqueSites = new Set<string>();
+    let totalMw = 0;
+    let totalGross = 0;
+    let totalValuation = 0;
+
+    for (const row of filteredRows) {
+      uniqueSites.add(row.siteName);
+      if (row.itMw) totalMw += row.itMw;
+      if (row.grossValue) totalGross += row.grossValue;
+      if (row.computedValuationM) totalValuation += row.computedValuationM;
     }
+
+    return {
+      sites: uniqueSites.size,
+      totalMw,
+      totalGross,
+      totalValuation,
+    };
+  }, [filteredRows]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
   };
 
   const handleExportExcel = useCallback(() => {
-    const exportData = filteredRows.map((row, i) => ({
-      '#': i + 1,
-      'Ticker': row.ticker,
-      'Site': row.siteName,
-      'Building': row.buildingName,
-      'Phase': row.phase,
-      'Use Type': row.useType,
-      'Tenant': row.tenant || '',
-      'IT MW': row.itMw,
-      'Lease Value ($M)': row.leaseValueM,
-      'Lease Term (yr)': row.leaseYears,
-      'NOI %': row.noiPct ? (row.noiPct <= 1 ? row.noiPct * 100 : row.noiPct) : null,
-      'NOI Annual ($M)': row.noiAnnualM ? Math.round(row.noiAnnualM * 100) / 100 : null,
-      '$/MW/yr ($M)': row.dollarPerMwYr ? Math.round(row.dollarPerMwYr * 100) / 100 : null,
-      'Energization': row.energizationDate ? row.energizationDate.split('T')[0] : '',
-      'In EV': row.includeInValuation ? 'Yes' : 'No',
-      'Valuation ($M)': row.computedValuationM ? Math.round(row.computedValuationM) : null,
+    const data = filteredRows.map((r, i) => ({
+      '#': i + 1, 'Ticker': r.ticker, 'Site': r.siteName, 'Building': r.buildingName,
+      'Phase': r.phase, 'Use Type': r.useType, 'Tenant': r.tenant || '',
+      'IT MW': r.itMw, 'Lease Value ($M)': r.leaseValueM, 'Lease Term (yr)': r.leaseYears,
+      'NOI %': r.noiPct ? (r.noiPct <= 1 ? r.noiPct * 100 : r.noiPct) : null,
+      'NOI Annual ($M)': r.noiAnnualM ? Math.round(r.noiAnnualM * 100) / 100 : null,
+      '$/MW/yr ($M)': r.dollarPerMwYr ? Math.round(r.dollarPerMwYr * 100) / 100 : null,
+      'Energization': r.energizationDate ? r.energizationDate.split('T')[0] : '',
+      'In EV': r.includeInValuation ? 'Yes' : 'No',
+      'Valuation ($M)': r.computedValuationM ? Math.round(r.computedValuationM) : null,
     }));
-
-    const ws = XLSX.utils.json_to_sheet(exportData);
+    const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
-
-    // Auto-width columns
-    const colWidths = Object.keys(exportData[0] || {}).map(key => ({
-      wch: Math.max(key.length, ...exportData.map(r => String((r as any)[key] ?? '').length)) + 2,
-    }));
-    ws['!cols'] = colWidths;
-
-    const filterDesc = [filterTicker, filterPhase, filterUseType, filterTenant, filterEv, searchTerm].filter(Boolean).join('_') || 'all';
+    if (data.length > 0) {
+      ws['!cols'] = Object.keys(data[0]).map(k => ({ wch: Math.max(k.length, ...data.map(r => String((r as any)[k] ?? '').length)) + 2 }));
+    }
     XLSX.utils.book_append_sheet(wb, ws, 'Projects');
-    XLSX.writeFile(wb, `projects_${filterDesc}_${new Date().toISOString().split('T')[0]}.xlsx`);
+    const tag = [filterTicker, filterPhase, filterUseType, filterTenant, filterEv, searchTerm].filter(Boolean).join('_') || 'all';
+    XLSX.writeFile(wb, `projects_${tag}_${new Date().toISOString().split('T')[0]}.xlsx`);
   }, [filteredRows, filterTicker, filterPhase, filterUseType, filterTenant, filterEv, searchTerm]);
 
-  const handleColumnResize = useCallback((key: string, width: number) => {
-    setColumnWidths(prev => {
-      const next = { ...prev, [key]: width };
-      localStorage.setItem('projects-column-widths', JSON.stringify(next));
-      return next;
-    });
-  }, []);
-
-  const startEditBuilding = (row: FlatBuilding) => {
-    setEditingBuilding(row.buildingId);
-    setEditFormData({
-      developmentPhase: row.phase,
-      probabilityOverride: row.probabilityOverride !== null ? (row.probabilityOverride * 100).toString() : '',
-      regulatoryRisk: (row.regulatoryRisk * 100).toString(),
-      grossMw: row.grossMw?.toString() || '',
-      itMw: row.itMw?.toString() || '',
-      pue: row.pue?.toString() || '',
-      useType: row.useType,
-      usePeriodId: row.usePeriodId,
-      originalUseType: row.useType,
-      // Split/use-period fields
-      tenant: row.tenant || '',
-      mwAllocation: row.itMw?.toString() || '',
-      leaseValueM: row.leaseValueM?.toString() || '',
-      leaseYears: row.leaseYears?.toString() || '',
-      noiPct: row.noiPct != null ? (row.noiPct <= 1 ? (row.noiPct * 100).toString() : row.noiPct.toString()) : '',
-      leaseStart: row.leaseStart ? row.leaseStart.split('T')[0] : '',
-      editingUsePeriodId: row.usePeriodId,
-      isUnallocatedRow: !row.usePeriodId && row.tenant === 'Unallocated Pipeline',
-      energizationDate: row.energizationDate ? row.energizationDate.split('T')[0] : '',
-    });
-  };
-
-  const saveBuilding = async () => {
-    if (!editingBuilding) return;
-
-    // Validate lease start date
-    if (editFormData.leaseStart && editFormData.energizationDate && editFormData.leaseStart < editFormData.energizationDate) {
-      alert(`Lease start date cannot be before energization date (${editFormData.energizationDate})`);
-      return;
-    }
-
-    const probOverride = editFormData.probabilityOverride
-      ? parseFloat(editFormData.probabilityOverride) / 100
-      : null;
-    const regRisk = editFormData.regulatoryRisk
-      ? parseFloat(editFormData.regulatoryRisk) / 100
-      : 1.0;
-
-    const apiUrl = getApiUrl();
-
-    try {
-      // Update building data
-      await fetch(`${apiUrl}/api/v1/buildings/${editingBuilding}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          developmentPhase: editFormData.developmentPhase,
-          probabilityOverride: probOverride,
-          regulatoryRisk: regRisk,
-          grossMw: editFormData.grossMw ? parseFloat(editFormData.grossMw) : null,
-          itMw: editFormData.itMw ? parseFloat(editFormData.itMw) : null,
-          pue: editFormData.pue ? parseFloat(editFormData.pue) : null,
-          energizationDate: editFormData.energizationDate || null,
-        }),
-      });
-
-      // Update use period fields (use type, tenant, lease data, MW allocation)
-      if (editFormData.editingUsePeriodId) {
-        const noiPctVal = editFormData.noiPct ? parseFloat(editFormData.noiPct) : null;
-        const usePeriodData: Record<string, any> = {
-          useType: editFormData.useType,
-          tenant: editFormData.tenant || null,
-          mwAllocation: editFormData.mwAllocation ? parseFloat(editFormData.mwAllocation) : null,
-          leaseValueM: editFormData.leaseValueM ? parseFloat(editFormData.leaseValueM) : null,
-          leaseYears: editFormData.leaseYears ? parseFloat(editFormData.leaseYears) : null,
-          noiPct: noiPctVal != null ? (noiPctVal > 1 ? noiPctVal / 100 : noiPctVal) : null,
-          leaseStart: editFormData.leaseStart || null,
-          startDate: editFormData.leaseStart || null,
-        };
-        const res = await fetch(`${apiUrl}/api/v1/use-periods/${editFormData.editingUsePeriodId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(usePeriodData),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          alert(body.error || 'Failed to save use period');
-          return;
-        }
-      } else if (editFormData.useType !== editFormData.originalUseType && !editFormData.isUnallocatedRow) {
-        await fetch(`${apiUrl}/api/v1/use-periods`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            buildingId: editingBuilding,
-            useType: editFormData.useType,
-            isCurrent: true,
-          }),
-        });
-      }
-
-      // Refresh data and clear edit state
-      queryClient.invalidateQueries({ queryKey: ['companies'] });
-      queryClient.invalidateQueries({ queryKey: ['valuation'] });
-      setEditingBuilding(null);
-      setEditFormData({});
-    } catch (err) {
-      console.error('Save error:', err);
-    }
-  };
-
-  const handleDelete = () => {
-    if (!deleteConfirm) return;
-    deleteBuildingMutation.mutate(deleteConfirm.id);
-  };
-
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '-';
-    try {
-      return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    } catch {
-      return dateStr;
-    }
-  };
-
-  const formatMoney = (value: number | null) => {
-    if (value === null || value === undefined) return '-';
-    return `$${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}M`;
-  };
-
-  const getColumnWidth = (col: ColumnDef) => {
-    return columnWidths[col.key] ? `${columnWidths[col.key]}px` : col.width;
+  const formatDate = (d: string | null) => {
+    if (!d) return '—';
+    try { return new Date(d).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }); }
+    catch { return d; }
   };
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[var(--bg-canvas)] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500" />
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--btc)]" />
       </div>
     );
   }
 
   return (
-    <div className="h-screen bg-[var(--bg-canvas)] text-[var(--ink-1)] flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 flex-shrink-0">
-        <div>
-          <h1 className="text-xl font-semibold text-[var(--ink-2)]">Projects</h1>
-          <p className="text-sm text-[var(--ink-3)] mt-0.5">
-            {filteredRows.length} buildings
-          </p>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="px-4 pb-3 flex-shrink-0">
-        <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex-1 min-w-[200px] max-w-md relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ink-3)]" />
-              <input
-                type="text"
-                placeholder="Search ticker, site, building, tenant..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-[var(--bg-sunken)] border border-[var(--hairline)] rounded-lg text-sm text-[var(--ink-1)] placeholder-[var(--ink-3)] focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-[var(--ink-3)]" />
-              <select
-                value={filterTicker}
-                onChange={(e) => setFilterTicker(e.target.value)}
-                className="bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="">All Companies</option>
-                {uniqueTickers.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-
-            <select
-              value={filterPhase}
-              onChange={(e) => setFilterPhase(e.target.value)}
-              className="bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded-lg px-3 py-2 text-sm"
-            >
-              <option value="">All Phases</option>
-              {Object.entries(phaseConfig).map(([k, v]) => (
-                <option key={k} value={k}>{v.label}</option>
-              ))}
-            </select>
-
-            <select
-              value={filterUseType}
-              onChange={(e) => setFilterUseType(e.target.value)}
-              className="bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded-lg px-3 py-2 text-sm"
-            >
-              <option value="">All Use Types</option>
-              <option value="BTC_MINING">BTC Mining</option>
-              <option value="HPC_AI_HOSTING">HPC/AI</option>
-              <option value="GPU_CLOUD">GPU Cloud</option>
-            </select>
-
-            <select
-              value={filterTenant}
-              onChange={(e) => setFilterTenant(e.target.value)}
-              className="bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded-lg px-3 py-2 text-sm"
-            >
-              <option value="">All Tenants</option>
-              {uniqueTenants.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-
-            <select
-              value={filterEv}
-              onChange={(e) => setFilterEv(e.target.value as '' | 'included' | 'excluded')}
-              className={`border rounded-lg px-3 py-2 text-sm ${
-                filterEv === 'included' ? 'bg-green-900/30 border-green-600 text-[var(--pos)]' :
-                filterEv === 'excluded' ? 'bg-[var(--bg-sunken)] border-[var(--hairline)] text-[var(--ink-3)]' :
-                'bg-[var(--bg-sunken)] border-[var(--hairline)] text-[var(--ink-1)]'
-              }`}
-            >
-              <option value="">All (EV)</option>
-              <option value="included">In EV</option>
-              <option value="excluded">Not in EV</option>
-            </select>
-
-            {hasActiveFilters && (
-              <button
-                onClick={clearAllFilters}
-                className="text-xs text-orange-400 hover:text-orange-300 underline underline-offset-2 px-2 py-2 whitespace-nowrap"
-              >
-                Clear filters
-              </button>
-            )}
-
-            <button
-              onClick={handleExportExcel}
-              className="flex items-center gap-1.5 bg-[var(--bg-sunken)] hover:bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-2)] hover:text-[var(--ink-1)] rounded-lg px-3 py-2 text-sm transition ml-auto"
-              title="Export current view to Excel"
-            >
-              <Download className="h-4 w-4" />
-              <span>Export</span>
-            </button>
+    <div className="flex h-full">
+      <div className={`flex-1 min-w-0 overflow-auto transition-all duration-200 ${selectedBuildingId ? 'mr-[520px]' : ''}`}>
+        <div className="p-6 max-w-[1500px] mx-auto">
+          {/* Header with title and subtitle */}
+          <div className="mb-6">
+            <h1 className="text-[28px] font-medium text-ink-1 mb-1">Projects</h1>
+            <p className="text-[13px] text-ink-3">
+              All datacenter sites across coverage · {flatBuildings.length} total
+            </p>
           </div>
-        </div>
-      </div>
 
-      {/* Table with sticky header */}
-      <div className="flex-1 overflow-hidden px-4 pb-4">
-        <div className="h-full bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg overflow-hidden flex flex-col">
-          <div className="overflow-auto flex-1">
-            <table className="w-full text-sm table-fixed">
-              <thead className="sticky top-0 z-10 bg-[var(--bg-elevated)]">
-                <tr className="border-b border-[var(--hairline)]">
-                  {columns.map((col) => (
-                    <th
-                      key={col.key}
-                      style={{ width: getColumnWidth(col), minWidth: col.minWidth }}
-                      className={`px-2 py-2 text-xs font-medium uppercase ${col.headerClass || 'text-[var(--ink-3)]'} ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} ${col.sortable ? 'cursor-pointer hover:bg-[var(--bg-sunken)]/50 select-none' : ''} relative group`}
-                      onClick={() => col.sortable && handleSort(col.key as SortKey)}
-                    >
-                      <div className="flex items-center gap-1" style={{ justifyContent: col.align === 'right' ? 'flex-end' : col.align === 'center' ? 'center' : 'flex-start' }}>
-                        <span>{col.label}</span>
-                        {col.sortable && (
-                          <span className="text-[var(--ink-3)]">
-                            {sortKey === col.key ? (
-                              sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
-                            ) : (
-                              <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50" />
-                            )}
-                          </span>
-                        )}
-                      </div>
-                      {/* Resize handle */}
-                      {col.key !== 'actions' && (
-                        <div
-                          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-orange-500/50 opacity-0 group-hover:opacity-100"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            const startX = e.clientX;
-                            const startWidth = (e.target as HTMLElement).parentElement?.offsetWidth || 100;
+          {/* KPI Cards Row */}
+          <div className="grid grid-cols-4 gap-3 mb-6">
+            <div className="bg-elevated border border-hairline rounded-md shadow-xs p-4 border-t-2" style={{ borderTopColor: 'var(--btc)' }}>
+              <div className="text-[11px] text-ink-3 font-medium uppercase tracking-wider mb-2">Sites</div>
+              <div className="text-[24px] font-medium text-ink-1">{kpiStats.sites}</div>
+            </div>
+            <div className="bg-elevated border border-hairline rounded-md shadow-xs p-4 border-t-2" style={{ borderTopColor: 'var(--info)' }}>
+              <div className="text-[11px] text-ink-3 font-medium uppercase tracking-wider mb-2">Capacity</div>
+              <div className="text-[24px] font-medium text-ink-1">{fmt(kpiStats.totalMw, 0)} MW</div>
+            </div>
+            <div className="bg-elevated border border-hairline rounded-md shadow-xs p-4 border-t-2" style={{ borderTopColor: 'var(--warn)' }}>
+              <div className="text-[11px] text-ink-3 font-medium uppercase tracking-wider mb-2">Gross Value</div>
+              <div className="text-[24px] font-medium text-ink-1">{fmtM(kpiStats.totalGross, 0)}</div>
+            </div>
+            <div className="bg-elevated border border-hairline rounded-md shadow-xs p-4 border-t-2" style={{ borderTopColor: 'var(--btc)' }}>
+              <div className="text-[11px] text-ink-3 font-medium uppercase tracking-wider mb-2">Valuation</div>
+              <div className="text-[24px] font-medium text-ink-1">{fmtM(kpiStats.totalValuation, 0)}</div>
+            </div>
+          </div>
 
-                            const onMouseMove = (moveEvent: MouseEvent) => {
-                              const diff = moveEvent.clientX - startX;
-                              const newWidth = Math.max(parseInt(col.minWidth), startWidth + diff);
-                              handleColumnResize(col.key, newWidth);
-                            };
+          {/* Filter bar */}
+          <Card padding="sm" className="mb-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex-1 min-w-[220px] max-w-md relative">
+                <Search className="absolute left-[10px] top-1/2 -translate-y-1/2 w-[13px] h-[13px] text-ink-3" />
+                <input
+                  type="text" placeholder="Search ticker, site, building, tenant…"
+                  value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                  className="input" style={{ paddingLeft: 30 }}
+                />
+              </div>
+              <Filter className="w-[14px] h-[14px] text-ink-3 ml-1" />
+              <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="input" style={{ width: 'auto' }}>
+                <option value="">All categorys</option>
+                {Object.entries(categoryConfig).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+              <select value={filterPhase} onChange={e => setFilterPhase(e.target.value)} className="input" style={{ width: 'auto' }}>
+                <option value="">All phases</option>
+                {Object.entries(phaseConfig).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+              <select value={filterState} onChange={e => setFilterState(e.target.value)} className="input" style={{ width: 'auto' }}>
+                <option value="">All states</option>
+                {uniqueStates.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <select value={filterTenant} onChange={e => setFilterTenant(e.target.value)} className="input" style={{ width: 'auto' }}>
+                <option value="">All tenants</option>
+                {uniqueTenants.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <button
+                onClick={handleExportExcel}
+                className="inline-flex items-center gap-1 px-3 py-[6px] rounded-sm border border-[var(--border-strong)] bg-elevated hover:bg-subtle text-[12px] text-ink-1"
+                title="Export filtered view to Excel"
+              >
+                <Download className="w-[13px] h-[13px]" /> Export CSV
+              </button>
+              {hasActiveFilters && (
+                <button onClick={clearAllFilters} className="text-[11px] text-[var(--btc)] hover:underline px-2">
+                  Clear
+                </button>
+              )}
+            </div>
+          </Card>
 
-                            const onMouseUp = () => {
-                              document.removeEventListener('mousemove', onMouseMove);
-                              document.removeEventListener('mouseup', onMouseUp);
-                            };
+          <Card padding="none">
+            <div className="overflow-auto">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th style={{ width: 40 }}>#</th>
+                    <th className="center" style={{ width: 36 }}>EV</th>
+                    <ProjectsSortTh sortKey="ticker" current={sortKey} dir={sortDir} onSort={handleSort}>TICKER</ProjectsSortTh>
+                    <ProjectsSortTh sortKey="siteName" current={sortKey} dir={sortDir} onSort={handleSort}>SITE · BUILDING</ProjectsSortTh>
+                    <ProjectsSortTh sortKey="category" current={sortKey} dir={sortDir} onSort={handleSort}>CATEGORY</ProjectsSortTh>
+                    <ProjectsSortTh sortKey="phase" current={sortKey} dir={sortDir} onSort={handleSort}>PHASE</ProjectsSortTh>
+                    <ProjectsSortTh sortKey="tenant" current={sortKey} dir={sortDir} onSort={handleSort}>TENANT</ProjectsSortTh>
+                    <ProjectsSortTh sortKey="state" current={sortKey} dir={sortDir} onSort={handleSort}>STATE</ProjectsSortTh>
+                    <ProjectsSortTh sortKey="grid" current={sortKey} dir={sortDir} onSort={handleSort}>POWER AUTH.</ProjectsSortTh>
+                    <ProjectsSortTh sortKey="itMw" current={sortKey} dir={sortDir} onSort={handleSort} className="num-col">MW</ProjectsSortTh>
+                    <ProjectsSortTh sortKey="energizationDate" current={sortKey} dir={sortDir} onSort={handleSort} className="num-col">ENERGIZATION</ProjectsSortTh>
+                    <ProjectsSortTh sortKey="grossValue" current={sortKey} dir={sortDir} onSort={handleSort} className="num-col">METHOD</ProjectsSortTh>
+                    <ProjectsSortTh sortKey="noiAnnualM" current={sortKey} dir={sortDir} onSort={handleSort} className="num-col">NOI</ProjectsSortTh>
+                    <th className="num-col">CAPEX DED.</th>
+                    <ProjectsSortTh sortKey="grossValue" current={sortKey} dir={sortDir} onSort={handleSort} className="num-col">GROSS</ProjectsSortTh>
+                    <ProjectsSortTh sortKey="computedValuationM" current={sortKey} dir={sortDir} onSort={handleSort} className="num-col">VALUATION</ProjectsSortTh>
+                    <th className="center" style={{ width: 60 }}>Edit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRows.map((row, idx) => {
+                    const isSelected = selectedBuildingId === row.buildingId;
+                    const phaseCfg = phaseConfig[row.phase];
+                    const rowKey = row.usePeriodId ? `${row.buildingId}-${row.usePeriodId}` : `${row.buildingId}-${row.tenant || 'default'}`;
 
-                            document.addEventListener('mousemove', onMouseMove);
-                            document.addEventListener('mouseup', onMouseUp);
-                          }}
-                        />
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--hairline)]/50">
-                {filteredRows.map((row, idx) => {
-                  const isEditing = editingBuilding === row.buildingId;
-
-                  const rowKey = row.usePeriodId ? `${row.buildingId}-${row.usePeriodId}` : `${row.buildingId}-${row.tenant || 'default'}`;
-                  return (
-                    <React.Fragment key={rowKey}>
-                    <tr
-                      className={`hover:bg-[var(--bg-sunken)]/30 transition cursor-pointer ${
-                        selectedBuildingId === row.buildingId ? 'bg-orange-900/20 border-l-2 border-orange-500' : ''
-                      } ${!row.includeInValuation ? 'opacity-40' : ''}`}
-                      onClick={() => !isEditing && setSelectedBuildingId(row.buildingId)}
-                    >
-                      <td className="px-2 py-1.5 text-[var(--ink-3)] text-xs">{idx + 1}</td>
-                      <td className="px-1 py-1.5 text-center">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleIncludeMutation.mutate({ id: row.buildingId, include: !row.includeInValuation });
-                          }}
-                          className={`p-0.5 rounded transition-colors ${
-                            row.includeInValuation
-                              ? 'text-[var(--pos)] hover:text-green-300 hover:bg-green-900/30'
-                              : 'text-[var(--ink-3)] hover:text-[var(--ink-3)] hover:bg-[var(--bg-sunken)]/50'
-                          }`}
-                          title={row.includeInValuation ? 'Included in EV — click to exclude' : 'Excluded from EV — click to include'}
-                        >
-                          {row.includeInValuation ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                        </button>
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <span className="text-orange-500 font-medium text-xs">{row.ticker}</span>
-                      </td>
-                      <td className="px-2 py-1.5 text-[var(--ink-2)] text-xs truncate" title={`${row.siteName} / ${row.campusName}`}>
-                        {row.siteName}
-                      </td>
-                      <td className="px-2 py-1.5 text-[var(--ink-1)] text-xs truncate" title={row.buildingName}>
-                        {row.buildingName}
-                      </td>
-                      <td className="px-2 py-1.5">
-                        {isEditing ? (
-                          <select
-                            value={editFormData.developmentPhase || ''}
-                            onChange={(e) => setEditFormData({ ...editFormData, developmentPhase: e.target.value })}
-                            className="bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs w-full"
+                    return (
+                      <tr
+                        key={rowKey}
+                        className={isSelected ? 'selected' : ''}
+                        onClick={() => setSelectedBuildingId(row.buildingId)}
+                        style={{ cursor: 'pointer', opacity: row.includeInValuation ? 1 : 0.5 }}
+                      >
+                        <td className="text-ink-3 text-[10.5px]">{idx + 1}</td>
+                        <td className="center">
+                          <button
+                            onClick={e => { e.stopPropagation(); toggleIncludeMutation.mutate({ id: row.buildingId, include: !row.includeInValuation }); }}
+                            className={row.includeInValuation ? 'text-[var(--pos)]' : 'text-ink-4'}
+                            title={row.includeInValuation ? 'In EV — click to exclude' : 'Excluded — click to include'}
                           >
-                            {Object.entries(phaseConfig).map(([k, v]) => (
-                              <option key={k} value={k}>{v.label}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className={`text-xs px-1.5 py-0.5 rounded-full border ${phaseConfig[row.phase]?.color || 'bg-[var(--bg-sunken)] text-[var(--ink-3)]'}`}>
-                            {phaseConfig[row.phase]?.label || row.phase}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-2 py-1.5">
-                        {isEditing ? (
-                          <select
-                            value={editFormData.useType || ''}
-                            onChange={(e) => setEditFormData({ ...editFormData, useType: e.target.value })}
-                            className="bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs w-full"
-                          >
-                            {editableUseTypes.map(({ value, label }) => (
-                              <option key={value} value={value}>{label}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className={`text-xs px-1.5 py-0.5 rounded-full border ${useTypeConfig[row.useType]?.color || 'bg-[var(--bg-sunken)] text-[var(--ink-3)]'}`}>
-                            {useTypeConfig[row.useType]?.label || row.useType}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-2 py-1.5 text-[var(--ink-3)] text-xs truncate" title={row.tenant || ''}>
-                        {isEditing && row.usePeriodId ? (
-                          <input
-                            type="text"
-                            value={editFormData.tenant || ''}
-                            onChange={(e) => setEditFormData({ ...editFormData, tenant: e.target.value })}
-                            className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs"
-                            placeholder="Tenant"
-                          />
-                        ) : (
-                          row.tenant || '-'
-                        )}
-                      </td>
-                      <td className="px-2 py-1.5 text-right font-mono">
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            value={row.usePeriodId ? (editFormData.mwAllocation || '') : (editFormData.itMw || '')}
-                            onChange={(e) => row.usePeriodId
-                              ? setEditFormData({ ...editFormData, mwAllocation: e.target.value })
-                              : setEditFormData({ ...editFormData, itMw: e.target.value })
-                            }
-                            className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs text-right"
-                          />
-                        ) : row.itMw !== null ? (
-                          <span className="text-[var(--ink-2)] text-xs">{Math.round(row.itMw)}</span>
-                        ) : (
-                          <span className="text-[var(--ink-3)] text-xs">-</span>
-                        )}
-                      </td>
-                      <td className="px-2 py-1.5 text-right font-mono">
-                        {(() => {
-                          const val = calcValuation(row);
-                          if (val !== null && val !== undefined) {
-                            return <span className="text-[var(--pos)] text-xs">{formatMoney(Math.round(val))}</span>;
-                          }
-                          return <span className="text-[var(--ink-3)] text-xs">-</span>;
-                        })()}
-                      </td>
-                      <td className="px-2 py-1.5 text-right font-mono">
-                        {row.dollarPerMwYr !== null ? (
-                          <span className="text-cyan-300 text-xs">${row.dollarPerMwYr.toFixed(2)}M</span>
-                        ) : (
-                          <span className="text-[var(--ink-3)] text-xs">-</span>
-                        )}
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-xs text-[var(--ink-3)]">
-                        {isEditing ? (
-                          <input
-                            type="date"
-                            value={editFormData.energizationDate || ''}
-                            onChange={(e) => setEditFormData({ ...editFormData, energizationDate: e.target.value })}
-                            className="w-full bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs"
-                          />
-                        ) : (
-                          formatDate(row.energizationDate)
-                        )}
-                      </td>
-                      <td className="px-2 py-1.5 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          {isEditing ? (
-                            <>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); saveBuilding(); }}
-                                disabled={updateBuildingMutation.isPending}
-                                className="p-1 bg-green-600 text-[var(--ink-1)] rounded hover:bg-green-700"
-                              >
-                                <Save className="h-3 w-3" />
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setEditingBuilding(null); setEditFormData({}); }}
-                                className="p-1 bg-gray-600 text-[var(--ink-1)] rounded hover:bg-gray-500"
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); startEditBuilding(row); }}
-                                className="p-1 hover:bg-[var(--bg-sunken)] rounded"
-                                title="Edit"
-                              >
-                                <Edit2 className="h-3 w-3 text-[var(--ink-3)]" />
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ id: row.buildingId, name: row.buildingName }); }}
-                                className="p-1 hover:bg-red-900/50 rounded"
-                                title="Delete"
-                              >
-                                <Trash2 className="h-3 w-3 text-[var(--neg)]/70 hover:text-[var(--neg)]" />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                    {/* Lease detail row when editing a split/use period */}
-                    {isEditing && row.usePeriodId && (
-                      <tr key={`${row.buildingId}-${row.usePeriodId}-detail`} className="bg-[var(--bg-elevated)]/50">
-                        <td colSpan={3}></td>
-                        <td colSpan={8} className="px-2 py-2">
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <div className="flex items-center gap-1">
-                              <label className="text-[10px] text-[var(--ink-3)]">Lease $M:</label>
-                              <input
-                                type="number"
-                                value={editFormData.leaseValueM || ''}
-                                onChange={(e) => setEditFormData({ ...editFormData, leaseValueM: e.target.value })}
-                                className="w-20 bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs"
-                              />
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <label className="text-[10px] text-[var(--ink-3)]">Years:</label>
-                              <input
-                                type="number"
-                                value={editFormData.leaseYears || ''}
-                                onChange={(e) => setEditFormData({ ...editFormData, leaseYears: e.target.value })}
-                                className="w-16 bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs"
-                              />
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <label className="text-[10px] text-[var(--ink-3)]">NOI%:</label>
-                              <input
-                                type="number"
-                                value={editFormData.noiPct || ''}
-                                onChange={(e) => setEditFormData({ ...editFormData, noiPct: e.target.value })}
-                                placeholder="e.g. 85"
-                                className="w-16 bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs"
-                              />
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <label className="text-[10px] text-[var(--ink-3)]">Lease Start:</label>
-                              <input
-                                type="date"
-                                value={editFormData.leaseStart || ''}
-                                min={editFormData.energizationDate || ''}
-                                onChange={(e) => setEditFormData({ ...editFormData, leaseStart: e.target.value })}
-                                className="bg-[var(--bg-sunken)] border border-[var(--hairline)] text-[var(--ink-1)] rounded px-1 py-0.5 text-xs"
-                              />
-                              {editFormData.leaseStart && editFormData.energizationDate && editFormData.leaseStart < editFormData.energizationDate && (
-                                <span className="text-[var(--neg)] text-[10px]">Before energization!</span>
-                              )}
-                            </div>
+                            {row.includeInValuation ? <Eye className="w-[13px] h-[13px]" /> : <EyeOff className="w-[13px] h-[13px]" />}
+                          </button>
+                        </td>
+                        <td>
+                          <div className="flex items-center gap-2">
+                            <TickerMark ticker={row.ticker} size={18} />
+                            <span className="text-[12px] font-medium text-ink-1">{row.ticker}</span>
                           </div>
                         </td>
-                        <td></td>
+                        <td>
+                          <div>
+                            <div className="text-[11.5px] text-ink-1 truncate" title={row.siteName}>{row.siteName}</div>
+                            <div className="text-[10.5px] text-ink-4 truncate" title={row.buildingName}>{row.buildingName}</div>
+                          </div>
+                        </td>
+                        <td>
+                          {row.category ? (
+                            <Badge color={categoryConfig[row.category]?.color}>{categoryConfig[row.category]?.label}</Badge>
+                          ) : (
+                            <span className="text-ink-4 text-[11px]">—</span>
+                          )}
+                        </td>
+                        <td>
+                          {phaseCfg ? (
+                            <Badge color={phaseCfg.color} dot>
+                              {phaseCfg.abbr}
+                            </Badge>
+                          ) : (
+                            <span className="text-ink-4 text-[11px]">—</span>
+                          )}
+                        </td>
+                        <td className="text-[11px] text-ink-2 truncate max-w-[120px]" title={row.tenant || ''}>{row.tenant || '—'}</td>
+                        <td className="text-[11px] text-ink-1 font-medium">{row.state || '—'}</td>
+                        <td className="text-[11px] text-ink-2">{row.grid || '—'}</td>
+                        <td className="num-col text-ink-2">{row.itMw !== null ? fmt(row.itMw, 0) : '—'}</td>
+                        <td className="num-col text-ink-3 text-[11px]">{formatDate(row.energizationDate)}</td>
+                        <td className="text-[11px] text-ink-2">{row.valuationMethod || '—'}</td>
+                        <td className="num-col text-ink-2">{row.noiAnnualM !== null ? fmtM(row.noiAnnualM, 1) : '—'}</td>
+                        <td className="num-col">
+                          {row.capexDeduction !== null ? (
+                            <span className="text-[var(--neg)]">{fmtMSigned(row.capexDeduction, 0)}</span>
+                          ) : (
+                            <span className="text-ink-4">—</span>
+                          )}
+                        </td>
+                        <td className="num-col">
+                          {row.grossValue !== null ? (
+                            <span className="text-ink-1 font-medium">{fmtM(row.grossValue, 0)}</span>
+                          ) : (
+                            <span className="text-ink-4">—</span>
+                          )}
+                        </td>
+                        <td className="num-col">
+                          {row.computedValuationM !== null && row.computedValuationM !== undefined
+                            ? <span className="text-ink-1 font-medium">{fmtM(row.computedValuationM, 0)}</span>
+                            : <span className="text-ink-4">—</span>}
+                        </td>
+                        <td className="center">
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              onClick={e => { e.stopPropagation(); setSelectedBuildingId(row.buildingId); }}
+                              className="text-ink-4 hover:text-[var(--btc)] p-1"
+                              title="Edit building"
+                            >
+                              <Pencil className="w-[12px] h-[12px]" />
+                            </button>
+                            <button
+                              onClick={e => { e.stopPropagation(); setDeleteConfirm({ id: row.buildingId, name: row.buildingName }); }}
+                              className="text-ink-4 hover:text-[var(--neg)] p-1"
+                              title="Delete building"
+                            >
+                              <Trash2 className="w-[12px] h-[12px]" />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
-                    )}
-                    </React.Fragment>
-                  );
-                })}
-
-                {filteredRows.length === 0 && (
-                  <tr>
-                    <td colSpan={11} className="px-4 py-8 text-center text-[var(--ink-3)]">
-                      No buildings found. Import data to get started.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
         </div>
       </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* ── Slideout: existing BuildingDetailPanel ─────────────────────── */}
+      {selectedBuildingId && (
+        <BuildingDetailPanel
+          buildingId={selectedBuildingId}
+          onClose={() => setSelectedBuildingId(null)}
+        />
+      )}
+
+      {/* ── Delete confirm ─────────────────────────────────────────────── */}
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-[var(--bg-elevated)] border border-[var(--hairline)] rounded-lg p-6 max-w-md w-full mx-4">
-            <div className="flex items-center gap-3 mb-4">
-              <Trash2 className="h-6 w-6 text-[var(--neg)]" />
-              <h2 className="text-lg font-semibold text-[var(--ink-1)]">Delete Building</h2>
-            </div>
-            <p className="text-sm text-[var(--ink-3)] mb-2">
-              Are you sure you want to delete this building?
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center"
+          style={{ background: 'rgba(20,19,15,0.35)' }}
+          onClick={() => setDeleteConfirm(null)}
+        >
+          <div
+            className="bg-elevated border border-hairline-strong rounded-md shadow-pop p-5 w-96"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-[14px] font-medium text-ink-1 mb-2">Delete building?</h3>
+            <p className="text-[12px] text-ink-3 mb-4">
+              This will permanently delete <strong className="text-ink-1">{deleteConfirm.name}</strong> and all its use periods.
             </p>
-            <p className="text-sm text-[var(--ink-1)] font-medium mb-4 p-2 bg-[var(--bg-sunken)]/50 rounded">
-              "{deleteConfirm.name}"
-            </p>
-            <div className="flex justify-end gap-3">
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeleteConfirm(null)} className="px-3 py-[6px] text-[12px] text-ink-3 hover:text-ink-1">Cancel</button>
               <button
-                onClick={() => setDeleteConfirm(null)}
-                className="px-4 py-2 text-sm text-[var(--ink-3)] hover:text-[var(--ink-2)]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={deleteBuildingMutation.isPending}
-                className="px-4 py-2 text-sm bg-red-600 text-[var(--ink-1)] rounded hover:bg-red-700 disabled:opacity-50"
+                onClick={() => deleteBuildingMutation.mutate(deleteConfirm.id)}
+                className="px-3 py-[6px] text-[12px] bg-[var(--neg)] hover:opacity-90 text-white rounded-sm"
               >
                 Delete
               </button>
@@ -1158,13 +789,46 @@ export default function Projects() {
         </div>
       )}
 
-      {/* Building Detail Panel */}
-      {selectedBuildingId && (
-        <BuildingDetailPanel
-          buildingId={selectedBuildingId}
-          onClose={() => setSelectedBuildingId(null)}
-        />
-      )}
+      <style>{`
+        .input {
+          background: var(--bg-elevated);
+          border: 1px solid var(--border);
+          border-radius: 4px;
+          padding: 6px 10px;
+          font-size: 12px;
+          color: var(--ink-1);
+          outline: none;
+        }
+        .input:focus { border-color: var(--btc); box-shadow: 0 0 0 2px var(--btc-soft); }
+      `}</style>
     </div>
+  );
+}
+
+function ProjectsSortTh({
+  children, sortKey, current, dir, onSort, className = '',
+}: {
+  children: React.ReactNode;
+  sortKey: SortKey;
+  current: SortKey;
+  dir: SortDir;
+  onSort: (k: SortKey) => void;
+  className?: string;
+}) {
+  const active = current === sortKey;
+  return (
+    <th
+      onClick={() => onSort(sortKey)}
+      className={`cursor-pointer select-none hover:text-ink-1 group ${className}`}
+    >
+      <span className="inline-flex items-center gap-1" style={{ justifyContent: className.includes('num-col') ? 'flex-end' : 'flex-start', width: '100%' }}>
+        {children}
+        {active ? (
+          dir === 'asc' ? <ArrowUp className="w-[10px] h-[10px]" /> : <ArrowDown className="w-[10px] h-[10px]" />
+        ) : (
+          <ArrowUpDown className="w-[10px] h-[10px] opacity-0 group-hover:opacity-40" />
+        )}
+      </span>
+    </th>
   );
 }
