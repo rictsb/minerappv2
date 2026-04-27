@@ -424,8 +424,8 @@ export default function Dashboard() {
 
   const selectedVal = selectedTicker ? valuations.find((v) => v.ticker === selectedTicker) : null;
 
-  // Fetch real 30-day sparkline data for all tickers
-  const allTickers = useMemo(() => valuations.filter(v => !v.isManual).map(v => v.ticker), [valuations]);
+  // Fetch real 30-day sparkline data for all tickers (including manual ones)
+  const allTickers = useMemo(() => valuations.map(v => v.ticker), [valuations]);
   const sparklineData = useSparklineData(allTickers);
 
   // ── Render ─────────────────────────────────────────────────────────────
