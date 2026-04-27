@@ -391,44 +391,69 @@ export async function updateAllStockPrices(): Promise<{
 }
 
 /**
- * Fetch historical daily closing prices from Finnhub stock candles endpoint.
+ * Fetch historical daily closing prices via Yahoo Finance chart API.
+ * Free, no API key required, works server-side.
  * Returns an array of closing prices (oldest→newest) for the given ticker.
- * Uses daily resolution ('D') and fetches `days` calendar days of history.
  */
 export async function fetchStockCandles(
   ticker: string,
   days: number = 30
 ): Promise<number[] | null> {
-  if (!FINNHUB_API_KEY) {
-    console.error('FINNHUB_API_KEY not set');
-    return null;
-  }
-
   try {
-    const now = Math.floor(Date.now() / 1000);
-    const from = now - days * 86400;
-    const url = `https://finnhub.io/api/v1/stock/candle?symbol=${ticker}&resolution=D&from=${from}&to=${now}&token=${FINNHUB_API_KEY}`;
+    // Map days to Yahoo range param: 1mo, 3mo, 6mo, 1y
+    let range = '1mo';
+    if (days > 180) range = '1y';
+    else if (days > 90) range = '6mo';
+    else if (days > 30) range = '3mo';
 
-    const response = await fetch(url);
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=1d`;
+
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; MinerTerminal/1.0)',
+      },
+    });
+
     if (!response.ok) {
-      console.error(`Finnhub candle API error for ${ticker}: ${response.status}`);
+      console.error(`Yahoo Finance chart API error for ${ticker}: ${response.status}`);
       return null;
     }
 
     const data = await response.json() as {
-      s?: string;   // status: "ok" or "no_data"
-      c?: number[];  // close prices
-      t?: number[];  // timestamps
+      chart?: {
+        result?: Array<{
+          indicators?: {
+            quote?: Array<{
+              close?: (number | null)[];
+            }>;
+          };
+        }>;
+        error?: { code?: string; description?: string };
+      };
     };
 
-    if (data.s !== 'ok' || !data.c || data.c.length === 0) {
-      console.error(`No candle data for ${ticker}: status=${data.s}`);
+    if (data.chart?.error) {
+      console.error(`Yahoo Finance error for ${ticker}:`, data.chart.error.description);
       return null;
     }
 
-    return data.c; // array of closing prices, oldest first
+    const closes = data.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
+    if (!closes || closes.length === 0) {
+      console.error(`No chart data for ${ticker} from Yahoo Finance`);
+      return null;
+    }
+
+    // Filter out nulls (weekends/holidays can have null entries) and ensure we have numbers
+    const validCloses = closes.filter((c): c is number => c !== null && c !== undefined);
+
+    if (validCloses.length < 2) {
+      console.error(`Insufficient chart data for ${ticker}: only ${validCloses.length} points`);
+      return null;
+    }
+
+    return validCloses; // array of closing prices, oldest first
   } catch (error) {
-    console.error(`Error fetching candles for ${ticker}:`, error);
+    console.error(`Error fetching chart data for ${ticker}:`, error);
     return null;
   }
 }

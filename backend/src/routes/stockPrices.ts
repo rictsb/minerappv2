@@ -14,6 +14,10 @@ import {
 
 const router = Router();
 
+// In-memory cache for price history (sparklines) — 30 min TTL
+const historyCache = new Map<string, { data: number[]; ts: number }>();
+const HISTORY_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
 // GET /api/v1/stock-prices
 // Get cached stock prices from database
 router.get('/', async (req: Request, res: Response) => {
@@ -60,17 +64,29 @@ router.get('/lookup/:ticker', async (req: Request, res: Response) => {
 
 // GET /api/v1/stock-prices/:ticker/history
 // Get historical daily closing prices for a ticker (for sparklines)
+// Cached server-side for 30 min to avoid excessive Yahoo Finance calls
 router.get('/:ticker/history', async (req: Request, res: Response) => {
   try {
-    const { ticker } = req.params;
+    const ticker = req.params.ticker.toUpperCase();
     const days = Math.min(parseInt(req.query.days as string) || 30, 365);
-    const candles = await fetchStockCandles(ticker.toUpperCase(), days);
+    const cacheKey = `${ticker}:${days}`;
+
+    // Check cache
+    const cached = historyCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < HISTORY_CACHE_TTL) {
+      return res.json({ ticker, days, prices: cached.data, cached: true });
+    }
+
+    const candles = await fetchStockCandles(ticker, days);
 
     if (!candles) {
       return res.status(404).json({ error: `No history found for ${ticker}` });
     }
 
-    res.json({ ticker: ticker.toUpperCase(), days, prices: candles });
+    // Store in cache
+    historyCache.set(cacheKey, { data: candles, ts: Date.now() });
+
+    res.json({ ticker, days, prices: candles });
   } catch (error) {
     console.error('Error fetching price history:', error);
     res.status(500).json({ error: 'Failed to fetch price history' });
