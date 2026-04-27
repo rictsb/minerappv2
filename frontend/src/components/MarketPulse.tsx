@@ -5,7 +5,7 @@ import { fmtMoney } from '../lib/format';
 
 interface MarketPulseProps {
   onCmdK?: () => void;
-  /** Optional live metrics. If omitted, placeholders show. */
+  /** Live metrics from backend settings. Undefined = still loading. */
   btcPrice?: number;
   btcDelta?: number;
   networkHashrate?: string; // e.g. "618 EH/s"
@@ -17,24 +17,24 @@ interface MarketPulseProps {
  * Top bar with market pulse metrics, search affordance, and notifications.
  * Fixed height (48px) to pair with the Sidebar rail.
  *
- * Wire real values via props — this component is pure presentation.
+ * All values come from live backend data. Shows "—" while loading.
  */
 export default function MarketPulse({
   onCmdK,
-  btcPrice = 67_432,
-  btcDelta = 2.1,
-  networkHashrate = '618 EH/s',
-  difficulty = '95.7 T',
-  hashprice = 56.2,
+  btcPrice,
+  btcDelta,
+  networkHashrate,
+  difficulty,
+  hashprice,
 }: MarketPulseProps) {
   return (
     <header className="h-12 bg-elevated border-b border-hairline flex items-center px-4 gap-6 flex-shrink-0">
       {/* Pulse metrics */}
       <div className="flex items-center gap-6 min-w-0 overflow-hidden">
-        <Metric label="BTC" value={fmtMoney(btcPrice, 0)} delta={btcDelta} />
-        <Metric label="Network" value={networkHashrate} />
-        <Metric label="Difficulty" value={difficulty} />
-        <Metric label="Hashprice" value={`$${hashprice.toFixed(2)}`} sub="/TH/day" />
+        <Metric label="BTC" value={btcPrice ? fmtMoney(btcPrice, 0) : '—'} delta={btcDelta} />
+        {networkHashrate && <Metric label="Network" value={networkHashrate} />}
+        {difficulty && <Metric label="Difficulty" value={difficulty} />}
+        {hashprice && <Metric label="Hashprice" value={`$${hashprice.toFixed(2)}`} sub="/TH/day" />}
       </div>
 
       {/* Right cluster */}

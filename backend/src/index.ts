@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import importRouter from './routes/import.js';
 import stockPricesRouter from './routes/stockPrices.js';
+import { updateAllStockPrices } from './services/stockPrices.js';
 
 // Load environment variables
 dotenv.config();
@@ -2270,6 +2271,19 @@ httpServer.listen(PORT, async () => {
   } catch (e) {
     console.error('Migration error (non-fatal):', e);
   }
+
+  // ── Scheduled: auto-refresh BTC/ETH/stock prices every hour ───────────
+  const ONE_HOUR = 60 * 60 * 1000;
+  setInterval(async () => {
+    try {
+      console.log('⏰ Hourly price refresh starting...');
+      const result = await updateAllStockPrices();
+      console.log(`⏰ Hourly refresh complete: ${result.updated} stocks updated, BTC=$${result.marketPrices?.btcPrice || '?'}, ETH=$${result.marketPrices?.ethPrice || '?'}`);
+    } catch (e) {
+      console.error('⏰ Hourly price refresh failed:', e);
+    }
+  }, ONE_HOUR);
+  console.log('⏰ Hourly price auto-refresh scheduled');
 });
 
 // ===========================================

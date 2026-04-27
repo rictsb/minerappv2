@@ -241,6 +241,8 @@ export default function Dashboard() {
       localStorage.setItem('lastPriceRefresh', now.toISOString());
       queryClient.invalidateQueries({ queryKey: ['valuation'] });
       queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['settings-market'] });
+      queryClient.invalidateQueries({ queryKey: ['sparklines'] });
       setTimeout(() => setRefreshMessage(null), 3000);
     },
     onError: (error: Error) => {
